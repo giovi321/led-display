@@ -16,6 +16,14 @@ typedef enum {
     BOOT_SHOW_NONE = 2,   // borders 1 s -> blank
 } boot_screen_t;
 
+// Where the panel content comes from. Static: the text the user typed in the
+// Display tab. Integration: the last value pushed via /api/value (or MQTT),
+// with the value config's default_text as the placeholder until one arrives.
+typedef enum {
+    DISPLAY_SRC_STATIC      = 0,
+    DISPLAY_SRC_INTEGRATION = 1,
+} display_source_t;
+
 typedef struct {
     char            text[DISPLAY_TEXT_MAX];
     display_color_t color;
@@ -27,6 +35,7 @@ typedef struct {
     uint8_t         font;             // FONT_ID_*
     bool            prop;             // proportional glyph spacing
     boot_screen_t   boot_screen;
+    display_source_t source;          // static text vs integration value
     // Legacy v1 pixel-mapping mode ("map" NVS key). -1 when absent. Only
     // used once, to migrate to the "layout" blob via mapping_from_legacy().
     int             legacy_map_mode;
@@ -50,6 +59,7 @@ esp_err_t settings_save_font(uint8_t font, bool prop);
 esp_err_t settings_save_brightness(uint8_t brightness);
 esp_err_t settings_save_brightness_cap(uint8_t cap);
 esp_err_t settings_save_boot_screen(boot_screen_t which);
+esp_err_t settings_save_source(display_source_t source);
 esp_err_t settings_clear_text(void);
 
 // ---- device name ----------------------------------------------------------

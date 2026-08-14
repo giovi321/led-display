@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/src/assets/logo.svg" width="96" alt="led-display logo">
+</p>
+
 <h1 align="center">led-display</h1>
 
 <p align="center">
@@ -24,7 +28,9 @@ led-display is ESP-IDF firmware for the ESP32-S3 that drives chained WS2812B mat
 - Three pixel fonts (5x7, a tiny 3x5, a tall 7x12 with real lowercase) at integer sizes, proportionally spaced with fixed-width digits so a ticking value never wobbles; monospace on request
 - Scrolling off, restart, or continuous as a marquee that repeats after a short gap
 - Value endpoint for any webhook-capable system: `POST /api/value` with `{"value": 4210.5}` and the device formats it (prefix, suffix, decimals, thousands separator) and displays it; a staleness guard dims the display, blinks a corner pixel or swaps in a fallback text when no update arrives for a configured number of hours
-- Saved colours (up to 12 named presets), per-weekday schedule that turns the display off or holds it at a dim level, configurable boot screen
+- Content source switch: static text you typed, or the live integration value with a configurable placeholder until the first value arrives
+- Optional MQTT client: feed the display over `<base>/value/set` or `<base>/text/set`, control brightness/power/content source, reboot, read a retained JSON state topic, with optional Home Assistant auto-discovery (light, text, select, button and sensor entities)
+- Saved colours (up to 12 named presets), per-weekday schedule that turns the display off or holds it at a dim level (with a DST-aware timezone override), configurable boot screen
 - Up to 5 saved WiFi networks: the strongest one in range wins at boot, a lost link is retried with a growing backoff, and the setup AP only comes back when nothing answers
 - Optional ambient light sensor: an LDR divider on an ADC pin sets the brightness from the room, calibrated against the live reading in the browser
 - One device name for the network hostname, the setup AP SSID and the webhook payloads
@@ -42,12 +48,14 @@ The reference build this firmware runs on:
 |-------------|-----------------------------------------------------|
 | MCU board   | ESP32-S3-DevKitC-1, ESP32-S3-WROOM-1 N16R8          |
 | Flash/PSRAM | 16 MB QIO flash, 8 MB OPI PSRAM                     |
-| LED panels  | 4x WS2812B 32x8 in a 2x2 grid = 64x16 (1024 LEDs)   |
+| LED panels  | 4x WS2812B 32x8 (5 V) in a 2x2 grid = 64x16 (1024 LEDs) |
 | Wiring      | Per panel: column-serpentine, top-left origin       |
 | Chain       | controller -> TL -> TR -> BR -> BL                  |
 | Mounting    | Top panels upright, bottom panels rotated 180 deg   |
 | Data pin    | GPIO 16 (through SN74HCT125N level shifter to 5 V)  |
 | PCB         | See `PCB/` (Fritzing v3 source + Gerbers)           |
+
+The PCB expects 5 V LED panels: the supply rail, the level shifter and the connectors are all laid out for 5 V WS2812B-class matrices. 12 V variants need a different power arrangement and are not supported by this board.
 
 Nothing about that grid is hardcoded anymore. The firmware takes any identical-panel grid: panel sizes 1..64 in each dimension, up to 8 rows by 16 columns, capped at 32 panels and 8192 pixels total. Hardware notes (parts, level shifter wiring, connectors) are in the [hardware guide](https://giovi321.github.io/led-display/getting-started/hardware/), the physical build in the [assembly guide](https://giovi321.github.io/led-display/getting-started/assembly/), and the measured power figures in the [power budget](https://giovi321.github.io/led-display/architecture/power/).
 

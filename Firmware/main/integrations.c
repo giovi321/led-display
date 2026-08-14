@@ -44,6 +44,8 @@ static SemaphoreHandle_t  s_lock;
 static integrations_cfg_t s_cfg       = {.device_name = DEVICE_NAME_DEFAULT};
 static value_cfg_t        s_value_cfg = {.decimals = -1};
 static int64_t            s_last_value_us = -1;   // -1 = no value yet
+static char               s_last_value_text[VALUE_TEXT_MAX * 2 + 1];
+static bool               s_last_value_set;
 
 // stale_action_t <-> blob/API string. Kept as strings in the blob so the
 // config export stays self-describing.
@@ -163,9 +165,10 @@ static void load_valuecfg(value_cfg_t *out)
         return;
     }
 
-    json_get_str(root, "prefix",     out->prefix,     sizeof(out->prefix));
-    json_get_str(root, "suffix",     out->suffix,     sizeof(out->suffix));
-    json_get_str(root, "stale_text", out->stale_text, sizeof(out->stale_text));
+    json_get_str(root, "prefix",       out->prefix,       sizeof(out->prefix));
+    json_get_str(root, "suffix",       out->suffix,       sizeof(out->suffix));
+    json_get_str(root, "stale_text",   out->stale_text,   sizeof(out->stale_text));
+    json_get_str(root, "default_text", out->default_text, sizeof(out->default_text));
 
     const cJSON *dec = cJSON_GetObjectItem(root, "decimals");
     if (cJSON_IsNumber(dec)) {
@@ -218,6 +221,7 @@ static esp_err_t save_valuecfg(const value_cfg_t *in)
     cJSON_AddNumberToObject(root, "stale_hours", in->stale_hours);
     cJSON_AddStringToObject(root, "stale_action", stale_name(in->stale_action));
     cJSON_AddStringToObject(root, "stale_text", in->stale_text);
+    cJSON_AddStringToObject(root, "default_text", in->default_text);
 
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -350,9 +354,10 @@ esp_err_t integrations_set_value_cfg(const value_cfg_t *in)
     if (!in) return ESP_ERR_INVALID_ARG;
 
     value_cfg_t cfg = *in;
-    cfg.prefix[VALUE_AFFIX_MAX]    = '\0';
-    cfg.suffix[VALUE_AFFIX_MAX]    = '\0';
-    cfg.stale_text[VALUE_TEXT_MAX] = '\0';
+    cfg.prefix[VALUE_AFFIX_MAX]      = '\0';
+    cfg.suffix[VALUE_AFFIX_MAX]      = '\0';
+    cfg.stale_text[VALUE_TEXT_MAX]   = '\0';
+    cfg.default_text[VALUE_TEXT_MAX] = '\0';
     if (cfg.decimals < -1) cfg.decimals = -1;
     if (cfg.decimals > 9)  cfg.decimals = 9;
 
@@ -380,4 +385,23 @@ int64_t integrations_value_age_s(void)
     unlock();
     if (last < 0) return -1;
     return (esp_timer_get_time() - last) / 1000000;
+}
+
+void integrations_set_last_value(const char *text)
+{
+    if (!text) return;
+    lock();
+    snprintf(s_last_value_text, sizeof(s_last_value_text), "%s", text);
+    s_last_value_set = true;
+    unlock();
+}
+
+bool integrations_get_last_value(char *buf, size_t bufsize)
+{
+    if (!buf || bufsize == 0) return false;
+    lock();
+    bool set = s_last_value_set;
+    snprintf(buf, bufsize, "%s", s_last_value_text);
+    unlock();
+    return set;
 }

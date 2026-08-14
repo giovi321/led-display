@@ -10,6 +10,7 @@
 
 #include "api_handlers.h"
 #include "display.h"
+#include "integrations.h"
 #include "led_driver.h"
 #include "light_sensor.h"
 #include "mapping.h"
@@ -43,6 +44,32 @@ static void rerender_text(void)
 
 // Scroll-mode names on the wire. Index == display_scroll_t value.
 static const char *SCROLL_NAMES[] = {"off", "restart", "continuous"};
+
+void api_display_apply_source(void)
+{
+    settings_t cfg;
+    settings_load(&cfg);
+
+    char text[DISPLAY_TEXT_MAX];
+    if (cfg.source == DISPLAY_SRC_INTEGRATION) {
+        // Latest pushed value; the configured placeholder until one arrives.
+        if (!integrations_get_last_value(text, sizeof(text))) {
+            value_cfg_t vc;
+            integrations_get_value_cfg(&vc);
+            snprintf(text, sizeof(text), "%s", vc.default_text);
+        }
+    } else {
+        snprintf(text, sizeof(text), "%s", cfg.text);
+    }
+
+    if (text[0] != '\0') {
+        display_show_text(text, cfg.color, cfg.scroll_mode, cfg.speed,
+                          cfg.scale);
+    } else {
+        // Nothing to show; display_clear also ends identify/test modes.
+        display_clear();
+    }
+}
 
 static int scroll_mode_by_name(const char *name)
 {
@@ -134,7 +161,8 @@ static esp_err_t display_text_post(httpd_req_t *req)
             return web_send_err(req, "spacing must be proportional|monospace", 400);
         }
     }
-    const char *text = cJSON_IsString(t) ? t->valuestring : prev_text;
+    const bool has_text = cJSON_IsString(t);
+    const char *text = has_text ? t->valuestring : prev_text;
 
     // The display truncates its RAM copy to DISPLAY_TEXT_MAX, but NVS would
     // happily store a longer string that settings_load() then cannot read
@@ -147,7 +175,10 @@ static esp_err_t display_text_post(httpd_req_t *req)
         settings_save_font((uint8_t)font_id, prop);
     }
     display_show_text(text_buf, col, mode, speed, scale);
-    settings_save_text(text_buf, &col, mode, speed, scale);
+    // A formatting-only POST must not rewrite the stored text key: in
+    // integration mode the on-screen text is the pushed value, not the
+    // user's static text, and persisting it here would clobber the latter.
+    settings_save_text(has_text ? text_buf : NULL, &col, mode, speed, scale);
     cJSON_Delete(json);
     return web_send_ok(req);
 }
@@ -333,6 +364,14 @@ static esp_err_t display_test_post(httpd_req_t *req)
     const cJSON *p = cJSON_GetObjectItem(json, "pattern");
     const char *name = cJSON_IsString(p) ? p->valuestring : "step_raw";
 
+    // "off" ends whatever test or identify mode is active and puts the
+    // configured content (static text or integration value) back.
+    if (!strcmp(name, "off")) {
+        cJSON_Delete(json);
+        api_display_apply_source();
+        return web_send_ok(req);
+    }
+
     display_test_t which = DISPLAY_TEST_STEP_RAW;
     if      (!strcmp(name, "step_raw")) which = DISPLAY_TEST_STEP_RAW;
     else if (!strcmp(name, "step_xy"))  which = DISPLAY_TEST_STEP_XY;
@@ -385,6 +424,37 @@ static esp_err_t display_map_post(httpd_req_t *req)
     return web_send_ok(req);
 }
 
+// Switch the display between the stored static text and the integration
+// value (with the default_text placeholder before the first push). The new
+// content renders immediately.
+static esp_err_t display_source_post(httpd_req_t *req)
+{
+    if (web_require_auth(req) != ESP_OK) return ESP_OK;
+
+    cJSON *json = web_read_json(req, BODY_MAX);
+    if (!json) return web_send_err(req, "bad json", 400);
+
+    const cJSON *m = cJSON_GetObjectItem(json, "mode");
+    const char *name = cJSON_IsString(m) ? m->valuestring : "";
+
+    display_source_t src;
+    if      (!strcmp(name, "static"))      src = DISPLAY_SRC_STATIC;
+    else if (!strcmp(name, "integration")) src = DISPLAY_SRC_INTEGRATION;
+    else {
+        cJSON_Delete(json);
+        return web_send_err(req, "mode must be static|integration", 400);
+    }
+    cJSON_Delete(json);
+
+    esp_err_t err = settings_save_source(src);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "saving display source failed: %s", esp_err_to_name(err));
+        return web_send_err(req, "saving display source failed", 500);
+    }
+    api_display_apply_source();
+    return web_send_ok(req);
+}
+
 static esp_err_t display_identify_post(httpd_req_t *req)
 {
     if (web_require_auth(req) != ESP_OK) return ESP_OK;
@@ -416,6 +486,7 @@ void api_display_register(httpd_handle_t srv)
         {.uri = "/api/display/test",           .method = HTTP_POST, .handler = display_test_post},
         {.uri = "/api/display/map",            .method = HTTP_POST, .handler = display_map_post},
         {.uri = "/api/display/identify",       .method = HTTP_POST, .handler = display_identify_post},
+        {.uri = "/api/display/source",         .method = HTTP_POST, .handler = display_source_post},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
         httpd_register_uri_handler(srv, &uris[i]);

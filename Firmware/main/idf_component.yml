@@ -13,3 +13,9 @@ dependencies:
       # In IDF <6.0 cJSON ships as the built-in `json` core component, so the
       # managed package is not needed there.
       - if: "idf_version >=6.0"
+  espressif/mqtt:
+    version: "*"
+    rules:
+      # Same story: IDF <6.0 ships esp-mqtt as the built-in `mqtt` core
+      # component; from 6.0 it is fetched from the registry.
+      - if: "idf_version >=6.0"

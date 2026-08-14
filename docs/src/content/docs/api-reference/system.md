@@ -56,6 +56,8 @@ curl http://192.168.1.50/api/status
     "spacing": "proportional",
     "brightness": 60,
     "brightness_stored": 60,
+    "text_stored": "HELLO",
+    "source": "static",
     "color": {"r": 80, "g": 32, "b": 0}
   },
   "system": {
@@ -81,7 +83,13 @@ curl http://192.168.1.50/api/status
     "compiled_in": true,
     "enabled": false,
     "up": false,
+    "held": false,
     "last_handshake": 0
+  },
+  "mqtt": {
+    "compiled_in": true,
+    "enabled": false,
+    "connected": false
   },
   "ota": {
     "slot": "ota_0",
@@ -107,6 +115,8 @@ curl http://192.168.1.50/api/status
 | `display.scroll` | The legacy bool, true for both scrolling modes |
 | `display.brightness` | The level the panel is actually running at: 0 in a blanked off-window, the light sensor's level while it drives, halved when the value is stale, never above the cap |
 | `display.brightness_stored` | The brightness you set and the device persisted. It is what the display returns to when the schedule, the sensor or the staleness guard stops overriding it |
+| `display.text_stored` | The persisted static text, distinct from `display.text` (whatever is on screen - the pushed value in integration mode) |
+| `display.source` | `static` or `integration`, see [`POST /api/display/source`](../display/#post-apidisplaysource) |
 | `system.heap` | Free heap in bytes |
 | `system.uptime` | Seconds since boot |
 | `system.device_name` | The resolved name, so a client never has to know the default |
@@ -115,6 +125,8 @@ curl http://192.168.1.50/api/status
 | `layout.*` | Summary of the active layout; the full config comes from [`GET /api/layout`](../layout/) |
 | `value_age_s` | Seconds since the last `POST /api/value`; -1 means never |
 | `wireguard.last_handshake` | Unix seconds, 0 means never |
+| `wireguard.held` | The [crash-loop guard](../../admin-guide/wireguard/#the-crash-loop-guard) is keeping an enabled tunnel down |
+| `mqtt.*` | MQTT client state; config via [`GET /api/mqtt`](../integrations/#get-apimqtt) |
 | `ota.slot` | Running partition: `factory`, `ota_0` or `ota_1` |
 | `light_sensor` | Ambient sensor state; the full config comes from [`GET /api/display/light_sensor`](../display/#get-apidisplaylight_sensor) |
 | `schedule_active` | `true` when the schedule currently allows the display to be on |
@@ -193,6 +205,7 @@ curl http://192.168.1.50/api/schedule
   "off_hour": 22, "off_min": 30,
   "days": 31,
   "utc_offset": 60,
+  "tz": "",
   "off_action": "off",
   "off_brightness": 16
 }
@@ -201,7 +214,8 @@ curl http://192.168.1.50/api/schedule
 | Field | Meaning |
 |---|---|
 | `days` | Bitmask, bit 0 = Monday through bit 6 = Sunday; 127 = every day, 31 = weekdays |
-| `utc_offset` | Minutes from UTC, for example 60 for CET |
+| `utc_offset` | Minutes from UTC, for example 60 for CET. Used only while `tz` is empty |
+| `tz` | POSIX TZ override, e.g. `CET-1CEST,M3.5.0,M10.5.0/3`. When set, the schedule follows this rule (daylight-saving transitions included) and `utc_offset` is ignored. Empty = fixed offset |
 | `on_hour`/`on_min`, `off_hour`/`off_min` | Local switch-on and switch-off times; a window that wraps midnight (on 22:00, off 06:00) works |
 | `off_action` | What the off window does: `off` blanks the panel (the default), `dim` holds it at `off_brightness` |
 | `off_brightness` | The level the `dim` action holds, 1..255. Still subject to the brightness cap |
@@ -217,7 +231,7 @@ curl -X POST http://192.168.1.50/api/schedule \
        "off_action":"dim","off_brightness":16}'
 ```
 
-Out-of-range values are rejected rather than wrapped: hours must be 0..23, minutes 0..59, `utc_offset` -840..840 and `off_brightness` 1..255. `days` is masked to its seven bits.
+Out-of-range values are rejected rather than wrapped: hours must be 0..23, minutes 0..59, `utc_offset` -840..840 and `off_brightness` 1..255. `days` is masked to its seven bits. `tz` accepts up to 48 printable ASCII characters; an empty string clears the override. The string is not parsed for validity - a rule that means nothing to libc behaves like UTC.
 
 Response: `{"ok": true}`. A changed action or level is applied at once, not at the next 30 second tick. Schedule transitions fire the `schedule_on` / `schedule_off` [webhooks](../integrations/#outbound-webhook-payloads) whichever action is configured.
 
@@ -411,24 +425,26 @@ Top-level shape:
 ```json
 {
   "v": 1,
-  "fw": "2.2.0",
+  "fw": "2.3.0",
   "note": "wifi credentials not included",
   "display": {"text": "...", "color": {"r":80,"g":32,"b":0}, "brightness": 60,
               "brightness_cap": 128, "scroll": false, "scroll_mode": "off",
               "speed": 50, "scale": 1, "font": "5x7",
-              "spacing": "proportional", "boot_screen": 1},
+              "spacing": "proportional", "boot_screen": 1, "source": "static"},
   "layout": {"v":1, "panel": {}, "grid": {}, "cells": []},
   "colors": {"v":1, "colors": []},
   "value_config": {"v":1, "prefix": "", "suffix": "", "decimals": -1,
                    "thousands": "", "stale_hours": 0, "stale_action": "none",
-                   "stale_text": ""},
+                   "stale_text": "", "default_text": ""},
   "integrations": {"v":1, "api_key": "...", "webhook_url": "",
                    "webhook_events": 0, "device_name": "led-display"},
   "wireguard": {"enabled": false, "private_key": "...", "peer_public_key": "",
                 "endpoint_host": "", "endpoint_port": 0, "address": "",
                 "allowed_ips": "", "keepalive_s": 0},
+  "mqtt": {"v":1, "enabled": false, "uri": "", "username": "", "password": "...",
+           "base_topic": "", "ha_discovery": false, "ha_prefix": "homeassistant"},
   "schedule": {"enabled": false, "on_hour": 8, "on_min": 0, "off_hour": 22,
-               "off_min": 0, "days": 127, "utc_offset": 0,
+               "off_min": 0, "days": 127, "utc_offset": 0, "tz": "",
                "off_action": "off", "off_brightness": 16},
   "light_sensor": {"v":1, "enabled": false, "gpio": 0, "dark_raw": 200,
                    "bright_raw": 2800, "min_brightness": 8,
@@ -438,7 +454,7 @@ Top-level shape:
 
 Two fields use the storage dialect rather than the API dialect: `display.boot_screen` is numeric (0 text, 1 ip, 2 none) and `integrations.webhook_events` is the numeric bitmask, not the name array used by [`/api/integrations`](../integrations/#post-apiintegrations).
 
-The `light_sensor` section describes the configuration only; the live reading is not part of a backup. A file written by a build before 2.2.0 has no `light_sensor` section and no `scroll_mode`, `font`, `spacing`, `off_action` or `off_brightness`; it still imports, and the missing settings keep their current values.
+The `light_sensor` section describes the configuration only; the live reading is not part of a backup. A file written by an older build simply lacks the sections and fields added since (2.2.0: `light_sensor`, `scroll_mode`, `font`, `spacing`, `off_action`, `off_brightness`; 2.3.0: `mqtt`, `display.source`, `value_config.default_text`, `schedule.tz`); it still imports, and the missing settings keep their current values.
 
 ## POST /api/config/import
 
@@ -458,4 +474,4 @@ curl -X POST http://192.168.1.50/api/config/import \
 }
 ```
 
-Notes on section behavior: numeric fields are clamped to their valid ranges rather than rejected; an empty `wireguard.private_key` keeps the stored key; the `wireguard` section lands in `skipped` when applying the tunnel config fails (including when WireGuard is not compiled in); a `light_sensor` section describing a sensor this board does not have (no pin, or two equal calibration readings) also lands in `skipped` rather than being half-applied. An `integrations.device_name` that predates the [name rules](#post-apisystemdevice_name) is cleaned to them, so `"Office Panel"` imports as `Office-Panel` instead of failing the section. Errors: 400 `"invalid JSON body"`, 401.
+Notes on section behavior: numeric fields are clamped to their valid ranges rather than rejected; an empty `wireguard.private_key` (and an empty `mqtt.password`) keeps the stored secret; the `wireguard` and `mqtt` sections land in `skipped` when applying them fails (including when the feature is not compiled in); a `light_sensor` section describing a sensor this board does not have (no pin, or two equal calibration readings) also lands in `skipped` rather than being half-applied. An `integrations.device_name` that predates the [name rules](#post-apisystemdevice_name) is cleaned to them, so `"Office Panel"` imports as `Office-Panel` instead of failing the section. Errors: 400 `"invalid JSON body"`, 401.

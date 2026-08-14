@@ -4,6 +4,33 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-08-15
+
+### Fixed
+
+- WireGuard no longer crash-loops the device. Enabling the tunnel on 2.2.0 overflowed the lwIP task stack (all tunnel crypto - `psa_crypto_init` and the x25519/blake2s handshakes - runs on that thread) and every connect attempt ended in a stack-canary panic and a reboot, roughly 90 seconds after each boot, with the local network unreachable in between. The stack is now sized for it (`CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=8192`)
+- Crash-loop guard: three consecutive crash reboots with the tunnel enabled and the device boots with the tunnel held down instead of retrying itself to death - the web UI stays reachable, the status reports `held` and the Network tab says so. Re-saving the WireGuard config retries; a clean boot or a completed handshake resets the counter
+
+### Added
+
+- MQTT client (`CONFIG_LEDDISP_MQTT`, on by default, configured on the Integrations tab or `GET/POST /api/mqtt`): push values or text to the display over `<base>/value/set` / `<base>/text/set` with the same formatting as the HTTP endpoints, control brightness, power and content source, reboot, read a retained JSON state topic and an availability topic (LWT). Optional Home Assistant auto-discovery announces the display as a device with light, text, select, button and sensor entities
+- Content source switch on the Display tab (`POST /api/display/source`): static text or the live integration value. The static text lives in its own card, appearance settings in another; values pushed while static is shown are remembered and appear on switch
+- Placeholder text (`default_text` in the value config): shown in integration mode until the first value arrives - a rebooted display no longer resurrects a stale figure as if it were live
+- Schedule timezone override: pick a named zone (daylight-saving rule stored on the device) or a custom POSIX TZ string instead of the fixed browser offset; `/api/schedule` gains `tz`
+- Live panel preview in the web UI header: the current content, colour and scrolling state drawn LED by LED - not a screenshot
+- Stop-tests button (Hardware tab and arrangement editor, `pattern: "off"` on `/api/display/test`): ends any test pattern or identify mode and restores the configured content
+- Project logo, in the web UI header, the docs site and the README
+- `/api/status` reports `display.source`, `display.text_stored`, `wireguard.held` and an `mqtt` object
+
+### Changed
+
+- The space thousands separator renders as a thin space, narrower than a typed space, so space-grouped values ("1 025 300") no longer overflow where dot-grouped ones fit
+- The arrangement editor's grid controls are labelled steppers (Rows / Columns with joined `- value +` buttons); the wiring-path preview tile is gone
+- The web UI header shows the firmware version under the title and a WiFi icon with the connection state
+- `POST /api/display/text` without a `text` field no longer rewrites the stored text; `POST /api/value` no longer persists the value as the stored text (the placeholder covers reboots) and reports `rendered`
+- The value-staleness guard only runs while the content source is integration, so a stale value can no longer dim or replace static text
+- Docs: hardware guide and README state that the PCB expects 5 V LED panels
+
 ## [2.2.0] - 2026-08-14
 
 ### Added

@@ -7,6 +7,8 @@ sidebar:
 
 The reference build is four flexible WS2812B 32x8 panels in a 2x2 grid (64x16 pixels, 1024 LEDs), an ESP32-S3 dev board, one level shifter, and a USB-C socket for power. The firmware itself supports any grid the [arrangement editor](../../admin-guide/arrangement-editor/) can describe: up to 8 rows by 16 columns, 32 panels, 8192 pixels.
 
+The PCB expects **5 V LED panels**: the power rail, the level shifter reference and the connectors are all laid out for 5 V WS2812B-class matrices. 12 V panel variants (WS2815 and similar) need a different power arrangement and are not supported by this board.
+
 ## Parts
 
 | Part | Choice | Notes |

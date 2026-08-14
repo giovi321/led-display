@@ -9,12 +9,33 @@
 <body>
 <header>
   <div class="hdr-left">
-    <h1 id="hdrname">LED Display</h1>
-    <span id="hdrfw" class="hdr-fw"></span>
+    <svg class="hdr-logo" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="6" fill="#101418"/>
+      <g fill="#26262e">
+        <circle cx="8" cy="24" r="2.6"/><circle cx="16" cy="24" r="2.6"/><circle cx="24" cy="24" r="2.6"/>
+      </g>
+      <circle cx="8" cy="8" r="2.6" fill="#ef4444"/>
+      <circle cx="16" cy="8" r="2.6" fill="#22c55e"/>
+      <circle cx="24" cy="8" r="2.6" fill="#3b82f6"/>
+      <circle cx="8" cy="16" r="2.6" fill="#ffb347"/>
+      <circle cx="16" cy="16" r="2.6" fill="#ffb347"/>
+      <circle cx="24" cy="16" r="2.6" fill="#ffb347"/>
+    </svg>
+    <div class="hdr-title">
+      <h1 id="hdrname">LED Display</h1>
+      <span id="hdrfw" class="hdr-fw"></span>
+    </div>
   </div>
+  <canvas id="hdrsim" class="hdr-sim" width="192" height="48"
+          title="What the panel is showing right now"
+          aria-label="Live preview of the panel content"></canvas>
   <div class="hdr-right">
     <div id="hdrconn" class="conn" role="status">
-      <span id="hdrdot" class="dot wait" aria-hidden="true"></span>
+      <svg id="hdrwifi" class="wifi wait" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M12 20.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z"/>
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              d="M8.5 14.8a5.4 5.4 0 0 1 7 0M5.6 11.6a9.7 9.7 0 0 1 12.8 0M2.8 8.3a13.9 13.9 0 0 1 18.4 0"/>
+      </svg>
       <span class="conn-txt">
         <span id="hdrnet">Connecting...</span>
         <span id="hdrip"></span>
@@ -41,9 +62,30 @@
 <!-- ============================ Display ============================ -->
 <section id="tab-display">
   <div class="card">
+    <div class="flab">Content source<button type="button" class="hlp"
+      data-help="Static: the panel shows the text you type below. Integration: it shows the last value pushed by your integration (webhook or MQTT), formatted per the Integrations tab, with a placeholder until the first value arrives."
+      aria-expanded="false" aria-label="Explain the content source">?</button></div>
+    <div class="seg" id="srcseg" role="radiogroup" aria-label="Content source">
+      <button type="button" data-src="static" class="active">Static text</button>
+      <button type="button" data-src="integration">Integration</button>
+    </div>
+    <p id="src-note" class="note hidden">The panel shows the value pushed by
+      your integration. Formatting and the "no value yet" placeholder are
+      configured on the Integrations tab.</p>
+  </div>
+
+  <div class="card" id="static-card">
+    <h2>Text</h2>
     <label for="text">Text</label>
     <input id="text" type="text" maxlength="120" placeholder="Type something" autocomplete="off">
+    <div class="row">
+      <button class="act" id="apply-text">Show text</button>
+      <button class="sec" id="clear">Clear display</button>
+    </div>
+  </div>
 
+  <div class="card">
+    <h2>Appearance</h2>
     <label for="color">Colour</label>
     <div class="row">
       <input id="color" type="color" value="#ffb347" aria-label="Colour picker">
@@ -84,8 +126,7 @@
     <input id="speed" type="range" min="0" max="255" value="50">
 
     <div class="row">
-      <button class="act" id="apply">Apply</button>
-      <button class="sec" id="clear">Clear display</button>
+      <button class="act" id="apply">Apply appearance</button>
     </div>
   </div>
 </section>
@@ -122,7 +163,29 @@
       <input id="sched-dim" type="range" min="1" max="255" value="8"
              aria-label="Brightness outside the on-window">
     </div>
-    <p class="note">Times use your browser's local timezone. The device syncs time via NTP.</p>
+    <div class="flab">Timezone<button type="button" class="hlp"
+      data-help="Auto uses your browser's timezone at the moment you save (a fixed offset - it will not follow daylight-saving changes on its own). Picking a zone stores its daylight-saving rule on the device, so the schedule stays right all year."
+      aria-expanded="false" aria-label="Explain the timezone setting">?</button></div>
+    <select id="sched-tz">
+      <option value="">Browser timezone (auto)</option>
+      <option value="UTC0">UTC</option>
+      <option value="GMT0BST,M3.5.0/1,M10.5.0">UK / Ireland (London, Dublin)</option>
+      <option value="WET0WEST,M3.5.0/1,M10.5.0">Portugal (Lisbon)</option>
+      <option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe (Zurich, Berlin, Rome)</option>
+      <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Eastern Europe (Athens, Helsinki)</option>
+      <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option>
+      <option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
+      <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option>
+      <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
+      <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australia East (Sydney)</option>
+      <option value="JST-9">Japan (Tokyo)</option>
+      <option value="IST-5:30">India</option>
+      <option value="custom">Custom POSIX TZ...</option>
+    </select>
+    <input id="sched-tzcustom" class="hidden" type="text" maxlength="48"
+           placeholder="e.g. CET-1CEST,M3.5.0,M10.5.0/3"
+           autocomplete="off" autocapitalize="off" spellcheck="false">
+    <p class="note">The device syncs time via NTP.</p>
     <div class="row"><button class="act" id="sched-save">Save schedule</button></div>
   </div>
 </section>
@@ -141,10 +204,12 @@
       <button class="sec" data-test="corners">Corners</button>
       <button class="sec" data-test="border">Border</button>
       <button class="sec" data-test="fill">Fill</button>
+      <button class="act" data-test="off">Stop tests</button>
     </div>
     <p class="note">Step strip walks the physical chain so you can see where index
       0, 1, 2... land. Corners lights logical (0,0)=red, (W-1,0)=green,
-      (0,H-1)=blue, (W-1,H-1)=yellow using the active mapping.</p>
+      (0,H-1)=blue, (W-1,H-1)=yellow using the active mapping. Stop puts the
+      normal content back.</p>
   </div>
   <div class="card">
     <h2>Brightness cap</h2>
@@ -303,6 +368,42 @@
     </div>
     <div class="row"><button class="act" id="wh-save">Save webhook</button></div>
   </div>
+  <div class="card" id="mqtt-card">
+    <h2>MQTT</h2>
+    <p id="mqtt-missing" class="note hidden">MQTT is not included in this build.</p>
+    <div id="mqtt-body">
+      <p id="mqtt-status" class="note"></p>
+      <label class="check big"><input id="mq-en" type="checkbox"> Enable MQTT</label>
+      <label for="mq-uri">Broker URI</label>
+      <input id="mq-uri" type="text" placeholder="mqtt://192.168.1.10:1883"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="grid2">
+        <div>
+          <label for="mq-user">Username (empty = anonymous)</label>
+          <input id="mq-user" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+        <div>
+          <label for="mq-pass">Password</label>
+          <input id="mq-pass" type="password" autocomplete="off"
+                 placeholder="leave blank to keep current">
+        </div>
+      </div>
+      <div class="flab">Base topic<button type="button" class="hlp"
+        data-help="All of the device's topics live under this prefix. Empty uses the device name. Commands: <base>/text/set, <base>/value/set, <base>/brightness/set, <base>/power/set, <base>/source/set, <base>/reboot/set. Status: <base>/state (JSON, retained) and <base>/availability."
+        aria-expanded="false" aria-label="Explain the base topic">?</button></div>
+      <input id="mq-base" type="text" maxlength="64" placeholder="(device name)"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label class="check"><input id="mq-ha" type="checkbox"> Home Assistant auto-discovery</label>
+      <label for="mq-haprefix">Discovery prefix</label>
+      <input id="mq-haprefix" type="text" maxlength="32" placeholder="homeassistant"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="row"><button class="act" id="mq-save">Save MQTT</button></div>
+      <p class="note">MQTT commands are not gated by the API key - the broker's
+        own authentication is the boundary. Push values to
+        <code>&lt;base&gt;/value/set</code> to feed the display, same formatting
+        as the value endpoint below.</p>
+    </div>
+  </div>
   <div class="card">
     <h2>Value endpoint</h2>
     <p class="note">POST a raw value from any webhook source; the device formats
@@ -320,7 +421,7 @@
           <option value=",">Comma</option>
           <option value=".">Dot</option>
           <option value="'">Apostrophe</option>
-          <option value=" ">Space</option>
+          <option value=" ">Thin space</option>
         </select></div>
       <div><label for="v-stalehrs">Stale after (hours, 0 = off)</label>
         <input id="v-stalehrs" type="number" min="0" max="720" value="0"></div>
@@ -334,6 +435,10 @@
     </div>
     <label for="v-staletext">Stale text</label>
     <input id="v-staletext" type="text" maxlength="64" placeholder="stale" autocomplete="off">
+    <div class="flab">Placeholder before the first value<button type="button" class="hlp"
+      data-help="Shown verbatim while the display source is Integration and no value has arrived yet - right after a reboot, or before the integration is wired up. Leave empty for a blank panel."
+      aria-expanded="false" aria-label="Explain the placeholder">?</button></div>
+    <input id="v-default" type="text" maxlength="64" placeholder="e.g. waiting for data..." autocomplete="off">
     <div class="row"><button class="act" id="vcfg-save">Save value config</button></div>
 
     <label for="v-test">Test value</label>

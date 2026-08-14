@@ -8,6 +8,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'LED Display',
+      logo: { src: './src/assets/logo.svg', alt: 'led-display' },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/giovi321/led-display' },
       ],

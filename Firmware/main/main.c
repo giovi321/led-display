@@ -9,6 +9,7 @@
 #include "led_driver.h"
 #include "light_sensor.h"
 #include "mapping.h"
+#include "mqtt_link.h"
 #include "ota_update.h"
 #include "scheduler.h"
 #include "settings.h"
@@ -87,6 +88,21 @@ static void show_boot_screen(const settings_t *cfg, const wifi_mgr_status_t *s)
             break;
         case BOOT_SHOW_TEXT:
         default:
+            if (cfg->source == DISPLAY_SRC_INTEGRATION) {
+                // The last value never survives a reboot; the configured
+                // placeholder stands in until the next push. No placeholder
+                // set: blank, so a stale-looking static text never poses as
+                // live data.
+                value_cfg_t vc;
+                integrations_get_value_cfg(&vc);
+                if (vc.default_text[0] != '\0') {
+                    display_show_text(vc.default_text, cfg->color,
+                                      cfg->scroll_mode, cfg->speed, cfg->scale);
+                } else {
+                    display_clear();
+                }
+                break;
+            }
             // First boot has no saved text: fall back to the IP so the user
             // can find the web UI immediately.
             if (cfg->text[0] == '\0') {
@@ -188,6 +204,12 @@ void app_main(void)
     //     configured, no-op stub when compiled out - never blocks boot).
     if (wg_client_init() != ESP_OK) {
         ESP_LOGW(TAG, "wg_client_init failed; tunnel unavailable");
+    }
+
+    // 10b. MQTT (same best-effort contract as WireGuard; esp-mqtt reconnects
+    //      on its own once WiFi is up).
+    if (mqtt_link_init() != ESP_OK) {
+        ESP_LOGW(TAG, "mqtt_link_init failed; MQTT unavailable");
     }
 
     // 11. HTTP last so endpoints only become reachable once the display

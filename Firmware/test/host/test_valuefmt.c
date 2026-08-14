@@ -102,6 +102,12 @@ static void test_thousands(void)
 
     value_cfg_t apo = mkcfg("", " EUR", 0, '\'');
     check(&apo, "12345.6", "12'346 EUR", "apostrophe separator + suffix");
+
+    // A space separator is emitted as the renderer's thin space (0x1F,
+    // FONT_THIN_SPACE in fonts.h) so grouped values stay compact.
+    value_cfg_t sp = mkcfg("", "", -1, ' ');
+    check(&sp, "1234567", "1\x1F""234\x1F""567", "space separator -> thin space");
+    check(&sp, "123",     "123",                 "space separator, no grouping");
 }
 
 static void test_negatives(void)

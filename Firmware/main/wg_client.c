@@ -23,9 +23,11 @@
 #include "cJSON.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "nvs.h"
 
 #include "esp_wireguard.h"
 #include "settings.h"
@@ -37,6 +39,12 @@ static const char *TAG = "wg";
 #define WG_TASK_PRIO       3            // below the display refresh, above idle
 #define WG_BACKOFF_MIN_MS  5000
 #define WG_BACKOFF_MAX_MS  60000
+// Crash-loop guard: this many consecutive crash reboots (panic/WDT) with the
+// tunnel enabled and the tunnel stays down until the config is re-saved. A
+// tunnel bug must never brick the device out of its own web UI.
+#define WG_CRASH_HOLD_AFTER 3
+#define NVS_NS_WG           "wg"
+#define NVS_KEY_CRASHES     "crashes"
 // Handshake timestamps (tai64n) need real wall time or the peer rejects the
 // initiation as a replay. 2020-01-01 as "clock looks synced" heuristic.
 #define WG_TIME_SANE       1577836800
@@ -49,6 +57,7 @@ static SemaphoreHandle_t s_lock;
 static wg_config_t       s_cfg;                 // persisted config (RAM cache)
 static TaskHandle_t      s_task;
 static volatile bool     s_task_stop;
+static bool              s_held;                // crash-loop guard tripped
 
 // The component keeps the const char* pointers we hand it for the lifetime of
 // the tunnel, so they must point at storage that survives until teardown:
@@ -136,6 +145,44 @@ static esp_err_t save_cfg(const wg_config_t *in)
     esp_err_t err = settings_save_blob(BLOB_WG, json);
     cJSON_free(json);
     return err;
+}
+
+// ---- crash-loop guard ---------------------------------------------------------
+//
+// Counts consecutive crash reboots (panic / watchdog) that happened while the
+// tunnel was enabled. Any clean boot (power-on, software reset, OTA restart)
+// resets the count, as does the first completed handshake: only an enabled
+// tunnel that keeps taking the device down trips the guard.
+
+static uint8_t crash_count_load(void)
+{
+    nvs_handle_t h;
+    uint8_t v = 0;
+    if (nvs_open(NVS_NS_WG, NVS_READONLY, &h) != ESP_OK) return 0;
+    (void)nvs_get_u8(h, NVS_KEY_CRASHES, &v);
+    nvs_close(h);
+    return v;
+}
+
+static void crash_count_store(uint8_t v)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS_WG, NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_set_u8(h, NVS_KEY_CRASHES, v) == ESP_OK) (void)nvs_commit(h);
+    nvs_close(h);
+}
+
+static bool boot_was_crash(void)
+{
+    switch (esp_reset_reason()) {
+        case ESP_RST_PANIC:
+        case ESP_RST_INT_WDT:
+        case ESP_RST_TASK_WDT:
+        case ESP_RST_WDT:
+            return true;
+        default:
+            return false;
+    }
 }
 
 // ---- CIDR helpers ------------------------------------------------------------
@@ -350,7 +397,13 @@ static void wg_task(void *arg)
             bool up = esp_netif_tcpip_exec(tcpip_wg_peer_up, NULL) == ESP_OK;
             unlock();
             if (up) {
-                if (!was_up) ESP_LOGI(TAG, "peer up");
+                if (!was_up) {
+                    ESP_LOGI(TAG, "peer up");
+                    // A working handshake proves the tunnel is healthy;
+                    // forget any crash streak (single NVS write, on the
+                    // transition only).
+                    if (crash_count_load() != 0) crash_count_store(0);
+                }
                 was_up = true;
                 down_s = 0;
             } else {
@@ -423,6 +476,23 @@ esp_err_t wg_client_init(void)
              cfg.private_key[0] ? "[redacted]" : "(unset)");
 
     if (cfg.enabled) {
+        uint8_t crashes = crash_count_load();
+        if (boot_was_crash()) {
+            if (crashes < 0xFF) crashes++;
+            crash_count_store(crashes);
+            ESP_LOGW(TAG, "crash reboot with tunnel enabled (%u consecutive)",
+                     (unsigned)crashes);
+        } else if (crashes != 0) {
+            crashes = 0;
+            crash_count_store(0);
+        }
+        if (crashes >= WG_CRASH_HOLD_AFTER) {
+            s_held = true;
+            ESP_LOGE(TAG, "%u consecutive crash reboots; holding the tunnel "
+                          "down (re-save the WireGuard config to retry)",
+                     (unsigned)crashes);
+            return ESP_OK;
+        }
         return task_start();   // connects in the background, never blocks boot
     }
     return ESP_OK;
@@ -465,6 +535,13 @@ esp_err_t wg_client_apply(const wg_config_t *cfg)
              c.endpoint_host[0] ? c.endpoint_host : "(unset)",
              (unsigned)c.endpoint_port);
 
+    // A deliberate re-save is the operator saying "try again": lift the
+    // crash-loop hold and forget the streak.
+    if (s_held || crash_count_load() != 0) {
+        s_held = false;
+        crash_count_store(0);
+    }
+
     if (c.enabled) {
         return task_start();
     }
@@ -487,6 +564,7 @@ void wg_client_get_status(wg_status_t *out)
 
     lock();
     out->enabled = s_cfg.enabled;
+    out->held    = s_held;
     if (s_tunnel_up_attempted) {
         out->up = esp_netif_tcpip_exec(tcpip_wg_peer_up, NULL) == ESP_OK;
         time_t hs = 0;

@@ -15,9 +15,10 @@ Every POST on this page requires the `X-Api-Key` header when an API key is set (
 | GET | `/api/display/light_sensor` | Ambient sensor config plus the live reading |
 | POST | `/api/display/light_sensor` | Configure the ambient sensor (partial update) |
 | POST | `/api/display/clear` | Blank the display and forget the stored text |
-| POST | `/api/display/test` | Run a calibration pattern |
+| POST | `/api/display/test` | Run or stop a calibration pattern |
 | POST | `/api/display/map` | Legacy v1 map-mode shim |
 | POST | `/api/display/identify` | Color every panel by chain index |
+| POST | `/api/display/source` | Switch between static text and the integration value |
 
 ## POST /api/display/text
 
@@ -35,6 +36,8 @@ Shows text and persists it, so it survives a reboot. Every field is optional; om
 | `scale` | number | Integer font multiplier 1..8, clamped to what fits the display height; 0 or omitted keeps the current scale |
 
 `scroll_mode` wins when both spellings are sent. On its own, `scroll` only switches scrolling off or on, so a client that always sends `scroll: true` cannot downgrade a configured continuous scroll to `restart`.
+
+A request without a `text` field re-renders and persists everything else but leaves the stored text untouched. That matters in integration mode, where the on-screen text is the pushed value: an appearance-only POST must not overwrite the user's static text with it.
 
 A font taller than the display falls back at render time to the tallest one that fits; the stored choice is kept and returns when a tall enough layout does.
 
@@ -154,7 +157,7 @@ Response: `{"ok": true}`
 
 ## POST /api/display/test
 
-Runs a calibration or diagnostic pattern. While a test is active the scroll task idles; leave test mode by posting text or clearing.
+Runs a calibration or diagnostic pattern, or stops one. While a test is active the scroll task idles; leave test mode with `pattern: "off"`, by posting text, or by clearing.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -167,6 +170,7 @@ Runs a calibration or diagnostic pattern. While a test is active the scroll task
 | `corners` | Lights the four logical corners in distinct colors |
 | `border` | Outline of the whole display using the mapping |
 | `fill` | Every LED on in the default amber |
+| `off` | Ends whatever test or identify mode is running and restores the configured content (static text or integration value) |
 
 ```bash
 curl -X POST http://192.168.1.50/api/display/test \
@@ -206,3 +210,18 @@ curl -X POST http://192.168.1.50/api/display/identify \
 ```
 
 Errors: 400 `"on required"` when the field is missing or not a boolean.
+
+## POST /api/display/source
+
+Switches the [content source](../../user-guide/display/#content-source) and re-renders immediately: `static` shows the stored static text, `integration` shows the last pushed value, or the value config's `default_text` placeholder before the first push (blank when no placeholder is set). The choice is persisted; `GET /api/status` reports it as `display.source`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `mode` | string | `static` or `integration`, required |
+
+```bash
+curl -X POST http://192.168.1.50/api/display/source \
+  -H "X-Api-Key: mysecret" -d '{"mode": "integration"}'
+```
+
+Errors: 400 `"mode must be static|integration"`.

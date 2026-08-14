@@ -18,4 +18,14 @@ menu "LED display"
             Disabling this removes the WireGuard code from the image
             entirely; the API then reports compiled_in=false.
 
+    config LEDDISP_MQTT
+        bool "Compile in the MQTT client"
+        default y
+        help
+            Builds the mqtt_link glue on top of ESP-IDF's esp-mqtt. The
+            client stays down until enabled and configured from the web UI
+            (Integrations section) or POST /api/mqtt. Includes optional Home
+            Assistant discovery. Disabling this removes the MQTT code from
+            the image entirely; the API then reports compiled_in=false.
+
 endmenu

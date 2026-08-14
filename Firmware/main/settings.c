@@ -25,6 +25,7 @@ static const char *NS  = "cfg";
 #define K_PROP       "prop"   // proportional spacing bool
 #define K_MAP_MODE   "map"    // legacy v1 key, read-only (migration)
 #define K_BOOT_SCR   "boot"
+#define K_SOURCE     "dsrc"   // display_source_t; absent = static
 #define K_DEVNAME    "dname"  // device name; absent = unset (defaults apply)
 
 static void apply_defaults(settings_t *s)
@@ -40,6 +41,7 @@ static void apply_defaults(settings_t *s)
     s->font            = 0;      // FONT_ID_5X7, the pre-font-setting default
     s->prop            = true;
     s->boot_screen     = BOOT_SHOW_TEXT;
+    s->source          = DISPLAY_SRC_STATIC;
     s->legacy_map_mode = -1;     // absent
 }
 
@@ -86,6 +88,9 @@ esp_err_t settings_load(settings_t *out)
     if (nvs_get_u8(h, K_PROP, &v) == ESP_OK) out->prop = v ? true : false;
     if (nvs_get_u8(h, K_MAP_MODE, &v) == ESP_OK) out->legacy_map_mode = (int)v;
     if (nvs_get_u8(h, K_BOOT_SCR, &v) == ESP_OK) out->boot_screen = (boot_screen_t)v;
+    if (nvs_get_u8(h, K_SOURCE, &v) == ESP_OK && v <= DISPLAY_SRC_INTEGRATION) {
+        out->source = (display_source_t)v;
+    }
 
     nvs_close(h);
     ESP_LOGI(TAG, "settings loaded: brightness=%u cap=%u scroll=%u speed=%u scale=%u font=%u prop=%d boot=%u text='%s'",
@@ -116,6 +121,7 @@ esp_err_t settings_save(const settings_t *in)
     nvs_set_u8 (h, K_FONT,       in->font);
     nvs_set_u8 (h, K_PROP,       in->prop ? 1 : 0);
     nvs_set_u8 (h, K_BOOT_SCR,   (uint8_t)in->boot_screen);
+    nvs_set_u8 (h, K_SOURCE,     (uint8_t)in->source);
 
     err = nvs_commit(h);
     nvs_close(h);
@@ -184,6 +190,11 @@ esp_err_t settings_save_brightness_cap(uint8_t cap)
 esp_err_t settings_save_boot_screen(boot_screen_t which)
 {
     return save_u8(K_BOOT_SCR, (uint8_t)which);
+}
+
+esp_err_t settings_save_source(display_source_t source)
+{
+    return save_u8(K_SOURCE, (uint8_t)source);
 }
 
 esp_err_t settings_clear_text(void)

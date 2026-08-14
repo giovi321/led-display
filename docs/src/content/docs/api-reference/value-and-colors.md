@@ -17,17 +17,19 @@ sidebar:
 
 ## POST /api/value
 
-Body: `{"value": <number or string>}`. Numbers are normalized to up to 10 significant digits, so `4.2` and `"4.2"` behave the same. The raw value goes through the value config (prefix, suffix, decimals, thousands separator) and is shown in the current color, scroll mode and speed, then persisted so it survives a reboot. The scroll mode is passed through rather than forced off, so a long formatted value keeps scrolling if that is how the display is set up, and posting a value never rewrites the stored mode. Posting also resets the staleness clock (see below).
+Body: `{"value": <number or string>}`. Numbers are normalized to up to 10 significant digits, so `4.2` and `"4.2"` behave the same. The raw value goes through the value config (prefix, suffix, decimals, thousands separator) and, while the display [content source](../display/#post-apidisplaysource) is `integration`, is shown in the current color, scroll mode and speed. The scroll mode is passed through rather than forced off, so a long formatted value keeps scrolling if that is how the display is set up, and posting a value never rewrites the stored mode or the stored static text. Posting also resets the staleness clock (see below).
+
+The formatted value is held in RAM only: after a reboot the panel shows the config's `default_text` placeholder until the next POST. In `static` mode the value is still formatted, remembered and counted as fresh - the response then carries `"rendered": false`.
 
 ```bash
 curl -X POST http://192.168.1.50/api/value \
   -H "X-Api-Key: mysecret" -d '{"value": 1234567.891}'
 ```
 
-Response includes the text that actually went on the display:
+Response includes the text that went (or would go) on the display:
 
 ```json
-{"ok": true, "displayed": "$1,234,567.89"}
+{"ok": true, "displayed": "$1,234,567.89", "rendered": true}
 ```
 
 Errors: 400 `"invalid JSON body"` (bad JSON or body over 512 bytes), 400 `"body must be {\"value\":<string|number>}"` when `value` is missing or another type, 401 on a wrong key.
@@ -48,7 +50,8 @@ curl http://192.168.1.50/api/value/config
   "thousands": ",",
   "stale_hours": 24,
   "stale_action": "dim",
-  "stale_text": "STALE"
+  "stale_text": "STALE",
+  "default_text": "waiting..."
 }
 ```
 
@@ -61,10 +64,11 @@ Partial update: only the fields you send change.
 | `prefix` | string | Up to 16 characters, prepended to the value |
 | `suffix` | string | Up to 16 characters, appended to the value |
 | `decimals` | number | -1..9; -1 leaves the value exactly as sent, otherwise round half away from zero to that many decimals |
-| `thousands` | string | Single separator character; `""` clears it |
+| `thousands` | string | Single separator character; `""` clears it. A space (`" "`) renders as a thin space, narrower than a typed space, so grouped values stay compact |
 | `stale_hours` | number | 0..65535; 0 disables the staleness check |
 | `stale_action` | string | `none`, `dim`, `marker` or `text` |
 | `stale_text` | string | Up to 64 characters, shown by the `text` action |
+| `default_text` | string | Up to 64 characters, shown verbatim in integration mode until the first value arrives; `""` keeps the panel blank |
 
 ```bash
 curl -X POST http://192.168.1.50/api/value/config \

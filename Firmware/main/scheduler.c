@@ -1,5 +1,6 @@
 #include "scheduler.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -30,6 +31,7 @@ static const char *NS  = "sched";
 #define K_UTC_OFF    "utc"
 #define K_OFF_ACT    "oact"
 #define K_OFF_BRI    "obri"
+#define K_TZ         "tz"
 
 static schedule_t s_sched;
 static bool       s_display_off;   // the off-window is holding the brightness
@@ -84,8 +86,24 @@ static esp_err_t load_from_nvs(schedule_t *out)
     }
     if (nvs_get_u8(h, K_OFF_BRI, &v) == ESP_OK && v > 0) out->off_brightness = v;
 
+    size_t len = sizeof(out->tz);
+    if (nvs_get_str(h, K_TZ, out->tz, &len) != ESP_OK) out->tz[0] = '\0';
+
     nvs_close(h);
     return ESP_OK;
+}
+
+// Hand the override to libc so localtime_r() applies it, DST rules included.
+// With no override the TZ variable is cleared: localtime then equals gmtime
+// and the fixed utc_offset does the shifting, as it always has.
+static void apply_tz(const schedule_t *sc)
+{
+    if (sc->tz[0] != '\0') {
+        setenv("TZ", sc->tz, 1);
+    } else {
+        unsetenv("TZ");
+    }
+    tzset();
 }
 
 static esp_err_t save_to_nvs(const schedule_t *in)
@@ -111,6 +129,7 @@ static esp_err_t save_to_nvs(const schedule_t *in)
         err = nvs_set_u8(h, u8s[i].key, u8s[i].val);
     }
     if (err == ESP_OK) err = nvs_set_i16(h, K_UTC_OFF, in->utc_offset);
+    if (err == ESP_OK) err = nvs_set_str(h, K_TZ, in->tz);
 
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
@@ -277,6 +296,18 @@ static void staleness_tick(void)
         if (sc.off_action != SCHED_OFF_ACT_DIM) return;
     }
 
+    // The guard watches the integration value; while the panel shows the
+    // static text, a stale value must not dim it, mark it or overwrite it.
+    // Same reset-and-idle as the AP branch, so a later switch back to
+    // integration mode re-evaluates (and re-fires the webhook if still stale).
+    settings_t dcfg;
+    settings_load(&dcfg);
+    if (dcfg.source != DISPLAY_SRC_INTEGRATION) {
+        s_stale = false;
+        set_flag_and_apply(&s_stale_dimmed, false);
+        return;
+    }
+
     value_cfg_t vc;
     integrations_get_value_cfg(&vc);
 
@@ -360,9 +391,14 @@ static void scheduler_task(void *arg)
         } else {
             time_t now;
             time(&now);
-            now += sc.utc_offset * 60;
             struct tm t;
-            gmtime_r(&now, &t);
+            if (sc.tz[0] != '\0') {
+                // TZ override: libc applies the rule (set by apply_tz).
+                localtime_r(&now, &t);
+            } else {
+                now += sc.utc_offset * 60;
+                gmtime_r(&now, &t);
+            }
 
             int day_bit = day_bit_from_tm(&t);
             bool should_be_on = in_on_window(&sc, t.tm_hour, t.tm_min, day_bit);
@@ -386,6 +422,7 @@ esp_err_t scheduler_init(void)
 
     load_from_nvs(&s_sched);
     s_display_off = false;
+    apply_tz(&s_sched);
 
     sntp_start();
 
@@ -409,10 +446,16 @@ void scheduler_get(schedule_t *out)
 
 esp_err_t scheduler_set(const schedule_t *in)
 {
+    // NUL-terminate whatever the caller stuffed into the array before the
+    // copy is stored, applied or persisted.
+    schedule_t sc = *in;
+    sc.tz[SCHED_TZ_MAX] = '\0';
+
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    s_sched = *in;
+    s_sched = sc;
     xSemaphoreGive(s_lock);
-    esp_err_t err = save_to_nvs(in);
+    apply_tz(&sc);
+    esp_err_t err = save_to_nvs(&sc);
     // A changed off-window action or level has to show up now, not at the
     // next 30 s tick. Outside the off-window this is a no-op re-apply.
     apply_brightness();

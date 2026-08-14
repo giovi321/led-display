@@ -31,6 +31,10 @@ typedef struct {
     uint16_t       stale_hours;     // 0 = staleness check disabled
     stale_action_t stale_action;
     char           stale_text[VALUE_TEXT_MAX + 1];
+    // Placeholder shown in integration mode while no value has arrived yet
+    // (fresh boot, integration not wired up). Shown verbatim - no
+    // prefix/suffix/formatting applied. Empty = blank panel.
+    char           default_text[VALUE_TEXT_MAX + 1];
 } value_cfg_t;
 
 // Format `raw` (e.g. "1234567.891") into `out` applying cfg->decimals

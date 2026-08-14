@@ -15,6 +15,7 @@
 
 #include "api_handlers.h"
 #include "integrations.h"
+#include "mqtt_link.h"
 #include "web_common.h"
 #include "wg_client.h"
 
@@ -167,6 +168,7 @@ static esp_err_t wireguard_get_handler(httpd_req_t *req)
     cJSON *status = cJSON_AddObjectToObject(r, "status");
     cJSON_AddBoolToObject(status, "compiled_in", st.compiled_in);
     cJSON_AddBoolToObject(status, "up", st.up);
+    cJSON_AddBoolToObject(status, "held", st.held);
     cJSON_AddNumberToObject(status, "last_handshake", (double)st.last_handshake);
     return web_send_json(req, r);
 }
@@ -252,6 +254,91 @@ static esp_err_t wireguard_post_handler(httpd_req_t *req)
     return web_send_ok(req);
 }
 
+// ---- /api/mqtt ---------------------------------------------------------------
+
+static esp_err_t mqtt_get_handler(httpd_req_t *req)
+{
+    mqtt_cfg_t cfg;
+    mqtt_link_status_t st;
+    mqtt_link_get_config(&cfg);
+    mqtt_link_get_status(&st);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddBoolToObject(r, "enabled", cfg.enabled);
+    cJSON_AddStringToObject(r, "uri", cfg.uri);
+    cJSON_AddStringToObject(r, "username", cfg.username);
+    // Secrets policy (DESIGN.md section 10): report only whether one is set.
+    cJSON_AddBoolToObject(r, "password_set", cfg.password[0] != '\0');
+    cJSON_AddStringToObject(r, "base_topic", cfg.base_topic);
+    cJSON_AddBoolToObject(r, "ha_discovery", cfg.ha_discovery);
+    cJSON_AddStringToObject(r, "ha_prefix", cfg.ha_prefix);
+
+    cJSON *status = cJSON_AddObjectToObject(r, "status");
+    cJSON_AddBoolToObject(status, "compiled_in", st.compiled_in);
+    cJSON_AddBoolToObject(status, "connected", st.connected);
+    return web_send_json(req, r);
+}
+
+static esp_err_t mqtt_post_handler(httpd_req_t *req)
+{
+    if (web_require_auth(req) != ESP_OK) return ESP_OK;
+
+    cJSON *body = web_read_json(req, 1024);
+    if (!body) return web_send_err(req, "invalid JSON body", 400);
+
+    mqtt_cfg_t cfg;
+    mqtt_link_get_config(&cfg);
+
+    const cJSON *it;
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(body, "enabled"))) {
+        cfg.enabled = cJSON_IsTrue(it);
+    }
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(body, "ha_discovery"))) {
+        cfg.ha_discovery = cJSON_IsTrue(it);
+    }
+    struct { const char *key; char *dst; size_t sz; } strs[] = {
+        {"uri",        cfg.uri,        sizeof(cfg.uri)},
+        {"username",   cfg.username,   sizeof(cfg.username)},
+        {"base_topic", cfg.base_topic, sizeof(cfg.base_topic)},
+        {"ha_prefix",  cfg.ha_prefix,  sizeof(cfg.ha_prefix)},
+    };
+    for (unsigned i = 0; i < sizeof(strs) / sizeof(strs[0]); i++) {
+        if (!cJSON_IsString(it = cJSON_GetObjectItem(body, strs[i].key))) continue;
+        if (strlen(it->valuestring) >= strs[i].sz) {
+            cJSON_Delete(body);
+            return web_send_err(req, "field too long", 400);
+        }
+        snprintf(strs[i].dst, strs[i].sz, "%s", it->valuestring);
+    }
+    // An absent or empty password keeps the stored one, so the UI can
+    // re-save the form without forcing the user to paste it again (same
+    // contract as the WireGuard private key). A stored password is harmless
+    // once the username is cleared: anonymous connects ignore it.
+    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "password")) &&
+        it->valuestring[0] != '\0') {
+        if (strlen(it->valuestring) > MQTT_PASS_MAX) {
+            cJSON_Delete(body);
+            return web_send_err(req, "password too long", 400);
+        }
+        snprintf(cfg.password, sizeof(cfg.password), "%s", it->valuestring);
+    }
+    cJSON_Delete(body);
+
+    if (cfg.enabled && cfg.uri[0] == '\0') {
+        return web_send_err(req, "uri required to enable MQTT", 400);
+    }
+
+    esp_err_t err = mqtt_link_apply(&cfg);
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        return web_send_err(req, "MQTT support not compiled in", 501);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "mqtt_link_apply failed: %s", esp_err_to_name(err));
+        return web_send_err(req, "applying MQTT config failed", 500);
+    }
+    return web_send_ok(req);
+}
+
 // ---- registration ----------------------------------------------------------
 
 void api_integrations_register(httpd_handle_t srv)
@@ -261,6 +348,8 @@ void api_integrations_register(httpd_handle_t srv)
         {.uri = "/api/integrations", .method = HTTP_POST, .handler = integrations_post_handler},
         {.uri = "/api/wireguard",    .method = HTTP_GET,  .handler = wireguard_get_handler},
         {.uri = "/api/wireguard",    .method = HTTP_POST, .handler = wireguard_post_handler},
+        {.uri = "/api/mqtt",         .method = HTTP_GET,  .handler = mqtt_get_handler},
+        {.uri = "/api/mqtt",         .method = HTTP_POST, .handler = mqtt_post_handler},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
         httpd_register_uri_handler(srv, &uris[i]);

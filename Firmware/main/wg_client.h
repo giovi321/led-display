@@ -30,6 +30,7 @@ typedef struct {
     bool    compiled_in;    // false when the Kconfig option is off
     bool    enabled;
     bool    up;             // handshake completed and peer reachable
+    bool    held;           // enabled but suspended after repeated crash reboots
     int64_t last_handshake; // unix seconds, 0 = never
 } wg_status_t;
 

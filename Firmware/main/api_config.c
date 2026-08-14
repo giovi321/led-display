@@ -23,6 +23,7 @@
 #include "led_driver.h"
 #include "light_sensor.h"
 #include "mapping.h"
+#include "mqtt_link.h"
 #include "scheduler.h"
 #include "settings.h"
 #include "web_common.h"
@@ -64,6 +65,9 @@ static cJSON *display_to_json(const settings_t *s)
     cJSON_AddStringToObject(d, "font", font_name(s->font));
     cJSON_AddStringToObject(d, "spacing", s->prop ? "proportional" : "monospace");
     cJSON_AddNumberToObject(d, "boot_screen", (int)s->boot_screen);
+    cJSON_AddStringToObject(d, "source",
+                            s->source == DISPLAY_SRC_INTEGRATION ? "integration"
+                                                                 : "static");
     return d;
 }
 
@@ -135,6 +139,7 @@ static cJSON *value_cfg_to_json(void)
     if (act >= sizeof(STALE_NAMES) / sizeof(STALE_NAMES[0])) act = 0;
     cJSON_AddStringToObject(r, "stale_action", STALE_NAMES[act]);
     cJSON_AddStringToObject(r, "stale_text", v.stale_text);
+    cJSON_AddStringToObject(r, "default_text", v.default_text);
     return r;
 }
 
@@ -166,6 +171,23 @@ static cJSON *wireguard_to_json(void)
     cJSON_AddStringToObject(r, "address", c.address);
     cJSON_AddStringToObject(r, "allowed_ips", c.allowed_ips);
     cJSON_AddNumberToObject(r, "keepalive_s", c.keepalive_s);
+    return r;
+}
+
+static cJSON *mqtt_to_json(void)
+{
+    mqtt_cfg_t c;
+    mqtt_link_get_config(&c);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddNumberToObject(r, "v", 1);
+    cJSON_AddBoolToObject(r, "enabled", c.enabled);
+    cJSON_AddStringToObject(r, "uri", c.uri);
+    cJSON_AddStringToObject(r, "username", c.username);
+    cJSON_AddStringToObject(r, "password", c.password);   // secret: auth-gated
+    cJSON_AddStringToObject(r, "base_topic", c.base_topic);
+    cJSON_AddBoolToObject(r, "ha_discovery", c.ha_discovery);
+    cJSON_AddStringToObject(r, "ha_prefix", c.ha_prefix);
     return r;
 }
 
@@ -201,6 +223,7 @@ static cJSON *schedule_to_json(void)
     cJSON_AddNumberToObject(r, "off_min", sc.off_min);
     cJSON_AddNumberToObject(r, "days", sc.days);
     cJSON_AddNumberToObject(r, "utc_offset", sc.utc_offset);
+    cJSON_AddStringToObject(r, "tz", sc.tz);
     cJSON_AddStringToObject(r, "off_action", OFF_ACT_NAMES[sc.off_action <= 1 ? sc.off_action : 0]);
     cJSON_AddNumberToObject(r, "off_brightness", sc.off_brightness);
     return r;
@@ -229,6 +252,7 @@ static esp_err_t config_export(httpd_req_t *req)
     cJSON_AddItemToObject(root, "value_config", value_cfg_to_json());
     cJSON_AddItemToObject(root, "integrations", integrations_to_json());
     cJSON_AddItemToObject(root, "wireguard", wireguard_to_json());
+    cJSON_AddItemToObject(root, "mqtt", mqtt_to_json());
     cJSON_AddItemToObject(root, "schedule", schedule_to_json());
     cJSON_AddItemToObject(root, "light_sensor", light_sensor_to_json());
 
@@ -375,6 +399,10 @@ static bool apply_display(const cJSON *sec)
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "boot_screen"))) {
         s.boot_screen = (boot_screen_t)clampi(it->valueint, 0, 2);
     }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "source"))) {
+        if      (strcmp(it->valuestring, "integration") == 0) s.source = DISPLAY_SRC_INTEGRATION;
+        else if (strcmp(it->valuestring, "static") == 0)      s.source = DISPLAY_SRC_STATIC;
+    }
 
     if (settings_save(&s) != ESP_OK) return false;
 
@@ -469,6 +497,9 @@ static bool apply_value_config(const cJSON *sec)
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "stale_text"))) {
         snprintf(v.stale_text, sizeof(v.stale_text), "%s", it->valuestring);
     }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "default_text"))) {
+        snprintf(v.default_text, sizeof(v.default_text), "%s", it->valuestring);
+    }
 
     // integrations_set_value_cfg persists the blob AND refreshes the RAM
     // cache, which is the "re-init" the import contract asks for.
@@ -540,6 +571,40 @@ static bool apply_wireguard(const cJSON *sec)
     return err == ESP_OK;
 }
 
+static bool apply_mqtt(const cJSON *sec)
+{
+    mqtt_cfg_t c;
+    mqtt_link_get_config(&c);
+
+    const cJSON *it;
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "enabled"))) {
+        c.enabled = cJSON_IsTrue(it);
+    }
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "ha_discovery"))) {
+        c.ha_discovery = cJSON_IsTrue(it);
+    }
+    struct { const char *key; char *dst; size_t sz; bool keep_empty; } strs[] = {
+        {"uri",        c.uri,        sizeof(c.uri),        false},
+        {"username",   c.username,   sizeof(c.username),   false},
+        // An empty password in the file keeps the stored one (mirrors the
+        // wireguard private_key rule above).
+        {"password",   c.password,   sizeof(c.password),   true},
+        {"base_topic", c.base_topic, sizeof(c.base_topic), false},
+        {"ha_prefix",  c.ha_prefix,  sizeof(c.ha_prefix),  false},
+    };
+    for (unsigned i = 0; i < sizeof(strs) / sizeof(strs[0]); i++) {
+        if (!cJSON_IsString(it = cJSON_GetObjectItem(sec, strs[i].key))) continue;
+        if (strs[i].keep_empty && it->valuestring[0] == '\0') continue;
+        snprintf(strs[i].dst, strs[i].sz, "%s", it->valuestring);
+    }
+
+    esp_err_t err = mqtt_link_apply(&c);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "import: mqtt_link_apply failed: %s", esp_err_to_name(err));
+    }
+    return err == ESP_OK;
+}
+
 static bool apply_light_sensor(const cJSON *sec)
 {
     light_sensor_cfg_t c;
@@ -606,6 +671,10 @@ static bool apply_schedule(const cJSON *sec)
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "utc_offset"))) {
         sc.utc_offset = (int16_t)clampi(it->valueint, -14 * 60, 14 * 60);
     }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "tz")) &&
+        strlen(it->valuestring) <= SCHED_TZ_MAX) {
+        snprintf(sc.tz, sizeof(sc.tz), "%s", it->valuestring);
+    }
     // Pre-2.2 backups carry neither field: the stored action stays as it is,
     // which for a device that never set one is "off" (old behaviour).
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "off_action"))) {
@@ -645,6 +714,7 @@ static esp_err_t config_import(httpd_req_t *req)
         {"value_config", apply_value_config},
         {"integrations", apply_integrations},
         {"wireguard",    apply_wireguard},
+        {"mqtt",         apply_mqtt},
         {"schedule",     apply_schedule},
     };
 

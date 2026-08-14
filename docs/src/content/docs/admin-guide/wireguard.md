@@ -9,6 +9,10 @@ The firmware includes an optional WireGuard client. Its purpose is remote access
 
 The client is marked experimental until it has been proven against a live peer on hardware; the code builds and runs, but treat it as a feature to verify in your own setup rather than rely on sight unseen.
 
+:::caution[Firmware 2.2.0]
+2.2.0 shipped with the lwIP task stack too small for the tunnel's crypto: enabling WireGuard on that build crashes the device into a reboot loop about 90 seconds after every boot. If you are stuck in it, power-cycle and disable the tunnel from the Network tab within that window, then update. 2.3.0 fixes the stack size and adds the crash-loop guard described below, so a future fault of this kind can no longer lock you out.
+:::
+
 ## The vendored component
 
 The WireGuard implementation is a vendored copy of the `esp_wireguard` component, taken from the droscy fork (release 0.4.5) of the original trombik project, chosen because it already carried fixes for ESP-IDF 6 and mbedtls 4. It was then ported for this firmware; the full list of local changes, validation notes, and runtime caveats lives in `Firmware/components/esp_wireguard/PORTING.md` in the repository.
@@ -42,10 +46,16 @@ The private key is stored in the device's flash and is included in the [config e
 `GET /api/wireguard` includes a status object, and the same fields appear in `/api/status`:
 
 ```json
-"status": {"compiled_in": true, "up": true, "last_handshake": 1755158400}
+"status": {"compiled_in": true, "up": true, "held": false, "last_handshake": 1755158400}
 ```
 
 `up` means the peer currently answers handshakes; `last_handshake` is a Unix timestamp of the most recent completed handshake, 0 if none yet. The Network tab renders this as a one-line summary ("Tunnel up - last handshake 2 min ago").
+
+## The crash-loop guard
+
+A tunnel bug must never brick the device out of its own web UI. The firmware counts consecutive crash reboots (panic or watchdog resets) that happen while the tunnel is enabled; after three in a row it holds the tunnel down at boot instead of starting it. The device then boots normally, the web UI stays reachable, and the status reports `held: true` ("Tunnel suspended after repeated reboots").
+
+The counter resets on any clean boot (power cycle, reboot button, OTA restart) and on the first completed handshake. Re-saving the WireGuard config lifts the hold and retries immediately - that is the deliberate "I fixed it, try again" signal.
 
 ## How it behaves at runtime
 

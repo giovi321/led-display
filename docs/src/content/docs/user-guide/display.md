@@ -5,15 +5,30 @@ sidebar:
   order: 1
 ---
 
-The Display tab is the first tab of the web UI and controls what the display shows: the text, its colour, the brightness, whether it scrolls, and which font it uses at which size. Everything you apply here is saved to flash and comes back after a power cycle.
+The Display tab is the first tab of the web UI and controls what the display shows: the content source, the text, its colour, the brightness, whether it scrolls, and which font it uses at which size. Everything you apply here is saved to flash and comes back after a power cycle.
 
-Press Apply to send the current text, colour, text size, spacing, scroll mode, speed, and brightness to the device in one go. Clear display blanks the display and erases the stored text; all other settings stay.
+The header of the web UI carries a live preview of the panel: the same text in the same colour, scrolling if the panel scrolls. It is a simulation drawn from the device's reported state, not a screenshot, so it also works while the panel itself is out of sight.
+
+## Content source
+
+The switch at the top decides where the panel content comes from:
+
+- **Static text** shows whatever you type in the Text card below
+- **Integration** shows the last value pushed by your integration (the [value endpoint](../value-updates/) or [MQTT](../../admin-guide/mqtt/)), formatted per the Integrations tab. Until the first value arrives - right after a reboot, for instance - the panel shows the placeholder text configured with the [value settings](../value-updates/#formatting), or stays blank if none is set
+
+Switching is immediate and persisted. Values pushed while the source is static are still accepted and remembered; switching to integration shows the latest one.
 
 ## Text
 
-Type the text and press Apply. The input accepts up to 120 characters (the API accepts up to 127, see the [API reference](../../api-reference/)). Every font covers printable ASCII (characters 32 to 126); anything outside that range renders as `?`.
+Type the text and press Show text. The input accepts up to 120 characters (the API accepts up to 127, see the [API reference](../../api-reference/)). Every font covers printable ASCII (characters 32 to 126); anything outside that range renders as `?`. The card is only shown while the content source is static.
 
 Static text is centered horizontally. If the text is wider than the display, pick a scroll mode, otherwise the right-hand part is cut off.
+
+Clear display blanks the display and erases the stored text; all other settings stay.
+
+## Appearance
+
+Colour, text size, spacing, brightness, and scrolling live in their own card and apply to both content sources. Press Apply appearance to send them in one go; the text itself is left alone.
 
 ## Colour
 

@@ -348,6 +348,7 @@ uint8_t font_fit(uint8_t id, int max_h)
 uint16_t font_glyph_col(const font_def_t *f, char c, int col)
 {
     unsigned char u = (unsigned char)c;
+    if (c == FONT_THIN_SPACE) return 0;   // blank gap, never the '?' fallback
     if (u < 0x20 || u > 0x7E) u = '?';
     if (col < 0 || col >= f->w) return 0;
     unsigned gi = (unsigned)(u - 0x20) * f->w + (unsigned)col;
@@ -358,6 +359,13 @@ uint16_t font_glyph_col(const font_def_t *f, char c, int col)
 void font_glyph_span(const font_def_t *f, char c, bool prop,
                      int *start, int *width)
 {
+    if (c == FONT_THIN_SPACE) {
+        // Narrower than ' ' in both spacing modes - even monospace, where a
+        // full cell would defeat the point of the thin separator.
+        *start = 0;
+        *width = f->space_w > 1 ? f->space_w - 1 : 1;
+        return;
+    }
     if (!prop) {
         *start = 0;
         *width = f->w;

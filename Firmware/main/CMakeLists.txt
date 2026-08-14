@@ -7,6 +7,14 @@ else()
     set(_cjson_dep json)
 endif()
 
+## esp-mqtt: same split - built-in `mqtt` core component in IDF <6.0, the
+## `espressif/mqtt` managed component (via main/idf_component.yml) from 6.0.
+if(IDF_VERSION_MAJOR GREATER_EQUAL 6)
+    set(_mqtt_dep espressif__mqtt)
+else()
+    set(_mqtt_dep mqtt)
+endif()
+
 ## ---- web assets ----------------------------------------------------------
 ## The web UI lives as editable source files in main/web/ and is gzipped at
 ## configure time (deterministic, mtime=0) into the build dir, then embedded.
@@ -54,6 +62,7 @@ idf_component_register(
         "webhooks.c"
         "ota_update.c"
         "wg_client.c"
+        "mqtt_link.c"
         "web_server.c"
         "web_common.c"
         "web_static.c"
@@ -84,4 +93,5 @@ idf_component_register(
         driver
         led_strip
         esp_wireguard
+        ${_mqtt_dep}
 )

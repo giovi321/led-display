@@ -1,6 +1,6 @@
 ---
-title: Integrations and WireGuard
-description: /api/integrations, /api/wireguard, and the outbound webhook payloads
+title: Integrations, WireGuard and MQTT
+description: /api/integrations, /api/wireguard, /api/mqtt, and the outbound webhook payloads
 sidebar:
   order: 6
 ---
@@ -77,11 +77,11 @@ Open. Returns the tunnel configuration and live status; the private key is repor
   "address": "",
   "allowed_ips": "",
   "keepalive_s": 25,
-  "status": { "compiled_in": true, "up": false, "last_handshake": 0 }
+  "status": { "compiled_in": true, "up": false, "held": false, "last_handshake": 0 }
 }
 ```
 
-`last_handshake` is unix seconds, 0 until the first handshake. `compiled_in` is false when the firmware was built with `CONFIG_LEDDISP_WIREGUARD` off; every mutating call then returns 501.
+`last_handshake` is unix seconds, 0 until the first handshake. `compiled_in` is false when the firmware was built with `CONFIG_LEDDISP_WIREGUARD` off; every mutating call then returns 501. `held` is true when the [crash-loop guard](../../admin-guide/wireguard/#the-crash-loop-guard) is keeping an enabled tunnel down; re-saving the config lifts it.
 
 ## POST /api/wireguard
 
@@ -99,3 +99,40 @@ Requires `X-Api-Key` when a key is set. Overlay semantics like `/api/integration
 | `keepalive_s` | number | persistent keepalive, 0 disables, 25 is typical |
 
 See the [WireGuard guide](../../admin-guide/wireguard/) for setup and limitations.
+
+## GET /api/mqtt
+
+Open. Returns the MQTT configuration and live status; the password is reported only as `password_set`.
+
+```json
+{
+  "enabled": false,
+  "uri": "mqtt://192.168.1.10:1883",
+  "username": "",
+  "password_set": false,
+  "base_topic": "",
+  "ha_discovery": false,
+  "ha_prefix": "homeassistant",
+  "status": { "compiled_in": true, "connected": false }
+}
+```
+
+`compiled_in` is false when the firmware was built with `CONFIG_LEDDISP_MQTT` off; `POST /api/mqtt` then returns 501.
+
+## POST /api/mqtt
+
+Requires `X-Api-Key` when a key is set. Overlay semantics; an absent or empty `password` keeps the stored one, so re-saving the form never wipes it.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `enabled` | bool | applies immediately: connects or tears down; requires a non-empty `uri` |
+| `uri` | string | `mqtt://`, `mqtts://` (CA-bundle-verified TLS), `ws://` or `wss://`, max 128 chars |
+| `username` | string | max 64 chars; empty connects anonymously |
+| `password` | string | max 64 chars; empty keeps the stored one |
+| `base_topic` | string | max 64 chars; empty uses the device name |
+| `ha_discovery` | bool | publish/withdraw Home Assistant discovery configs |
+| `ha_prefix` | string | max 32 chars; empty uses `homeassistant` |
+
+Errors: 400 `"uri required to enable MQTT"`, 400 `"field too long"`, 501 when not compiled in.
+
+The topic layout, the state JSON and the discovery entities are documented in the [MQTT guide](../../admin-guide/mqtt/).

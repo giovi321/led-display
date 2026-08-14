@@ -46,6 +46,13 @@ runtime-verified on hardware.
   `udp_*`). With `CONFIG_LWIP_TCPIP_CORE_LOCKING` off (the IDF default),
   these are only thread-safe from the tcpip thread, so `wg_client.c`
   marshals every component call through `esp_netif_tcpip_exec()`.
+- The tcpip task stack MUST be enlarged
+  (`CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=8192` in `sdkconfig.defaults`).
+  `psa_crypto_init()` (mbedtls entropy setup) runs there via the marshalled
+  init, and the component's `sys_timeout` rekey timer runs the
+  x25519/blake2s handshake crypto there unconditionally. The 3072-byte IDF
+  default overflows: stack canary panic and a reboot loop on every connect
+  (observed on hardware with fw 2.2.0).
 - Single tunnel instance: the component keeps its state in file-scope
   statics (`wg_netif_struct`, `peer`, ...). One tunnel, one peer.
 - Handshake timestamps (tai64n) need sane wall time or the peer rejects the

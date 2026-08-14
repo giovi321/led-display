@@ -41,15 +41,15 @@ The logical display size follows from the layout: width is cols times w, height 
 4. Press **Apply**. The firmware validates the layout (bounds, chain permutation, rotation legality), rebuilds the lookup table live, saves the layout to flash, re-renders the stored text, and runs the border test pattern so you get immediate visual confirmation of the new edges
 5. If the border does not trace the outline you expect, the panel wiring is probably wrong rather than the arrangement; see the test patterns below
 
-Identify mode ends when you leave the Hardware tab, and any test pattern also switches it off. The editor shows an "unsaved changes" banner whenever the drawing differs from what the device last acknowledged; Revert reloads the device's layout.
+Identify mode ends when you leave the Hardware tab, and any test pattern also switches it off. **Stop tests** (in the editor and in the Test patterns card) ends whatever test or identify mode is running and puts the normal content back. The editor shows an "unsaved changes" banner whenever the drawing differs from what the device last acknowledged; Revert reloads the device's layout.
 
 ## Grid, presets, and limits
 
-The Grid steppers change rows and cols. Shrinking the grid drops the removed cells and compacts the surviving chain indices to 0..n-1 in their existing order; growing assigns the next free chain indices to the new cells. Either way the layout stays a valid permutation, so you can resize freely and fix the order afterwards with Identify and drag.
+The Rows and Columns steppers change the grid: each is a labelled `− value +` control, so what a button adds or removes is unambiguous. Shrinking the grid drops the removed cells and compacts the surviving chain indices to 0..n-1 in their existing order; growing assigns the next free chain indices to the new cells. Either way the layout stays a valid permutation, so you can resize freely and fix the order afterwards with Identify and drag.
 
 The Panel row has preset buttons for 8x8, 16x16, and 8x32, the sizes WS2812B matrices are actually sold in, plus custom width and height fields for anything else from 1x1 to 64x64. Switching to a non-square panel size snaps any 90/270 rotation to the nearest legal value.
 
-The Wiring row describes one panel rather than the arrangement, in the words you would use looking at the panel itself: First LED (the corner the strip enters, the four buttons draw the dot where it would sit), Strip runs (in rows or in columns), and Zigzag (the strip reverses on every row or column instead of jumping back to the same side, which is how almost every off-the-shelf matrix is built). Each label carries a `?` that explains the setting, and a small preview beside them draws the strip path through one panel for the current selection.
+The Wiring row describes one panel rather than the arrangement, in the words you would use looking at the panel itself: First LED (the corner the strip enters, the four buttons draw the dot where it would sit), Strip runs (in rows or in columns), and Zigzag (the strip reverses on every row or column instead of jumping back to the same side, which is how almost every off-the-shelf matrix is built). Each label carries a `?` that explains the setting, and the amber first-LED dot on every drawn panel reflects the current selection.
 
 Limits, enforced by the firmware and mirrored by the editor's disabled buttons:
 

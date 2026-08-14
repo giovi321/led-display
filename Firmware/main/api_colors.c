@@ -152,24 +152,32 @@ static esp_err_t value_post(httpd_req_t *req)
     char text[DISPLAY_TEXT_MAX];
     valuefmt_format(&vcfg, raw, text, sizeof(text));
 
-    // Show in the current colour, scrolling mode and speed; persist so the
-    // value survives a reboot; scale 0 = keep the active scale. The mode is
-    // passed through rather than forced off: a long formatted value is exactly
-    // what continuous scrolling is for, and settings_save_text has no
-    // keep-current sentinel for it, so forcing it here would wipe the setting.
-    display_color_t color;
-    uint8_t mode, speed;
-    display_get_state(NULL, 0, &color, &mode, &speed, NULL);
-    display_show_text(text, color, mode, speed, 0);
-    settings_save_text(text, NULL, mode, speed, 0);
-
-    // Freshness bookkeeping: this is what un-stales the display (the
-    // scheduler tick restores brightness / stops re-poking the marker).
+    // Always remembered (so switching to integration mode later shows it) and
+    // always counted as fresh - but only RENDERED while the display source is
+    // "integration". In static mode the panel keeps the user's text.
+    integrations_set_last_value(text);
     integrations_touch_value();
+
+    settings_t cfg;
+    settings_load(&cfg);
+    bool rendered = (cfg.source == DISPLAY_SRC_INTEGRATION);
+    if (rendered) {
+        // Show in the current colour, scrolling mode and speed; scale 0 =
+        // keep the active scale. The mode is passed through rather than
+        // forced off: a long formatted value is exactly what continuous
+        // scrolling is for. Deliberately NOT persisted as the stored text -
+        // that field is the static text now; after a reboot the value
+        // config's default_text stands in until the next push.
+        display_color_t color;
+        uint8_t mode, speed;
+        display_get_state(NULL, 0, &color, &mode, &speed, NULL);
+        display_show_text(text, color, mode, speed, 0);
+    }
 
     cJSON *resp = cJSON_CreateObject();
     cJSON_AddBoolToObject(resp, "ok", true);
     cJSON_AddStringToObject(resp, "displayed", text);
+    cJSON_AddBoolToObject(resp, "rendered", rendered);
     return web_send_json(req, resp);
 }
 
@@ -191,6 +199,7 @@ static esp_err_t value_cfg_get(httpd_req_t *req)
     if (act >= sizeof(STALE_NAMES) / sizeof(STALE_NAMES[0])) act = 0;
     cJSON_AddStringToObject(r, "stale_action", STALE_NAMES[act]);
     cJSON_AddStringToObject(r, "stale_text", v.stale_text);
+    cJSON_AddStringToObject(r, "default_text", v.default_text);
     return web_send_json(req, r);
 }
 
@@ -248,6 +257,9 @@ static esp_err_t value_cfg_post(httpd_req_t *req)
     }
     if (cJSON_IsString(it = cJSON_GetObjectItem(body, "stale_text"))) {
         snprintf(v.stale_text, sizeof(v.stale_text), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "default_text"))) {
+        snprintf(v.default_text, sizeof(v.default_text), "%s", it->valuestring);
     }
     cJSON_Delete(body);
 

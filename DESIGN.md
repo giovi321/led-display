@@ -99,17 +99,20 @@ captive-portal probes, and a registration table each module contributes to.
 
 NVS namespace `cfg` keeps existing scalar keys (text, colour, brightness,
 scroll, speed, scale, boot screen). New scalar keys: `scm` (scroll mode,
-section 11), `font`, `prop` (spacing, section 11) and `dname` (device name;
-absent means unset and every consumer falls back to its historical default).
-Structured state is stored as JSON blobs under their own keys:
+section 11), `font`, `prop` (spacing, section 11), `dname` (device name;
+absent means unset and every consumer falls back to its historical default)
+and `dsrc` (display content source: 0 static text, 1 integration value;
+absent means static). Structured state is stored as JSON blobs under their
+own keys:
 
 | Key | Content |
 |-----|---------|
 | `layout` | panel type + grid + cells (section 1) |
 | `colors` | array of `{name, r, g, b}`, max 12 |
-| `valuecfg` | prefix, suffix, decimals, thousands separator, stale_hours, stale_action, stale_text |
+| `valuecfg` | prefix, suffix, decimals, thousands separator, stale_hours, stale_action, stale_text, default_text (integration-mode placeholder) |
 | `integr` | api_key, webhook url, webhook event mask, plus the legacy device-name copy `dname` superseded |
 | `wg` | WireGuard enable, private key, peer public key, endpoint, port, allowed IPs, keepalive |
+| `mqtt` | MQTT enable, broker URI, username, password, base topic, HA discovery flag + prefix |
 | `lsen` | light sensor: enabled, gpio, dark_raw, bright_raw, min_bri, max_bri, gamma |
 
 `settings.c` gains load/save helpers per blob; every blob has a version
@@ -118,9 +121,13 @@ field for forward migration.
 Two namespaces outside `cfg`:
 
 - `sched` holds the schedule scalars (`en`, `on_h`, `on_m`, `off_h`,
-  `off_m`, `days`, `utc`) plus `oact` (off-window action) and `obri` (the
-  level the `dim` action holds); absent keys default to the blanking
+  `off_m`, `days`, `utc`) plus `oact` (off-window action), `obri` (the
+  level the `dim` action holds) and `tz` (POSIX TZ override; empty falls
+  back to the fixed `utc` offset); absent keys default to the blanking
   behaviour older builds had
+- `wg` (the namespace, distinct from the `cfg`/`wg` blob) holds `crashes`,
+  the consecutive-crash-reboot counter behind the WireGuard crash-loop
+  guard (section 8)
 - `wifi` holds five credential slots, `ssid0`..`ssid4` and
   `pass0`..`pass4`. Slot 0 is mirrored onto the single legacy `ssid`/`pass`
   pair so an OTA rollback still finds credentials, and a device that only
@@ -149,20 +156,32 @@ All existing endpoints remain. New/changed:
 | GET | `/api/wifi/networks` | `{networks:[{ssid,connected}],count,max}`; passwords are never returned |
 | POST | `/api/wifi/networks` | `{ssid,password}` adds or updates a slot; 409 when all five are in use |
 | POST | `/api/wifi/networks/delete` | `{ssid}` forgets one network |
+| POST | `/api/display/source` | `{"mode":"static"\|"integration"}` content source; re-renders immediately |
+| GET/POST | `/api/mqtt` | MQTT client config (section 13); status surfaced in `/api/status` |
 
 Changed shapes: `/api/display/text` accepts `scroll_mode`, `font` and
-`spacing` (section 11); `/api/schedule` accepts `off_action` (`off`, `dim`)
-and `off_brightness` (1..255); `/api/wifi/connect` adds or updates a network
-and reboots instead of replacing the single stored one; `/api/wifi/reset`
-forgets every network; `/api/wifi/scan` items gain `saved`.
+`spacing` (section 11), and a request without `text` re-renders but leaves
+the stored text key alone (in integration mode the on-screen text is the
+pushed value, which must not leak into the static text); `/api/schedule`
+accepts `off_action` (`off`, `dim`), `off_brightness` (1..255) and `tz` (a
+POSIX TZ override applied via `setenv`/`tzset`, DST included; empty keeps
+the fixed `utc_offset`); `/api/display/test` accepts `pattern: "off"` to end
+tests/identify and restore the configured content; `/api/value` renders only
+in integration mode, remembers the formatted value in RAM either way, and
+reports `rendered`; `/api/value/config` gains `default_text` (the
+integration-mode placeholder before the first value); `/api/wifi/connect`
+adds or updates a network and reboots instead of replacing the single stored
+one; `/api/wifi/reset` forgets every network; `/api/wifi/scan` items gain
+`saved`.
 
 `/api/status` gains: firmware version + build date, layout summary, value
-age (seconds since last `/api/value`), WireGuard state, OTA slot,
-`display.scroll_mode`/`font`/`spacing`, `display.brightness_stored` next to
-the applied `display.brightness`, `light_sensor` (`enabled`, `sampling`,
-`raw`, `level`), `system.device_name` (resolved) and
-`system.device_name_stored` (empty when unset), and `wifi.ap_ssid` in every
-mode.
+age (seconds since last `/api/value`), WireGuard state (`held` included),
+MQTT state, OTA slot, `display.scroll_mode`/`font`/`spacing`,
+`display.brightness_stored` next to the applied `display.brightness`,
+`display.text_stored` next to the on-screen `display.text`,
+`display.source`, `light_sensor` (`enabled`, `sampling`, `raw`, `level`),
+`system.device_name` (resolved) and `system.device_name_stored` (empty when
+unset), and `wifi.ap_ssid` in every mode.
 
 **Auth**: if an API key is configured, every mutating endpoint (POST) checks
 `X-Api-Key`; GETs stay open except `/api/config/export`. The WiFi endpoints
@@ -189,6 +208,17 @@ hijacked from.
 `stale_hours > 0` and no value update for that long, apply `stale_action`:
 `none`, `dim` (halve the level the schedule and the cap allow), `marker` (blinking
 corner pixel), or `text` (show `stale_text`). Cleared by the next value post.
+The guard only runs while the display source is `integration`: a stale value
+must not dim, mark or overwrite the user's static text.
+
+**Content source**: the `dsrc` scalar decides what the panel is wired to
+show. Static: the stored text. Integration: the last value pushed via
+`/api/value` or MQTT, held in RAM only (a reboot shows the `default_text`
+placeholder until the next push - a stale-looking figure must never pose as
+live data). Values pushed in static mode are still formatted, remembered and
+counted fresh, so switching to integration shows the latest one. The switch,
+the test-stop and the MQTT power-on all re-render through one helper
+(`api_display_apply_source`).
 
 **Brightness arbitration**: `scheduler.c` owns the one function that decides
 what reaches the panel, in this order: the schedule level (inside the
@@ -236,6 +266,18 @@ peer public key, endpoint host:port, allowed IPs, persistent keepalive.
 Status (handshake age, peer) in `/api/status`. If the IDF 6 port proves
 unreasonable, the feature ships compile-time disabled and documented as
 experimental; nothing else in this design depends on it.
+
+Two hard lessons are baked in (2.3.0). First, every component call is
+marshalled into the lwIP tcpip thread and the component's own rekey timer
+runs there too, so `psa_crypto_init()` and the x25519/blake2s handshake
+crypto all execute on the tcpip stack:
+`CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=8192` is REQUIRED (the 3072 default
+overflows into a stack-canary panic and a reboot loop on every connect).
+Second, a tunnel bug must never brick the device out of its own web UI: the
+`wg`-namespace `crashes` counter counts consecutive crash reboots
+(panic/WDT reset reasons) with the tunnel enabled; at three the tunnel is
+held down at boot (`held` in the status, banner in the UI) until the config
+is re-saved. Any clean boot or completed handshake resets the counter.
 
 ## 9. Boot flow (v2)
 
@@ -293,7 +335,34 @@ Wire/NVS vocabulary: `/api/display/text` accepts `scroll_mode`
 the config export report the same fields. NVS keys: `scm` (mode, `scrl`
 kept in sync for rollback), `font`, `prop`.
 
+One character outside the ASCII table: the thin space (0x1F,
+`FONT_THIN_SPACE`), a blank advance one column narrower than the space in
+both spacing modes. `valuefmt.c` emits it for the space thousands separator
+so grouped values stay compact; typed text can never contain it, and the
+renderer treats it as blank rather than the `?` fallback.
+
 ## 12. Out of scope (deferred)
 
-Multiple parallel data pins, MQTT, clock/countdown modes, HTTPS on-device,
-per-panel type mixing (heterogeneous panels in one grid).
+Multiple parallel data pins, clock/countdown modes, HTTPS on-device,
+per-panel type mixing (heterogeneous panels in one grid), an uploadable
+image/logo as the integration placeholder (text only for now; a bitmap needs
+its own storage and render path).
+
+## 13. MQTT client (optional, v2.3)
+
+`mqtt_link.c` on ESP-IDF's esp-mqtt (core component in IDF <6, the
+`espressif/mqtt` managed component from 6.0). Kconfig `LEDDISP_MQTT`,
+default y, no-op stubs when off - same contract as WireGuard. Config blob
+in section 4; API `GET/POST /api/mqtt` with the WG secret rules (password
+never echoed, empty keeps stored).
+
+The device is an integration source and a controllable node under one base
+topic (default: the device name): `text/set`, `value/set` (identical
+semantics to the HTTP endpoints, same formatting and freshness bookkeeping),
+`brightness/set`, `power/set` (blank/restore, RAM only), `source/set`,
+`reboot/set`; retained `state` JSON every 30 s and after each command;
+`availability` via LWT. Optional Home Assistant discovery publishes retained
+configs (light with brightness, text, source select, reboot button, RSSI +
+value-age diagnostics) under the discovery prefix, and withdraws them with
+empty retained payloads when discovery is switched off. MQTT bypasses the
+API key by design; the broker's auth is the boundary, stated in the docs.

@@ -56,3 +56,10 @@ esp_err_t integrations_set_value_cfg(const value_cfg_t *in);
 // Value freshness bookkeeping (used by /api/value and the staleness tick).
 void integrations_touch_value(void);       // record "a value arrived now"
 int64_t integrations_value_age_s(void);    // seconds since last value, -1 = never
+
+// Last formatted value, RAM only (does not survive a reboot - that is what
+// the value config's default_text placeholder is for). Written by every
+// value push whatever the display source, so switching static ->
+// integration can show the latest value immediately.
+void integrations_set_last_value(const char *text);
+bool integrations_get_last_value(char *buf, size_t bufsize);  // false = none yet

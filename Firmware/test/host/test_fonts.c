@@ -33,8 +33,9 @@ static void test_tables(void)
                 assert(any);   // every printable glyph has pixels
             }
         }
-        // Out-of-range characters fall back to '?', never to garbage.
-        assert(font_glyph_col(f, (char)0x1F, 0) == font_glyph_col(f, '?', 0));
+        // Out-of-range characters fall back to '?', never to garbage - except
+        // the thin space (0x1F), which is deliberately blank.
+        assert(font_glyph_col(f, (char)0x1E, 0) == font_glyph_col(f, '?', 0));
         assert(font_glyph_col(f, (char)0x7F, 0) == font_glyph_col(f, '?', 0));
     }
     printf("test_tables ok\n");
@@ -92,6 +93,17 @@ static void test_spans(void)
         }
         font_glyph_span(f, ' ', true, &start, &width);
         assert(start == 0 && width == f->space_w);
+
+        // Thin space: narrower than ' ' in both spacing modes, and blank.
+        int thin_w;
+        font_glyph_span(f, FONT_THIN_SPACE, true, &start, &thin_w);
+        assert(start == 0 && thin_w >= 1);
+        assert(thin_w < f->space_w || f->space_w == 1);
+        font_glyph_span(f, FONT_THIN_SPACE, false, &start, &width);
+        assert(width == thin_w);
+        for (int col = 0; col < f->w; col++) {
+            assert(font_glyph_col(f, FONT_THIN_SPACE, col) == 0);
+        }
 
         // A narrow glyph really is narrower than the cell.
         font_glyph_span(f, '.', true, &start, &width);

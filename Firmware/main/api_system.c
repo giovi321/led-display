@@ -19,6 +19,7 @@
 #include "led_driver.h"
 #include "light_sensor.h"
 #include "mapping.h"
+#include "mqtt_link.h"
 #include "ota_update.h"
 #include "scheduler.h"
 #include "settings.h"
@@ -112,11 +113,19 @@ static esp_err_t status_get(httpd_req_t *req)
     // Surface the saved boot-screen choice so the System tab can reflect it.
     settings_t cfg;
     settings_load(&cfg);
+    // Content source: what the panel is wired to show. display.text above is
+    // whatever is on screen right now, whichever source produced it.
+    cJSON_AddStringToObject(d, "source",
+                            cfg.source == DISPLAY_SRC_INTEGRATION
+                                ? "integration" : "static");
     // display.brightness is what the arbiter last applied (0 in a blanked
     // off-window, halved by the staleness guard); the stored user level is a
     // separate field, so the UI slider can be an input without writing the
     // applied value back.
     cJSON_AddNumberToObject(d, "brightness_stored", cfg.brightness);
+    // The persisted static text, distinct from display.text (which is
+    // whatever is on screen - the pushed value in integration mode).
+    cJSON_AddStringToObject(d, "text_stored", cfg.text);
     const char *bs = "text";
     if      (cfg.boot_screen == BOOT_SHOW_IP)   bs = "ip";
     else if (cfg.boot_screen == BOOT_SHOW_NONE) bs = "none";
@@ -143,7 +152,15 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddBoolToObject(wgj, "compiled_in", wg.compiled_in);
     cJSON_AddBoolToObject(wgj, "enabled", wg.enabled);
     cJSON_AddBoolToObject(wgj, "up", wg.up);
+    cJSON_AddBoolToObject(wgj, "held", wg.held);
     cJSON_AddNumberToObject(wgj, "last_handshake", (double)wg.last_handshake);
+
+    mqtt_link_status_t mq;
+    mqtt_link_get_status(&mq);
+    cJSON *mqj = cJSON_AddObjectToObject(r, "mqtt");
+    cJSON_AddBoolToObject(mqj, "compiled_in", mq.compiled_in);
+    cJSON_AddBoolToObject(mqj, "enabled", mq.enabled);
+    cJSON_AddBoolToObject(mqj, "connected", mq.connected);
 
     ota_status_t ota;
     ota_get_status(&ota);
@@ -289,6 +306,7 @@ static esp_err_t schedule_get(httpd_req_t *req)
     cJSON_AddNumberToObject(r, "off_min", sc.off_min);
     cJSON_AddNumberToObject(r, "days", sc.days);
     cJSON_AddNumberToObject(r, "utc_offset", sc.utc_offset);
+    cJSON_AddStringToObject(r, "tz", sc.tz);
     cJSON_AddStringToObject(r, "off_action",
                             sc.off_action == SCHED_OFF_ACT_DIM ? "dim" : "off");
     cJSON_AddNumberToObject(r, "off_brightness", sc.off_brightness);
@@ -312,6 +330,7 @@ static esp_err_t schedule_post(httpd_req_t *req)
     const cJSON *fm = cJSON_GetObjectItem(json, "off_min");
     const cJSON *d  = cJSON_GetObjectItem(json, "days");
     const cJSON *u  = cJSON_GetObjectItem(json, "utc_offset");
+    const cJSON *tz = cJSON_GetObjectItem(json, "tz");
     const cJSON *oa = cJSON_GetObjectItem(json, "off_action");
     const cJSON *ob = cJSON_GetObjectItem(json, "off_brightness");
 
@@ -341,6 +360,23 @@ static esp_err_t schedule_post(httpd_req_t *req)
         }
     }
     if (cJSON_IsNumber(ob)) sc.off_brightness = (uint8_t)ob->valueint;
+
+    // POSIX TZ override; "" clears it (back to the fixed utc_offset). Only a
+    // length and charset check here - a rule that parses to nonsense simply
+    // behaves like UTC, which the user notices and fixes.
+    if (cJSON_IsString(tz)) {
+        if (strlen(tz->valuestring) > SCHED_TZ_MAX) {
+            cJSON_Delete(json);
+            return web_send_err(req, "tz too long (max 48)", 400);
+        }
+        for (const char *p = tz->valuestring; *p; p++) {
+            if (*p < 0x20 || *p > 0x7E) {
+                cJSON_Delete(json);
+                return web_send_err(req, "tz must be a printable POSIX TZ string", 400);
+            }
+        }
+        snprintf(sc.tz, sizeof(sc.tz), "%s", tz->valuestring);
+    }
 
     if (cJSON_IsBool(en))   sc.enabled    = cJSON_IsTrue(en);
     if (cJSON_IsNumber(oh)) sc.on_hour    = (uint8_t)oh->valueint;

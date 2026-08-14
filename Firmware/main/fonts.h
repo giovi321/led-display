@@ -13,6 +13,12 @@
 #define FONT_ID_7X12  2   // tall, real lowercase with descenders
 #define FONT_COUNT    3
 
+// Thin space: renders as a blank gap narrower than ' ' in every font and
+// spacing mode. Emitted by valuefmt.c for the space thousands separator
+// ("1 025 300" otherwise reads too wide next to "1.025.300"). 0x1F so it can
+// never collide with typed text; keep valuefmt.c's copy in sync.
+#define FONT_THIN_SPACE  '\x1F'
+
 typedef struct {
     const char *name;     // API name: "5x7", "3x5", "7x12"
     uint8_t     w;        // glyph cell width in columns

@@ -23,6 +23,9 @@ typedef enum {
 
 #define SCHED_OFF_BRI_DEFAULT  8
 
+// POSIX TZ string, e.g. "CET-1CEST,M3.5.0,M10.5.0/3" for Europe/Zurich.
+#define SCHED_TZ_MAX  48
+
 typedef struct {
     bool    enabled;
     uint8_t on_hour;
@@ -33,6 +36,10 @@ typedef struct {
     int16_t utc_offset;     // minutes from UTC (e.g. +60 for CET)
     uint8_t off_action;     // sched_off_action_t
     uint8_t off_brightness; // 1..255, applied when off_action = DIM
+    // Timezone override. Empty = the fixed utc_offset above (historical
+    // behaviour, refreshed from the browser on every save). When set, the
+    // schedule follows this POSIX TZ rule instead - DST transitions included.
+    char    tz[SCHED_TZ_MAX + 1];
 } schedule_t;
 
 esp_err_t scheduler_init(void);

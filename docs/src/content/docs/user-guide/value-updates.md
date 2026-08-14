@@ -7,7 +7,11 @@ sidebar:
 
 The value endpoint is how other systems drive the display. Anything that can send an HTTP POST with a JSON body can update it: an n8n or Node-RED flow, Home Assistant, a cron job with curl, a CI pipeline. The sender only delivers the raw value; the device owns the formatting (prefix, suffix, decimals, thousands separator), so every source stays a one-liner and the presentation is configured once, on the display.
 
-The value appears in the current colour, size and [scroll mode](../display/#scrolling), and it survives a reboot. Posting a value does not change any of those settings, so a display set to scroll keeps scrolling, which is what a long formatted value needs.
+The value appears in the current colour, size and [scroll mode](../display/#scrolling). Posting a value does not change any of those settings, so a display set to scroll keeps scrolling, which is what a long formatted value needs.
+
+The value renders while the display's [content source](../display/#content-source) is Integration. In Static mode the POST is still accepted and remembered - switching to Integration shows the latest value - but the panel keeps the static text. The last value lives in RAM only: after a reboot the panel shows the configured placeholder (see [formatting](#formatting-configuration)) until the next POST arrives.
+
+Values can also arrive over [MQTT](../../admin-guide/mqtt/) on `<base>/value/set`; they go through exactly the same formatting and freshness bookkeeping.
 
 ## Posting a value
 
@@ -40,14 +44,17 @@ Two details about numbers:
 
 ## Formatting configuration
 
-The value config lives on the Integrations tab (advanced mode), or via `GET`/`POST /api/value/config`. Four fields shape the output:
+The value config lives on the Integrations tab (advanced mode), or via `GET`/`POST /api/value/config`. Five fields shape the output:
 
 | Field | Range | Effect |
 |-------|-------|--------|
 | Prefix | up to 16 characters | text before the value, e.g. `CHF ` |
 | Suffix | up to 16 characters | text after the value, e.g. ` kg` |
 | Decimals | -1 to 9 | fixed decimal places; -1 shows the value exactly as sent |
-| Thousands separator | none, comma, dot, apostrophe, space | groups the integer digits in threes |
+| Thousands separator | none, comma, dot, apostrophe, thin space | groups the integer digits in threes |
+| Placeholder | up to 64 characters | shown verbatim in Integration mode until the first value arrives; empty keeps the panel blank |
+
+The thin space renders narrower than a typed space - about the width of a dot - so a space-grouped value (`1 025 300`) takes barely more room than a dot-grouped one instead of overflowing the panel.
 
 ### Worked example
 
@@ -82,7 +89,7 @@ Every action also fires the `value_stale` [webhook](#consuming-the-devices-webho
 
 The next successful POST to `/api/value` clears everything: the brightness comes back, the marker and stale text disappear, and the timer restarts. The check runs every 30 seconds and counts device uptime, so it works without NTP; after a reboot the guard arms when the first update arrives.
 
-Two situations pause the guard, because there is nothing useful to mark: a [schedule](../schedule/) off window that blanks the panel (a dimmed off window keeps the guard running), and [setup-AP mode](../../getting-started/wifi-setup/), where the panel carries the setup SSID and address and must not be overwritten. Both resume as soon as the display is back.
+Three situations pause the guard, because there is nothing useful to mark: a [schedule](../schedule/) off window that blanks the panel (a dimmed off window keeps the guard running), [setup-AP mode](../../getting-started/wifi-setup/), where the panel carries the setup SSID and address and must not be overwritten, and a [content source](../display/#content-source) set to Static - a stale value must not dim or overwrite text the user typed. All resume as soon as the integration value is back on the panel.
 
 Pick the threshold from your update cadence with slack for normal gaps: a flow that posts every hour can go stale at 3 to 4 hours; one that posts once a day, at 26 to 30 hours.
 

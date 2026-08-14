@@ -120,7 +120,12 @@ void valuefmt_format(const value_cfg_t *cfg, const char *raw,
         num[n] = '\0';
     }
 
-    insert_thousands(num, sizeof(num), cfg->thousands);
+    // A space separator becomes the renderer's thin space (FONT_THIN_SPACE in
+    // fonts.h): a full space cell makes grouped values noticeably wider than
+    // the same value with a dot separator. Kept out of fonts.h on purpose -
+    // this file must stay compilable standalone by the host tests.
+    char sep = cfg->thousands == ' ' ? '\x1F' : cfg->thousands;
+    insert_thousands(num, sizeof(num), sep);
 
     snprintf(out, outsz, "%s%s%s", cfg->prefix, num, cfg->suffix);
 }

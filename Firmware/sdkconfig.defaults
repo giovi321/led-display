@@ -33,6 +33,13 @@ CONFIG_HTTPD_MAX_URI_LEN=512
 # lwIP: a few extra sockets for the captive portal + REST clients
 CONFIG_LWIP_MAX_SOCKETS=10
 
+# lwIP tcpip task stack. The WireGuard client marshals every component call
+# into this thread (esp_netif_tcpip_exec) and the component's own sys_timeout
+# rekey timer runs there too, so psa_crypto_init() plus the x25519/blake2s
+# handshake crypto all execute on this stack. The 3072-byte IDF default
+# overflows -> stack canary panic -> reboot loop whenever a tunnel connects.
+CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=8192
+
 # Main task stack a bit larger to comfortably hold the boot sequence
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 

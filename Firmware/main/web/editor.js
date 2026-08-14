@@ -139,52 +139,12 @@
 
   // ---- SVG drawing ----------------------------------------------------
 
-  const marker = (id, cls) =>
-    `<marker id="${id}" viewBox="0 0 8 8" refX="6.5" refY="4" markerWidth="4.5"` +
-    ` markerHeight="4.5" orient="auto"><path class="${cls}" d="M0,0L8,4L0,8Z"/></marker>`;
-
   const badge = (cx, cy, rr, n) =>
     `<circle class="ed-bbg" cx="${cx}" cy="${cy}" r="${rr}"/>` +
     `<text class="ed-btx" x="${cx}" y="${cy}" font-size="${rr}" text-anchor="middle" dy=".35em">${n}</text>`;
 
-  // Wiring glyph: dot on the first-LED corner plus arrows for the walk
-  // direction and the row/column advance, computed in LED units. Drawn only
-  // in the wiring preview; grid panels carry the simpler first-LED dot and
-  // rotation chip. Geometry mirrors mapping_xy_to_index().
-  function glyphSvg(p, rot, x0, y0, px, markId) {
-    const w = p.w, h = p.h, o = CORNER[p.origin];
-    const sx = o[0] ? -1 : 1, sy = o[1] ? -1 : 1;    // away from the origin corner
-    const d1 = p.axis === 'row' ? [sx, 0] : [0, sy]; // strip walk
-    const d2 = p.axis === 'row' ? [0, sy] : [sx, 0]; // next row/col
-    const padx = Math.min(1.6, w * 0.2), pady = Math.min(1.6, h * 0.2);
-    const s = [o[0] * w + sx * padx, o[1] * h + sy * pady];
-    const len = Math.max(1.5, (p.axis === 'row' ? w - 2 * padx : h - 2 * pady) * 0.7);
-    const step = Math.max(1.2, Math.min(2.5, (p.axis === 'row' ? h : w) * 0.3));
-    const at = (q) => { // clockwise mounting rotation (90/270 only when square)
-      const t = rot === 90 ? [h - q[1], q[0]]
-        : rot === 180 ? [w - q[0], h - q[1]]
-        : rot === 270 ? [q[1], w - q[0]] : q;
-      return [x0 + t[0] * px, y0 + t[1] * px];
-    };
-    const pts = (list) => list.map((q) => at(q).map((v) => v.toFixed(1)).join(',')).join(' ');
-    const line = (list, mid) =>
-      `<polyline class="ed-glyph" ${mid ? `marker-mid="url(#${markId})" ` : ''}` +
-      `marker-end="url(#${markId})" points="${pts(list)}"/>`;
-    const P1 = [s[0] + d1[0] * len, s[1] + d1[1] * len];
-    let out;
-    if (p.serpentine) {
-      const P2 = [P1[0] + d2[0] * step, P1[1] + d2[1] * step];
-      out = line([s, P1, P2, [P2[0] - d1[0] * len, P2[1] - d1[1] * len]], true);
-    } else {
-      const Q0 = [s[0] + d2[0] * step, s[1] + d2[1] * step];
-      out = line([s, P1]) + line([Q0, [Q0[0] + d1[0] * len, Q0[1] + d1[1] * len]]);
-    }
-    const dp = at(s);
-    return out + `<circle class="ed-dot" cx="${dp[0].toFixed(1)}" cy="${dp[1].toFixed(1)}" r="${(px * 0.5).toFixed(1)}"/>`;
-  }
-
   // Clockwise mounting rotation of a panel-local point in LED units
-  // (90/270 only when square). Mirrors the transform inside glyphSvg.
+  // (90/270 only when square). Mirrors mapping_xy_to_index().
   function rotPt(p, rot, q) {
     return rot === 90 ? [p.h - q[1], q[0]]
       : rot === 180 ? [p.w - q[0], p.h - q[1]]
@@ -291,16 +251,6 @@
       }
     });
     return s + '</svg>';
-  }
-
-  // Live preview of the first-panel walk for the current wiring selection.
-  function previewSvg() {
-    const p = st.panel, px = 5, w = p.w * px, h = p.h * px;
-    const sc = Math.min(150 / w, 84 / h);
-    return `<svg width="${Math.round(w * sc)}" height="${Math.round(h * sc)}" viewBox="0 0 ${w} ${h}">` +
-      `<defs>${marker('edawp', 'ed-mw')}</defs>` +
-      `<rect class="ed-body" x="1" y="1" width="${w - 2}" height="${h - 2}" rx="${(Math.min(w, h) * 0.08).toFixed(1)}"/>` +
-      glyphSvg(p, 0, 0, 0, px, 'edawp') + '</svg>';
   }
 
   // ---- interactions (pointer events, touch included) -------------------
@@ -448,6 +398,17 @@
       .catch((err) => showMsg(`test failed: ${err.message}`, true));
   }
 
+  function stopTests() {
+    api('/api/display/test', { pattern: 'off' })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        identify = false;
+        showMsg('tests stopped - normal content restored');
+        update();
+      })
+      .catch((err) => showMsg(`stop failed: ${err.message}`, true));
+  }
+
   // ---- UI ----------------------------------------------------------------
 
   function showMsg(text, isErr) {
@@ -550,7 +511,6 @@
     K.arow.classList.toggle('ed-sel', p.axis === 'row');
     K.acol.classList.toggle('ed-sel', p.axis === 'col');
     ui.serp.checked = p.serpentine;
-    ui.prev.innerHTML = previewSvg();
     K.ident.classList.toggle('ed-sel', identify);
     K.ident.setAttribute('aria-pressed', identify ? 'true' : 'false');
     ui.banner.hidden = !isDirty();
@@ -588,10 +548,19 @@
   const H_AXIS = 'How the strip walks inside one panel: across in rows, or down in columns.';
   const H_SERP = 'The strip reverses direction on every row or column (zigzag) instead of jumping back to the same side. Almost every off-the-shelf matrix is wired this way.';
 
+  // Labeled steppers: each dimension reads as "Rows [-] 2 [+]" with the
+  // value boxed between its own buttons, so what each button changes is
+  // unambiguous at a glance.
+  const stepper = (label, key, valKey) =>
+    `<span class="ed-step"><span class="ed-steplab">${label}</span>` +
+    `<span class="ed-stepper">${btn(key + '-', '−', `one ${label.toLowerCase().replace(/s$/, '')} fewer`)}` +
+    `<b class="ed-val" data-v="${valKey}"></b>` +
+    `${btn(key + '+', '+', `one ${label.toLowerCase().replace(/s$/, '')} more`)}</span></span>`;
+
   const CONTROLS =
     `<div class="ed-row"><span class="ed-lab">Grid</span>` +
-    `<span class="ed-grp">rows ${btn('r-', '−')}<b class="ed-val" data-v="rows"></b>${btn('r+', '+')}</span>` +
-    `<span class="ed-grp">cols ${btn('c-', '−')}<b class="ed-val" data-v="cols"></b>${btn('c+', '+')}</span></div>` +
+    stepper('Rows', 'r', 'rows') +
+    stepper('Columns', 'c', 'cols') + `</div>` +
     `<div class="ed-row"><span class="ed-lab">Panel</span>` +
     btn('p8', '8x8') + btn('p16', '16x16') + btn('p32', '8x32 (32x8)') +
     `<label>W <input class="ed-num" data-i="w" type="number" min="1" max="64"></label>` +
@@ -605,11 +574,11 @@
     `<span class="ed-fld"><span class="ed-flab">Zigzag${help(H_SERP)}</span>` +
     `<label class="ed-check"><input type="checkbox" data-i="serp"> serpentine</label></span>` +
     `</span>` +
-    `<span class="ed-prevbox"><span class="ed-prev"></span><span class="ed-prevlab">strip path in one panel</span></span>` +
     `</div>` +
     `<div class="ed-row">` +
     btn('ident', 'Identify', 'light every physical panel in its chain colour') +
-    btn('btest', 'Border test', 'run the border test pattern') + `</div>` +
+    btn('btest', 'Border test', 'run the border test pattern') +
+    btn('stop', 'Stop tests', 'end identify/test mode and restore the normal content') + `</div>` +
     `<div class="ed-banner" hidden><span>unsaved changes</span>${btn('apply', 'Apply')}${btn('revert', 'Revert')}</div>` +
     `<div class="ed-msg" hidden></div>` +
     `<div class="ed-wrap">loading layout...</div>` +
@@ -623,7 +592,16 @@
     '.ed-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5em .9em;margin:.6em 0}' +
     '.ed-grp{display:inline-flex;align-items:center;gap:4px}' +
     '.ed-lab{color:var(--mut,#999);min-width:3.4em;font-size:.88em}' +
-    '.ed-val{min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}' +
+    '.ed-step{display:inline-flex;align-items:center;gap:8px}' +
+    '.ed-steplab{color:var(--mut,#999);font-size:.88em}' +
+    '.ed-stepper{display:inline-flex;align-items:stretch;border:1px solid var(--line,#35353d);' +
+    'border-radius:8px;overflow:hidden}' +
+    '.ed-stepper [data-k]{border:none;border-radius:0;min-width:44px;font-size:19px;' +
+    'line-height:1;padding:6px 0}' +
+    '.ed-stepper .ed-val{display:inline-flex;align-items:center;justify-content:center;' +
+    'min-width:2.4em;background:var(--bg,#0b0b0d);border-left:1px solid var(--line,#35353d);' +
+    'border-right:1px solid var(--line,#35353d);font-size:16px;' +
+    'font-variant-numeric:tabular-nums}' +
     '.ed-num{width:4em;min-height:38px;background:var(--inp,#232329);color:inherit;' +
     'border:1px solid var(--line,#35353d);border-radius:6px;font:inherit;padding:4px 8px}' +
     '.ed button{font:inherit;cursor:pointer;touch-action:manipulation}' +
@@ -652,9 +630,6 @@
     '.ed-tip{position:absolute;z-index:5;max-width:280px;background:#000;' +
     'border:1px solid var(--accent,#4da3ff);border-radius:6px;padding:8px 10px;' +
     'font-size:.85em;line-height:1.45;box-shadow:0 4px 14px rgba(0,0,0,.5)}' +
-    '.ed-prevbox{display:inline-flex;flex-direction:column;align-items:center;gap:3px;' +
-    'margin-left:auto}' +
-    '.ed-prevlab{color:var(--mut,#999);font-size:.72em}' +
     '.ed-banner{display:flex;align-items:center;gap:.7em;margin:.5em 0;padding:.4em .7em;' +
     'border:1px solid var(--accent,#4da3ff);border-radius:6px;background:rgba(77,163,255,.08)}' +
     '.ed-msg{margin:.4em 0;padding:.3em .6em;border-radius:4px;background:rgba(128,128,128,.12)}' +
@@ -666,8 +641,6 @@
     '.ed-body{fill:rgba(128,128,128,.13);stroke:rgba(128,128,128,.55);stroke-width:1.5}' +
     '.ed-over .ed-body{stroke:var(--accent,#4da3ff);stroke-width:4}' +
     '.ed-led{fill:var(--fg,#888);opacity:.13}' +
-    '.ed-glyph{fill:none;stroke:var(--fg,#bbb);stroke-width:2;opacity:.75}' +
-    '.ed-mw{fill:var(--fg,#bbb)}' +
     '.ed-dot{fill:var(--accent,#4da3ff);stroke:rgba(0,0,0,.55);stroke-width:1}' +
     '.ed-chain{fill:none;stroke:var(--accent,#4da3ff);opacity:.5;stroke-linejoin:round}' +
     '.ed-bbg{fill:rgba(0,0,0,.5)}' +
@@ -677,8 +650,6 @@
     '.ed-chipf{fill:#fff;opacity:.92}' +
     '.ed-chipt{fill:#fff;font-weight:600;font-family:inherit}' +
     '.ed-ghost{opacity:.65;pointer-events:none}' +
-    '.ed-prev{line-height:0;opacity:.9}' +
-    '.ed-prev svg{display:block}' +
     '.ed-foot{color:var(--mut,#999);font-size:.85em}';
 
   function onClick(e) {
@@ -697,6 +668,7 @@
     else if (k === 'acol') { st.panel.axis = 'col'; onChange(); }
     else if (k === 'ident') toggleIdentify();
     else if (k === 'btest') borderTest();
+    else if (k === 'stop') stopTests();
     else if (k === 'apply') apply();
     else if (k === 'revert') load();
   }
@@ -720,7 +692,7 @@
         k: {},
         rowsVal: q('[data-v="rows"]'), colsVal: q('[data-v="cols"]'),
         w: q('[data-i="w"]'), h: q('[data-i="h"]'), serp: q('[data-i="serp"]'),
-        prev: q('.ed-prev'), banner: q('.ed-banner'), msg: q('.ed-msg'),
+        banner: q('.ed-banner'), msg: q('.ed-msg'),
         wrap: q('.ed-wrap'), foot: q('.ed-foot'),
       };
       root.querySelectorAll('[data-k]').forEach((b) => { ui.k[b.dataset.k] = b; });

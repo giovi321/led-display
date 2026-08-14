@@ -5,7 +5,7 @@
 // its file exclusively:
 //
 //   api_display.c      /api/display/{text,brightness,brightness_cap,
-//                      light_sensor,clear,test,map,identify}
+//                      light_sensor,clear,test,map,identify,source}
 //   api_layout.c       /api/layout (GET/POST)
 //   api_colors.c       /api/colors, /api/value, /api/value/config
 //   api_wifi.c         /api/wifi/{scan,networks,networks/delete,connect,reset}
@@ -19,6 +19,12 @@
 #include "esp_http_server.h"
 
 void api_display_register(httpd_handle_t srv);
+
+// Re-render the panel from the persisted display source: the stored static
+// text, or (integration mode) the last pushed value / default_text
+// placeholder. Shared by the source switch, the test-pattern stop and the
+// MQTT control path.
+void api_display_apply_source(void);
 void api_layout_register(httpd_handle_t srv);
 void api_colors_register(httpd_handle_t srv);
 void api_wifi_register(httpd_handle_t srv);
