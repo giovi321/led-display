@@ -1,0 +1,31 @@
+# Host-test binaries (compiled by Firmware/test/host/run_tests.sh).
+Firmware/test/host/test_mapping
+Firmware/test/host/test_valuefmt
+
+# Firmware build artefacts (ESP-IDF). Patterns are unanchored so they catch
+# Firmware/build/ etc. without listing the prefix explicitly.
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# Fritzing autosave / backup files (the .fzz source itself is tracked).
+*.fzz.bak
+*.fz.bak
+*.bak
+
+# SketchUp backup files and scratch dirs (the .skp source itself is tracked).
+*.skb
+_old/
+
+# Editor / OS / agent dotfiles.
+.playwright-mcp/
+.cache/
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+.DS_Store

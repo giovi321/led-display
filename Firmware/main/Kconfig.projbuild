@@ -1,0 +1,21 @@
+menu "LED display"
+
+    config LEDDISP_GITHUB_REPO
+        string "GitHub repo for update checks (owner/name)"
+        default "giovi321/led-display"
+        help
+            GET /api/ota/check queries this repository's latest GitHub
+            release and offers its led_display.bin asset as an OTA update.
+            The repository must be public for the device to reach it.
+
+    config LEDDISP_WIREGUARD
+        bool "Compile in the WireGuard client"
+        default y
+        help
+            Builds the vendored esp_wireguard component and the wg_client
+            runtime glue. The tunnel stays down until enabled and configured
+            from the web UI (Network section) or POST /api/wireguard.
+            Disabling this removes the WireGuard code from the image
+            entirely; the API then reports compiled_in=false.
+
+endmenu

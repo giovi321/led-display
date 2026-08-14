@@ -1,0 +1,26 @@
+menu "WireGuard (esp_wireguard component)"
+
+    config WIREGUARD_MAX_PEERS
+        int "Maximum number of peers"
+        default 1
+        range 1 8
+        help
+            Peers are allocated statically inside the device structure to
+            avoid malloc. This firmware only ever configures one peer.
+
+    config WIREGUARD_MAX_SRC_IPS
+        int "Maximum source IPs per peer"
+        default 1
+        range 1 8
+        help
+            Static allowed-ip slots per peer, in addition to the ones added
+            at runtime via esp_wireguard_add_allowed_ip().
+
+    config WIREGUARD_MAX_INIT_PER_SECOND
+        int "Maximum handshake initiations per second"
+        default 2
+        range 1 10
+        help
+            Per-device rate limit on accepting valid initiation requests.
+
+endmenu

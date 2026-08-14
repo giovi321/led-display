@@ -1,0 +1,123 @@
+<h1 align="center">led-display</h1>
+
+<p align="center">
+  <a href="https://giovi321.github.io/led-display/"><img src="https://github.com/giovi321/led-display/actions/workflows/docs.yml/badge.svg" alt="Docs build"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/ESP--IDF-6.0-blue" alt="ESP-IDF 6.0">
+  <img src="https://img.shields.io/badge/target-esp32s3-orange" alt="target esp32s3">
+</p>
+
+<p align="center">
+  <a href="https://giovi321.github.io/led-display/">
+    <img src="https://img.shields.io/badge/READ%20THE%20DOCS-2ea44f?style=for-the-badge" alt="Read the docs">
+  </a>
+</p>
+
+You buy a stack of cheap WS2812B panels, glue them to a frame, chain the data line with short jumpers, and power the thing up. The text comes out shredded: the panels are chained in an order you didn't plan, and two of them are mounted upside down because that's where the connectors happened to land. With most matrix firmware that discovery costs you an evening of rewiring or recompiling. Here it's a 30 second fix in the browser: press Identify so every physical panel lights its own colour, drag the on-screen panels until the drawing matches the wall, apply.
+
+led-display is ESP-IDF firmware for the ESP32-S3 that drives chained WS2812B matrix panels as one logical display, built for a single always-on readout: a revenue figure, a subscriber counter, a temperature, a countdown.
+
+## What it does
+
+- Web UI with a simple mode (text, colour, brightness, schedule) and an advanced mode that unlocks hardware, network, integrations and system tabs; no frameworks, one page, served gzipped from flash
+- Graphical arrangement editor: describe your panel once (size, first-LED corner, row or column walk, serpentine), lay panels out on a grid up to 8x16 cells (32 panels, 8192 pixels), drag to swap, click to rotate, with identify mode to match the drawing to the physical wall
+- Value endpoint for any webhook-capable system: `POST /api/value` with `{"value": 4210.5}` and the device formats it (prefix, suffix, decimals, thousands separator) and displays it; a staleness guard dims the display, blinks a corner pixel or swaps in a fallback text when no update arrives for a configured number of hours
+- Saved colours (up to 12 named presets), per-weekday on/off schedule, configurable boot screen
+- OTA updates both ways: upload a `.bin` from the browser or have the device pull one from a URL, with automatic rollback if the new image fails to boot
+- Config backup and restore as one JSON file; WiFi credentials are deliberately excluded so the file can move between devices and people
+- Optional API key: when set, every POST requires the `X-Api-Key` header
+- Outbound webhooks (plain JSON POST, fire-and-forget) for boot, IP change, OTA result, schedule on/off and stale value
+- Optional WireGuard client for remote access without port forwarding
+
+## Hardware
+
+The reference build this firmware runs on:
+
+| Item        | Detail                                              |
+|-------------|-----------------------------------------------------|
+| MCU board   | ESP32-S3-DevKitC-1, ESP32-S3-WROOM-1 N16R8          |
+| Flash/PSRAM | 16 MB QIO flash, 8 MB OPI PSRAM                     |
+| LED panels  | 4x WS2812B 32x8 in a 2x2 grid = 64x16 (1024 LEDs)   |
+| Wiring      | Per panel: column-serpentine, top-left origin       |
+| Chain       | controller -> TL -> TR -> BR -> BL                  |
+| Mounting    | Top panels upright, bottom panels rotated 180 deg   |
+| Data pin    | GPIO 16 (through SN74HCT125N level shifter to 5 V)  |
+| PCB         | See `PCB/` (Fritzing v3 source + Gerbers)           |
+
+Nothing about that grid is hardcoded anymore. The firmware takes any identical-panel grid: panel sizes 1..64 in each dimension, up to 8 rows by 16 columns, capped at 32 panels and 8192 pixels total. Hardware notes (power budget, level shifter, connectors) live in [docs.md](docs.md).
+
+## Quick start
+
+1. Flash over USB once:
+
+   ```sh
+   cd Firmware
+   idf.py set-target esp32s3
+   idf.py build
+   idf.py -p /dev/ttyACM0 flash monitor
+   ```
+
+   Devices running v1 also need this one USB reflash, because 2.0.0 installs a new OTA partition table. Stored settings and WiFi credentials survive it. Every later update goes through the web UI.
+
+2. The device boots, finds no stored credentials and opens an AP named `LEDDisplay-Setup`. Connect from a phone or laptop; the captive portal redirects to `http://192.168.4.1/`.
+
+3. Pick your network, enter the password, save. The device reboots onto your network and shows its IP on the panels (default boot screen on a fresh install). Open that IP in a browser.
+
+## Screenshots
+
+<!-- screenshot: web UI, Display tab (simple mode) -->
+<!-- screenshot: arrangement editor with identify mode active, next to a photo of the panels lit in their identify colours -->
+<!-- screenshot: Integrations tab with the value endpoint config -->
+<!-- photo: the assembled 64x16 display on the wall -->
+
+## Security
+
+This is a LAN device speaking plain HTTP. Treat it that way.
+
+- There is no TLS on the device. Anything on the same network can read the traffic
+- With no API key configured, every endpoint is open. That is the deliberate trusted-LAN default
+- With an API key configured, every POST requires `X-Api-Key`. GETs stay open, except the config export, which contains the API key and the WireGuard private key and is therefore key-protected. The key guards against casual misuse, not against a hostile network
+- The WiFi endpoints stay keyless while the device is in captive-portal setup mode, since you could not present a key there yet
+- Secrets (WiFi password, API key, WireGuard private key) never appear in status or config GET responses; they only leave the device in the key-protected export
+- For remote access, run the built-in WireGuard client to a peer you control. Do not port-forward the device
+
+## Repository layout
+
+```
+.
+├── DESIGN.md                firmware v2 design document
+├── docs.md                  hardware notes (power budget, level shifter, connectors)
+├── docs/                    documentation site (Astro Starlight, deployed to GitHub Pages)
+├── Firmware/                ESP-IDF 6 application, target esp32s3
+│   ├── partitions.csv       OTA partition table (two 6 MB app slots)
+│   ├── components/
+│   │   └── esp_wireguard/   vendored WireGuard component, ported to ESP-IDF 6 (see its PORTING.md)
+│   ├── main/
+│   │   ├── main.c           boot order
+│   │   ├── mapping.[hc]     pure LUT builder for the panel arrangement (host-testable)
+│   │   ├── led_driver.[hc]  RMT/led_strip, brightness + cap, LUT application
+│   │   ├── display.[hc]     font, frame buffer, scroll, test patterns, identify
+│   │   ├── valuefmt.[hc]    value formatting (pure, host-testable)
+│   │   ├── settings.[hc]    NVS persistence, JSON blobs
+│   │   ├── scheduler.[hc]   on/off schedule + staleness tick
+│   │   ├── integrations.[hc] API key, value config, webhook config
+│   │   ├── webhooks.[hc]    outbound webhook queue
+│   │   ├── wifi_manager.[hc] STA + captive-portal AP
+│   │   ├── wg_client.[hc]   WireGuard lifecycle
+│   │   ├── ota_update.[hc]  OTA slots, rollback
+│   │   ├── web_server.c     server setup, static assets, captive-portal probes
+│   │   ├── api_*.c          one HTTP handler file per domain
+│   │   └── web/             index.html, style.css, app.js, editor.js (gzipped at build)
+│   ├── test/host/           host unit tests (plain gcc + assert)
+│   └── tools/wsl_build.sh   build helper for a WSL-hosted toolchain
+├── PCB/                     Fritzing source + Gerbers (v3 board)
+└── 3D/                      SketchUp/STL/DXF for the frame, PCB box and spacers
+```
+
+## Development
+
+The [documentation site](https://giovi321.github.io/led-display/) covers the API reference, the mapping model and the build setup in detail. The short version: ESP-IDF v6.0.1, `idf.py set-target esp32s3`, and if your toolchain lives in WSL, `Firmware/tools/wsl_build.sh` mirrors the tree and builds outside the network mount. The pure modules (`mapping.c`, `valuefmt.c`) have host-side unit tests under `Firmware/test/host/`; they must pass before any PR. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)

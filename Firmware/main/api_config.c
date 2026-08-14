@@ -1,0 +1,598 @@
+// /api/config/export and /api/config/import (see api_handlers.h for the
+// ownership table, DESIGN.md section 5 for shapes).
+//
+// The export is ONE JSON document holding every persisted setting except
+// the WiFi credentials (deliberately: a config file that moves between
+// devices or people should not carry the network password). It does contain
+// the API key and the WireGuard private key, which is why the export
+// endpoint requires auth even though it is a GET - web_require_auth()
+// passes automatically while no key is configured.
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "cJSON.h"
+#include "esp_log.h"
+
+#include "api_handlers.h"
+#include "display.h"
+#include "fw_version.h"
+#include "integrations.h"
+#include "led_driver.h"
+#include "mapping.h"
+#include "scheduler.h"
+#include "settings.h"
+#include "web_common.h"
+#include "wg_client.h"
+
+static const char *TAG = "api_config";
+
+#define IMPORT_BODY_MAX  16384
+#define COLORS_MAX       12
+#define COLOR_NAME_MAX   24
+
+// Mirrors the tables in integrations.c / api_colors.c; each file keeps its
+// own copy because the frozen headers expose no name strings.
+static const char *STALE_NAMES[] = {"none", "dim", "marker", "text"};
+static const char *ORIGIN_NAMES[] = {"TL", "TR", "BL", "BR"};
+static const char *AXIS_NAMES[]   = {"row", "col"};
+
+// ---- section builders (export) ---------------------------------------------
+
+static cJSON *display_to_json(const settings_t *s)
+{
+    cJSON *d = cJSON_CreateObject();
+    cJSON_AddStringToObject(d, "text", s->text);
+    cJSON *col = cJSON_AddObjectToObject(d, "color");
+    cJSON_AddNumberToObject(col, "r", s->color.r);
+    cJSON_AddNumberToObject(col, "g", s->color.g);
+    cJSON_AddNumberToObject(col, "b", s->color.b);
+    cJSON_AddNumberToObject(d, "brightness", s->brightness);
+    cJSON_AddNumberToObject(d, "brightness_cap", s->brightness_cap);
+    cJSON_AddBoolToObject(d, "scroll", s->scroll);
+    cJSON_AddNumberToObject(d, "speed", s->speed);
+    cJSON_AddNumberToObject(d, "scale", s->scale);
+    cJSON_AddNumberToObject(d, "boot_screen", (int)s->boot_screen);
+    return d;
+}
+
+// Same shape as the "layout" blob written by settings_save_layout(), built
+// from the ACTIVE driver config so the export reflects reality even before
+// the user ever saved a layout.
+static cJSON *layout_to_json(const mapping_config_t *m)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "v", 1);
+
+    cJSON *p = cJSON_AddObjectToObject(root, "panel");
+    cJSON_AddNumberToObject(p, "w", m->panel.w);
+    cJSON_AddNumberToObject(p, "h", m->panel.h);
+    cJSON_AddStringToObject(p, "origin", ORIGIN_NAMES[m->panel.origin]);
+    cJSON_AddStringToObject(p, "axis", AXIS_NAMES[m->panel.axis]);
+    cJSON_AddBoolToObject(p, "serpentine", m->panel.serpentine);
+
+    cJSON *g = cJSON_AddObjectToObject(root, "grid");
+    cJSON_AddNumberToObject(g, "rows", m->rows);
+    cJSON_AddNumberToObject(g, "cols", m->cols);
+
+    cJSON *cells = cJSON_AddArrayToObject(root, "cells");
+    for (int r = 0; r < m->rows; r++) {
+        for (int c = 0; c < m->cols; c++) {
+            cJSON *cell = cJSON_CreateObject();
+            cJSON_AddNumberToObject(cell, "row", r);
+            cJSON_AddNumberToObject(cell, "col", c);
+            cJSON_AddNumberToObject(cell, "chain", m->cells[r][c].chain);
+            cJSON_AddNumberToObject(cell, "rot", m->cells[r][c].rot);
+            cJSON_AddItemToArray(cells, cell);
+        }
+    }
+    return root;
+}
+
+// Stored colours blob parsed back to an object; empty canonical shape when
+// nothing was saved yet.
+static cJSON *colors_to_json(void)
+{
+    cJSON *parsed = NULL;
+    char *buf = malloc(SETTINGS_BLOB_MAX);
+    if (buf && settings_load_blob("colors", buf, SETTINGS_BLOB_MAX, NULL) == ESP_OK) {
+        parsed = cJSON_Parse(buf);
+    }
+    free(buf);
+    if (parsed) return parsed;
+
+    cJSON *empty = cJSON_CreateObject();
+    cJSON_AddNumberToObject(empty, "v", 1);
+    cJSON_AddArrayToObject(empty, "colors");
+    return empty;
+}
+
+static cJSON *value_cfg_to_json(void)
+{
+    value_cfg_t v;
+    integrations_get_value_cfg(&v);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddNumberToObject(r, "v", 1);
+    cJSON_AddStringToObject(r, "prefix", v.prefix);
+    cJSON_AddStringToObject(r, "suffix", v.suffix);
+    cJSON_AddNumberToObject(r, "decimals", v.decimals);
+    char thou[2] = {v.thousands, '\0'};
+    cJSON_AddStringToObject(r, "thousands", thou);
+    cJSON_AddNumberToObject(r, "stale_hours", v.stale_hours);
+    unsigned act = (unsigned)v.stale_action;
+    if (act >= sizeof(STALE_NAMES) / sizeof(STALE_NAMES[0])) act = 0;
+    cJSON_AddStringToObject(r, "stale_action", STALE_NAMES[act]);
+    cJSON_AddStringToObject(r, "stale_text", v.stale_text);
+    return r;
+}
+
+static cJSON *integrations_to_json(void)
+{
+    integrations_cfg_t c;
+    integrations_get(&c);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddNumberToObject(r, "v", 1);
+    cJSON_AddStringToObject(r, "api_key", c.api_key);   // secret: export is auth-gated
+    cJSON_AddStringToObject(r, "webhook_url", c.webhook_url);
+    cJSON_AddNumberToObject(r, "webhook_events", c.webhook_events);
+    cJSON_AddStringToObject(r, "device_name", c.device_name);
+    return r;
+}
+
+static cJSON *wireguard_to_json(void)
+{
+    wg_config_t c;
+    wg_client_get_config(&c);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddBoolToObject(r, "enabled", c.enabled);
+    cJSON_AddStringToObject(r, "private_key", c.private_key);   // secret: auth-gated
+    cJSON_AddStringToObject(r, "peer_public_key", c.peer_public_key);
+    cJSON_AddStringToObject(r, "endpoint_host", c.endpoint_host);
+    cJSON_AddNumberToObject(r, "endpoint_port", c.endpoint_port);
+    cJSON_AddStringToObject(r, "address", c.address);
+    cJSON_AddStringToObject(r, "allowed_ips", c.allowed_ips);
+    cJSON_AddNumberToObject(r, "keepalive_s", c.keepalive_s);
+    return r;
+}
+
+static cJSON *schedule_to_json(void)
+{
+    schedule_t sc;
+    scheduler_get(&sc);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddBoolToObject(r, "enabled", sc.enabled);
+    cJSON_AddNumberToObject(r, "on_hour", sc.on_hour);
+    cJSON_AddNumberToObject(r, "on_min", sc.on_min);
+    cJSON_AddNumberToObject(r, "off_hour", sc.off_hour);
+    cJSON_AddNumberToObject(r, "off_min", sc.off_min);
+    cJSON_AddNumberToObject(r, "days", sc.days);
+    cJSON_AddNumberToObject(r, "utc_offset", sc.utc_offset);
+    return r;
+}
+
+// ---- GET /api/config/export ------------------------------------------------
+
+static esp_err_t config_export(httpd_req_t *req)
+{
+    // ALWAYS auth-checked: this document contains the API key and the
+    // WireGuard private key. With no key configured the check passes.
+    if (web_require_auth(req) != ESP_OK) return ESP_OK;
+
+    settings_t s;
+    settings_load(&s);
+    mapping_config_t map;
+    led_driver_get_config(&map);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "v", 1);
+    cJSON_AddStringToObject(root, "fw", FW_VERSION);
+    cJSON_AddStringToObject(root, "note", "wifi credentials not included");
+    cJSON_AddItemToObject(root, "display", display_to_json(&s));
+    cJSON_AddItemToObject(root, "layout", layout_to_json(&map));
+    cJSON_AddItemToObject(root, "colors", colors_to_json());
+    cJSON_AddItemToObject(root, "value_config", value_cfg_to_json());
+    cJSON_AddItemToObject(root, "integrations", integrations_to_json());
+    cJSON_AddItemToObject(root, "wireguard", wireguard_to_json());
+    cJSON_AddItemToObject(root, "schedule", schedule_to_json());
+
+    httpd_resp_set_hdr(req, "Content-Disposition",
+                       "attachment; filename=led-display-config.json");
+    return web_send_json(req, root);
+}
+
+// ---- import: per-section apply helpers --------------------------------------
+
+static int clampi(int v, int lo, int hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static bool apply_layout(const cJSON *sec)
+{
+    const cJSON *p     = cJSON_GetObjectItem(sec, "panel");
+    const cJSON *g     = cJSON_GetObjectItem(sec, "grid");
+    const cJSON *cells = cJSON_GetObjectItem(sec, "cells");
+    if (!cJSON_IsObject(p) || !cJSON_IsObject(g) || !cJSON_IsArray(cells)) {
+        return false;
+    }
+
+    mapping_config_t m;
+    memset(&m, 0, sizeof(m));
+
+    const cJSON *w = cJSON_GetObjectItem(p, "w");
+    const cJSON *h = cJSON_GetObjectItem(p, "h");
+    const cJSON *o = cJSON_GetObjectItem(p, "origin");
+    const cJSON *a = cJSON_GetObjectItem(p, "axis");
+    const cJSON *sp = cJSON_GetObjectItem(p, "serpentine");
+    // Range-check before the narrow casts: (uint8_t)320 would wrap to 64 and
+    // sail through mapping_validate as a plausible-but-wrong layout.
+    if (!cJSON_IsNumber(w) || !cJSON_IsNumber(h) ||
+        w->valueint < 1 || w->valueint > 64 ||
+        h->valueint < 1 || h->valueint > 64) {
+        return false;
+    }
+    m.panel.w = (uint8_t)w->valueint;
+    m.panel.h = (uint8_t)h->valueint;
+    m.panel.serpentine = cJSON_IsBool(sp) ? cJSON_IsTrue(sp) : true;
+    m.panel.origin = MAP_ORIGIN_TL;
+    if (cJSON_IsString(o)) {
+        for (int i = 0; i < 4; i++) {
+            if (strcmp(o->valuestring, ORIGIN_NAMES[i]) == 0) {
+                m.panel.origin = (map_origin_t)i;
+            }
+        }
+    }
+    m.panel.axis = MAP_AXIS_COL;
+    if (cJSON_IsString(a) && strcmp(a->valuestring, "row") == 0) {
+        m.panel.axis = MAP_AXIS_ROW;
+    }
+
+    const cJSON *rows = cJSON_GetObjectItem(g, "rows");
+    const cJSON *cols = cJSON_GetObjectItem(g, "cols");
+    if (!cJSON_IsNumber(rows) || !cJSON_IsNumber(cols) ||
+        rows->valueint < 1 || rows->valueint > MAP_MAX_ROWS ||
+        cols->valueint < 1 || cols->valueint > MAP_MAX_COLS) {
+        return false;
+    }
+    m.rows = (uint8_t)rows->valueint;
+    m.cols = (uint8_t)cols->valueint;
+
+    const cJSON *cell;
+    cJSON_ArrayForEach(cell, cells) {
+        const cJSON *r  = cJSON_GetObjectItem(cell, "row");
+        const cJSON *c  = cJSON_GetObjectItem(cell, "col");
+        const cJSON *ch = cJSON_GetObjectItem(cell, "chain");
+        const cJSON *ro = cJSON_GetObjectItem(cell, "rot");
+        if (!cJSON_IsNumber(r) || !cJSON_IsNumber(c)) continue;
+        int ri = r->valueint, ci = c->valueint;
+        if (ri < 0 || ri >= MAP_MAX_ROWS || ci < 0 || ci >= MAP_MAX_COLS) continue;
+        int chain = cJSON_IsNumber(ch) ? ch->valueint : 0;
+        int rot   = cJSON_IsNumber(ro) ? ro->valueint : 0;
+        if (chain < 0 || chain >= MAP_MAX_PANELS || rot < 0 || rot > 270) {
+            return false;   // would wrap through the narrow casts
+        }
+        m.cells[ri][ci].chain = (uint8_t)chain;
+        m.cells[ri][ci].rot   = (uint16_t)rot;
+    }
+
+    if (mapping_validate(&m) != MAPPING_OK) {
+        ESP_LOGW(TAG, "import: layout failed validation");
+        return false;
+    }
+    if (led_driver_reconfigure(&m) != ESP_OK) {
+        ESP_LOGW(TAG, "import: layout reconfigure failed");
+        return false;
+    }
+    return settings_save_layout(&m) == ESP_OK;
+}
+
+static bool apply_display(const cJSON *sec)
+{
+    settings_t s;
+    settings_load(&s);
+
+    const cJSON *it;
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "text"))) {
+        snprintf(s.text, sizeof(s.text), "%s", it->valuestring);
+    }
+    const cJSON *col = cJSON_GetObjectItem(sec, "color");
+    if (cJSON_IsObject(col)) {
+        const cJSON *r = cJSON_GetObjectItem(col, "r");
+        const cJSON *g = cJSON_GetObjectItem(col, "g");
+        const cJSON *b = cJSON_GetObjectItem(col, "b");
+        if (cJSON_IsNumber(r)) s.color.r = (uint8_t)clampi(r->valueint, 0, 255);
+        if (cJSON_IsNumber(g)) s.color.g = (uint8_t)clampi(g->valueint, 0, 255);
+        if (cJSON_IsNumber(b)) s.color.b = (uint8_t)clampi(b->valueint, 0, 255);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "brightness"))) {
+        s.brightness = (uint8_t)clampi(it->valueint, 0, 255);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "brightness_cap"))) {
+        s.brightness_cap = (uint8_t)clampi(it->valueint, 0, 255);
+    }
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "scroll"))) {
+        s.scroll = cJSON_IsTrue(it);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "speed"))) {
+        s.speed = (uint8_t)clampi(it->valueint, 0, 255);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "scale"))) {
+        s.scale = (uint8_t)clampi(it->valueint, 0, FONT_SCALE_MAX);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "boot_screen"))) {
+        s.boot_screen = (boot_screen_t)clampi(it->valueint, 0, 2);
+    }
+
+    if (settings_save(&s) != ESP_OK) return false;
+
+    // Live-apply. The cap goes first so the brightness lands under it. If
+    // the schedule currently has the display off we still render the text
+    // (into a 0-brightness frame) but leave the brightness at 0 - the
+    // scheduler restores it when the on-window starts.
+    led_driver_set_brightness_cap(s.brightness_cap);
+    if (!scheduler_display_is_off()) {
+        led_driver_set_brightness(s.brightness);
+    }
+    if (s.text[0] != '\0') {
+        display_show_text(s.text, s.color, s.scroll, s.speed, s.scale);
+    } else {
+        display_clear();
+    }
+    return true;
+}
+
+// Same validation as POST /api/colors (kept in sync by hand; the canonical
+// blob shape is small enough that sharing code across handler files is not
+// worth a new header).
+static bool apply_colors(const cJSON *sec)
+{
+    const cJSON *colors = cJSON_IsArray(sec) ? sec
+                        : cJSON_GetObjectItem(sec, "colors");
+    if (!cJSON_IsArray(colors) || cJSON_GetArraySize(colors) > COLORS_MAX) {
+        return false;
+    }
+
+    cJSON *blob = cJSON_CreateObject();
+    cJSON_AddNumberToObject(blob, "v", 1);
+    cJSON *out = cJSON_AddArrayToObject(blob, "colors");
+
+    const cJSON *it;
+    cJSON_ArrayForEach(it, colors) {
+        const cJSON *name = cJSON_GetObjectItem(it, "name");
+        const cJSON *r    = cJSON_GetObjectItem(it, "r");
+        const cJSON *g    = cJSON_GetObjectItem(it, "g");
+        const cJSON *b    = cJSON_GetObjectItem(it, "b");
+        if (!cJSON_IsString(name) || name->valuestring[0] == '\0' ||
+            strlen(name->valuestring) > COLOR_NAME_MAX ||
+            !cJSON_IsNumber(r) || r->valueint < 0 || r->valueint > 255 ||
+            !cJSON_IsNumber(g) || g->valueint < 0 || g->valueint > 255 ||
+            !cJSON_IsNumber(b) || b->valueint < 0 || b->valueint > 255) {
+            cJSON_Delete(blob);
+            return false;
+        }
+        cJSON *entry = cJSON_CreateObject();
+        cJSON_AddStringToObject(entry, "name", name->valuestring);
+        cJSON_AddNumberToObject(entry, "r", r->valueint);
+        cJSON_AddNumberToObject(entry, "g", g->valueint);
+        cJSON_AddNumberToObject(entry, "b", b->valueint);
+        cJSON_AddItemToArray(out, entry);
+    }
+
+    char *json = cJSON_PrintUnformatted(blob);
+    cJSON_Delete(blob);
+    if (!json) return false;
+    esp_err_t err = settings_save_blob("colors", json);
+    cJSON_free(json);
+    return err == ESP_OK;
+}
+
+static bool apply_value_config(const cJSON *sec)
+{
+    value_cfg_t v;
+    integrations_get_value_cfg(&v);
+
+    const cJSON *it;
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "prefix"))) {
+        snprintf(v.prefix, sizeof(v.prefix), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "suffix"))) {
+        snprintf(v.suffix, sizeof(v.suffix), "%s", it->valuestring);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "decimals"))) {
+        v.decimals = (int8_t)clampi(it->valueint, -1, 9);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "thousands"))) {
+        v.thousands = it->valuestring[0];
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "stale_hours"))) {
+        v.stale_hours = (uint16_t)clampi(it->valueint, 0, 0xFFFF);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "stale_action"))) {
+        for (unsigned i = 0; i < sizeof(STALE_NAMES) / sizeof(STALE_NAMES[0]); i++) {
+            if (strcmp(it->valuestring, STALE_NAMES[i]) == 0) {
+                v.stale_action = (stale_action_t)i;
+            }
+        }
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "stale_text"))) {
+        snprintf(v.stale_text, sizeof(v.stale_text), "%s", it->valuestring);
+    }
+
+    // integrations_set_value_cfg persists the blob AND refreshes the RAM
+    // cache, which is the "re-init" the import contract asks for.
+    return integrations_set_value_cfg(&v) == ESP_OK;
+}
+
+static bool apply_integrations(const cJSON *sec)
+{
+    integrations_cfg_t c;
+    integrations_get(&c);
+
+    const cJSON *it;
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "api_key"))) {
+        snprintf(c.api_key, sizeof(c.api_key), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "webhook_url"))) {
+        snprintf(c.webhook_url, sizeof(c.webhook_url), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "device_name"))) {
+        snprintf(c.device_name, sizeof(c.device_name), "%s", it->valuestring);
+    }
+    // The export writes the mask as a number (blob shape); name arrays are
+    // the /api/integrations dialect, not the config-file one.
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "webhook_events"))) {
+        c.webhook_events = (uint32_t)it->valuedouble;
+    }
+    return integrations_set(&c) == ESP_OK;
+}
+
+static bool apply_wireguard(const cJSON *sec)
+{
+    wg_config_t c;
+    wg_client_get_config(&c);
+
+    const cJSON *it;
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "enabled"))) {
+        c.enabled = cJSON_IsTrue(it);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "private_key")) &&
+        it->valuestring[0] != '\0') {
+        snprintf(c.private_key, sizeof(c.private_key), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "peer_public_key"))) {
+        snprintf(c.peer_public_key, sizeof(c.peer_public_key), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "endpoint_host"))) {
+        snprintf(c.endpoint_host, sizeof(c.endpoint_host), "%s", it->valuestring);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "endpoint_port"))) {
+        c.endpoint_port = (uint16_t)clampi(it->valueint, 0, 0xFFFF);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "address"))) {
+        snprintf(c.address, sizeof(c.address), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "allowed_ips"))) {
+        snprintf(c.allowed_ips, sizeof(c.allowed_ips), "%s", it->valuestring);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "keepalive_s"))) {
+        c.keepalive_s = (uint16_t)clampi(it->valueint, 0, 0xFFFF);
+    }
+
+    esp_err_t err = wg_client_apply(&c);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "import: wg_client_apply failed: %s", esp_err_to_name(err));
+    }
+    return err == ESP_OK;
+}
+
+static bool apply_schedule(const cJSON *sec)
+{
+    schedule_t sc;
+    scheduler_get(&sc);
+
+    const cJSON *it;
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "enabled"))) {
+        sc.enabled = cJSON_IsTrue(it);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "on_hour"))) {
+        sc.on_hour = (uint8_t)clampi(it->valueint, 0, 23);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "on_min"))) {
+        sc.on_min = (uint8_t)clampi(it->valueint, 0, 59);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "off_hour"))) {
+        sc.off_hour = (uint8_t)clampi(it->valueint, 0, 23);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "off_min"))) {
+        sc.off_min = (uint8_t)clampi(it->valueint, 0, 59);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "days"))) {
+        sc.days = (uint8_t)(it->valueint & SCHED_DAYS_ALL);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "utc_offset"))) {
+        sc.utc_offset = (int16_t)clampi(it->valueint, -14 * 60, 14 * 60);
+    }
+    return scheduler_set(&sc) == ESP_OK;
+}
+
+// ---- POST /api/config/import -----------------------------------------------
+
+static esp_err_t config_import(httpd_req_t *req)
+{
+    if (web_require_auth(req) != ESP_OK) return ESP_OK;
+
+    cJSON *doc = web_read_json(req, IMPORT_BODY_MAX);
+    if (!doc) return web_send_err(req, "invalid JSON body", 400);
+
+    cJSON *applied = cJSON_CreateArray();
+    cJSON *skipped = cJSON_CreateArray();
+
+    typedef bool (*apply_fn_t)(const cJSON *);
+    // Layout goes first so an imported display text renders onto the
+    // imported geometry, not the old one.
+    static const struct {
+        const char *name;
+        apply_fn_t  fn;
+    } sections[] = {
+        {"layout",       apply_layout},
+        {"display",      apply_display},
+        {"colors",       apply_colors},
+        {"value_config", apply_value_config},
+        {"integrations", apply_integrations},
+        {"wireguard",    apply_wireguard},
+        {"schedule",     apply_schedule},
+    };
+
+    bool layout_applied  = false;
+    bool display_present = false;
+
+    for (size_t i = 0; i < sizeof(sections) / sizeof(sections[0]); i++) {
+        const cJSON *sec = cJSON_GetObjectItem(doc, sections[i].name);
+        if (!sec) continue;   // absent sections are simply not touched
+
+        bool ok = sections[i].fn(sec);
+        cJSON_AddItemToArray(ok ? applied : skipped,
+                             cJSON_CreateString(sections[i].name));
+        if (ok && strcmp(sections[i].name, "layout") == 0) layout_applied = true;
+        if (strcmp(sections[i].name, "display") == 0) display_present = true;
+        if (!ok) {
+            ESP_LOGW(TAG, "import: section '%s' skipped", sections[i].name);
+        }
+    }
+
+    // led_driver_reconfigure cleared the frame; if no display section came
+    // along to re-render, bring the stored text back onto the new layout.
+    if (layout_applied && !display_present) {
+        settings_t s;
+        settings_load(&s);
+        if (s.text[0] != '\0') {
+            display_show_text(s.text, s.color, s.scroll, s.speed, s.scale);
+        }
+    }
+    cJSON_Delete(doc);
+
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddBoolToObject(resp, "ok", true);
+    cJSON_AddItemToObject(resp, "applied", applied);
+    cJSON_AddItemToObject(resp, "skipped", skipped);
+    return web_send_json(req, resp);
+}
+
+// ---- registration ----------------------------------------------------------
+
+void api_config_register(httpd_handle_t srv)
+{
+    static const httpd_uri_t uris[] = {
+        {.uri = "/api/config/export", .method = HTTP_GET,  .handler = config_export},
+        {.uri = "/api/config/import", .method = HTTP_POST, .handler = config_import},
+    };
+    for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
+        httpd_register_uri_handler(srv, &uris[i]);
+    }
+}

@@ -1,0 +1,15 @@
+## Managed components -- resolved by `idf.py reconfigure`.
+dependencies:
+  idf:
+    version: ">=5.1"
+  espressif/led_strip:
+    # 3.x introduced the `color_component_format` field used by led_driver.c
+    # and is the first major-version branch that builds cleanly under IDF 6.x
+    # (the 2.5.x SPI backend miss-includes esp_heap_caps.h).
+    version: "^3.0.0"
+  espressif/cjson:
+    version: "*"
+    rules:
+      # In IDF <6.0 cJSON ships as the built-in `json` core component, so the
+      # managed package is not needed there.
+      - if: "idf_version >=6.0"

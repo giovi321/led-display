@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED Display</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>LED Display</h1>
+  <div class="hdr-right">
+    <span id="hdrstatus">-</span>
+    <label class="switch" title="Show advanced tabs">
+      <input type="checkbox" id="advtoggle">
+      <span>Advanced</span>
+    </label>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="display" class="active">Display</button>
+  <button data-tab="schedule">Schedule</button>
+  <button data-tab="hardware" class="adv hidden">Hardware</button>
+  <button data-tab="network" class="adv hidden">Network</button>
+  <button data-tab="integrations" class="adv hidden">Integrations</button>
+  <button data-tab="system" class="adv hidden">System</button>
+</nav>
+
+<main>
+
+<!-- ============================ Display ============================ -->
+<section id="tab-display">
+  <div class="card">
+    <label for="text">Text</label>
+    <input id="text" type="text" maxlength="120" placeholder="Type something" autocomplete="off">
+
+    <label for="color">Colour</label>
+    <div class="row">
+      <input id="color" type="color" value="#ffb347" aria-label="Colour picker">
+      <div id="chips" class="chips" aria-label="Saved colours"></div>
+    </div>
+
+    <label for="scale">Font size</label>
+    <select id="scale">
+      <option value="1">Small - 5x7</option>
+      <option value="2" selected>Medium - 10x14</option>
+      <option value="3">Large - 15x21</option>
+    </select>
+
+    <label for="brightness">Brightness <span id="brval" class="val">32</span></label>
+    <input id="brightness" type="range" min="0" max="255" value="32">
+
+    <div class="row">
+      <label class="check"><input id="scroll" type="checkbox"> Scroll</label>
+    </div>
+
+    <label for="speed">Scroll speed <span id="spval" class="val">50</span></label>
+    <input id="speed" type="range" min="0" max="255" value="50">
+
+    <div class="row">
+      <button class="act" id="apply">Apply</button>
+      <button class="sec" id="clear">Clear display</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ Schedule =========================== -->
+<section id="tab-schedule" class="hidden">
+  <div class="card">
+    <label class="check big"><input id="sched-en" type="checkbox"> Enable schedule</label>
+    <div class="row">
+      <label class="inline" for="sched-on">Turn ON</label>
+      <input id="sched-on" type="time" value="07:00">
+    </div>
+    <div class="row">
+      <label class="inline" for="sched-off">Turn OFF</label>
+      <input id="sched-off" type="time" value="23:00">
+    </div>
+    <label>Active days</label>
+    <div class="row days" id="sched-days">
+      <label class="check"><input type="checkbox" data-day="0" checked> Mon</label>
+      <label class="check"><input type="checkbox" data-day="1" checked> Tue</label>
+      <label class="check"><input type="checkbox" data-day="2" checked> Wed</label>
+      <label class="check"><input type="checkbox" data-day="3" checked> Thu</label>
+      <label class="check"><input type="checkbox" data-day="4" checked> Fri</label>
+      <label class="check"><input type="checkbox" data-day="5" checked> Sat</label>
+      <label class="check"><input type="checkbox" data-day="6" checked> Sun</label>
+    </div>
+    <p class="note">Times use your browser's local timezone. The device syncs time via NTP.</p>
+    <div class="row"><button class="act" id="sched-save">Save schedule</button></div>
+  </div>
+</section>
+
+<!-- ============================ Hardware =========================== -->
+<section id="tab-hardware" class="hidden">
+  <div class="card">
+    <h2>Panel arrangement</h2>
+    <div id="editor-root"></div>
+  </div>
+  <div class="card">
+    <h2>Test patterns</h2>
+    <div class="row">
+      <button class="sec" data-test="step_raw">Step strip</button>
+      <button class="sec" data-test="step_xy">Step (x,y)</button>
+      <button class="sec" data-test="corners">Corners</button>
+      <button class="sec" data-test="border">Border</button>
+      <button class="sec" data-test="fill">Fill</button>
+    </div>
+    <p class="note">Step strip walks the physical chain so you can see where index
+      0, 1, 2... land. Corners lights logical (0,0)=red, (W-1,0)=green,
+      (0,H-1)=blue, (W-1,H-1)=yellow using the active mapping.</p>
+  </div>
+  <div class="card">
+    <h2>Brightness cap</h2>
+    <div class="row">
+      <input id="brcap" type="number" min="1" max="255" value="255" class="num">
+      <button class="act" id="brcap-save">Save cap</button>
+    </div>
+    <p class="note warn">The cap limits maximum brightness to protect the power
+      supply. The brightness slider and API requests cannot exceed it.</p>
+  </div>
+</section>
+
+<!-- ============================ Network ============================ -->
+<section id="tab-network" class="hidden">
+  <div class="card">
+    <h2>WiFi</h2>
+    <div id="wifistate" class="kvs"></div>
+    <div class="row"><button class="sec" id="scan">Scan networks</button></div>
+    <div id="nets"></div>
+    <label for="wssid">SSID</label>
+    <input id="wssid" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label for="wpass">Password</label>
+    <input id="wpass" type="password" autocomplete="off">
+    <div class="row">
+      <button class="act" id="wconnect">Save &amp; connect</button>
+      <button class="danger" id="wreset">Reset WiFi</button>
+    </div>
+    <p class="note">Saving reboots the device onto the new network.</p>
+  </div>
+  <div class="card" id="wg-card">
+    <h2>WireGuard</h2>
+    <p id="wg-missing" class="note hidden">WireGuard is not included in this build.</p>
+    <div id="wg-body">
+      <p id="wg-status" class="note"></p>
+      <label class="check big"><input id="wg-en" type="checkbox"> Enable tunnel</label>
+      <label for="wg-priv">Private key</label>
+      <div class="row">
+        <input id="wg-priv" type="password" autocomplete="off" spellcheck="false"
+               placeholder="leave blank to keep current">
+        <button class="sec" id="wg-reveal" aria-label="Show private key">Show</button>
+      </div>
+      <label for="wg-pub">Peer public key</label>
+      <input id="wg-pub" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label for="wg-host">Endpoint host / port</label>
+      <div class="row">
+        <input id="wg-host" type="text" placeholder="vpn.example.com"
+               autocomplete="off" autocapitalize="off" spellcheck="false">
+        <input id="wg-port" type="number" min="1" max="65535" placeholder="51820"
+               class="num" aria-label="Endpoint port">
+      </div>
+      <label for="wg-addr">Tunnel address</label>
+      <input id="wg-addr" type="text" placeholder="10.6.0.12/32" autocomplete="off" spellcheck="false">
+      <label for="wg-allowed">Allowed IPs</label>
+      <input id="wg-allowed" type="text" placeholder="10.6.0.0/24" autocomplete="off" spellcheck="false">
+      <label for="wg-keep">Persistent keepalive (seconds, 0 = off)</label>
+      <input id="wg-keep" type="number" min="0" max="3600" value="25" class="num">
+      <div class="row"><button class="act" id="wg-save">Save WireGuard</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================== Integrations ========================= -->
+<section id="tab-integrations" class="hidden">
+  <div class="card">
+    <h2>Device</h2>
+    <label for="devname">Device name (reported in webhook payloads)</label>
+    <input id="devname" type="text" maxlength="32" placeholder="led-display" autocomplete="off">
+    <div class="row"><button class="act" id="devname-save">Save name</button></div>
+  </div>
+  <div class="card">
+    <h2>API key</h2>
+    <p id="apikey-state" class="note"></p>
+    <p class="note">When a key is set, every POST must send it as
+      <code>X-Api-Key</code>. Leave unset on a trusted network.</p>
+    <label for="apikey">Key</label>
+    <input id="apikey" type="text" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="row">
+      <button class="act" id="apikey-set">Set key</button>
+      <button class="danger" id="apikey-clear">Clear key</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Outbound webhook</h2>
+    <label for="whurl">URL (empty = disabled)</label>
+    <input id="whurl" type="text" maxlength="160" placeholder="http://host/webhook/led-display"
+           autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label>Send events</label>
+    <div class="grid2" id="whevents">
+      <label class="check"><input type="checkbox" data-evt="boot"> Boot</label>
+      <label class="check"><input type="checkbox" data-evt="ip_change"> IP change</label>
+      <label class="check"><input type="checkbox" data-evt="ota_result"> OTA result</label>
+      <label class="check"><input type="checkbox" data-evt="schedule_on"> Schedule on</label>
+      <label class="check"><input type="checkbox" data-evt="schedule_off"> Schedule off</label>
+      <label class="check"><input type="checkbox" data-evt="value_stale"> Value stale</label>
+    </div>
+    <div class="row"><button class="act" id="wh-save">Save webhook</button></div>
+  </div>
+  <div class="card">
+    <h2>Value endpoint</h2>
+    <p class="note">POST a raw value from any webhook source; the device formats
+      and displays it.</p>
+    <div class="grid2">
+      <div><label for="v-prefix">Prefix</label>
+        <input id="v-prefix" type="text" maxlength="16" autocomplete="off"></div>
+      <div><label for="v-suffix">Suffix</label>
+        <input id="v-suffix" type="text" maxlength="16" autocomplete="off"></div>
+      <div><label for="v-dec">Decimals (-1 = as sent)</label>
+        <input id="v-dec" type="number" min="-1" max="6" value="-1"></div>
+      <div><label for="v-thou">Thousands separator</label>
+        <select id="v-thou">
+          <option value="">None</option>
+          <option value=",">Comma</option>
+          <option value=".">Dot</option>
+          <option value="'">Apostrophe</option>
+          <option value=" ">Space</option>
+        </select></div>
+      <div><label for="v-stalehrs">Stale after (hours, 0 = off)</label>
+        <input id="v-stalehrs" type="number" min="0" max="720" value="0"></div>
+      <div><label for="v-staleact">Stale action</label>
+        <select id="v-staleact">
+          <option value="none">None</option>
+          <option value="dim">Dim</option>
+          <option value="marker">Corner marker</option>
+          <option value="text">Show text</option>
+        </select></div>
+    </div>
+    <label for="v-staletext">Stale text</label>
+    <input id="v-staletext" type="text" maxlength="64" placeholder="stale" autocomplete="off">
+    <div class="row"><button class="act" id="vcfg-save">Save value config</button></div>
+
+    <label for="v-test">Test value</label>
+    <div class="row">
+      <input id="v-test" type="text" placeholder="42.5" autocomplete="off">
+      <button class="sec" id="v-send">Send test</button>
+    </div>
+    <p id="v-echo" class="note"></p>
+
+    <label>Example</label>
+    <div class="row">
+      <code id="curl-ex" class="code"></code>
+      <button class="sec" id="curl-copy">Copy</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ System ============================= -->
+<section id="tab-system" class="hidden">
+  <div class="card">
+    <h2>Status</h2>
+    <div id="sys" class="kvs"></div>
+  </div>
+  <div class="card">
+    <h2>Boot screen</h2>
+    <div class="row">
+      <select id="bootscr">
+        <option value="text">Last stored text (default)</option>
+        <option value="ip">Network address</option>
+        <option value="none">Blank</option>
+      </select>
+      <button class="act" id="bootscr-save">Apply</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Firmware update</h2>
+    <div class="row">
+      <button class="sec" id="ota-check">Check GitHub for updates</button>
+      <button class="act hidden" id="ota-install">Install</button>
+    </div>
+    <p id="ota-check-msg" class="note"></p>
+    <label for="ota-file">Upload .bin</label>
+    <div class="row">
+      <input id="ota-file" type="file" accept=".bin,application/octet-stream">
+      <button class="act" id="ota-upload">Upload</button>
+    </div>
+    <div class="bar hidden" id="ota-bar"><div class="fill" id="ota-fill"></div></div>
+    <p id="ota-msg" class="note"></p>
+    <label for="ota-url">Or update from URL</label>
+    <div class="row">
+      <input id="ota-url" type="text" placeholder="https://host/firmware.bin"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="sec" id="ota-pull">Update</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Backup &amp; restore</h2>
+    <div class="row"><button class="sec" id="cfg-export">Download config</button></div>
+    <label for="cfg-file">Restore from file</label>
+    <div class="row">
+      <input id="cfg-file" type="file" accept=".json,application/json">
+      <button class="act" id="cfg-import">Restore</button>
+    </div>
+    <p id="cfg-msg" class="note"></p>
+  </div>
+  <div class="card">
+    <h2>Maintenance</h2>
+    <div class="row">
+      <button class="sec" id="reboot">Reboot</button>
+      <button class="danger" id="freset">Factory reset</button>
+    </div>
+    <p class="note">Factory reset wipes display settings; WiFi credentials are kept.</p>
+  </div>
+</section>
+
+</main>
+
+<footer id="foot">led-display</footer>
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script src="/editor.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

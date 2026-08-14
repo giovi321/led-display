@@ -1,0 +1,40 @@
+CONFIG_IDF_TARGET="esp32s3"
+
+# Flash: 16 MB QIO @ 80 MHz (N16R8 module)
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# PSRAM: 8 MB Octal (N16R8 module ships with OPI PSRAM)
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# Custom partition table (two OTA slots, see partitions.csv)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# OTA: keep the new image tentative until the app marks itself valid, so a
+# broken update rolls back on the next boot.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# OTA-from-URL may point at a plain-HTTP host on the LAN (n8n, CI artifact
+# server). TLS still works when the URL is https://.
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
+
+# HTTP server: enough room for the embedded web UI
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
+CONFIG_HTTPD_MAX_URI_LEN=512
+
+# lwIP: a few extra sockets for the captive portal + REST clients
+CONFIG_LWIP_MAX_SOCKETS=10
+
+# Main task stack a bit larger to comfortably hold the boot sequence
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Logging defaults to INFO
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y

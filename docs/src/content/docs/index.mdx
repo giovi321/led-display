@@ -1,0 +1,34 @@
+---
+title: LED Display
+description: ESP32-S3 firmware for a wall display built from daisy-chained WS2812B matrix panels, with a web UI, an HTTP API, and a graphical panel arrangement editor
+template: splash
+hero:
+  tagline: Firmware for a wall display built from daisy-chained WS2812B matrix panels and an ESP32-S3. Push one number or a short message to it over HTTP and it stays on the wall.
+  actions:
+    - text: Get started
+      link: /led-display/getting-started/overview/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/giovi321/led-display
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What it does
+
+The firmware drives a chain of WS2812B matrix panels as one logical display. It shows a single value or short message, posted to it over plain HTTP: a revenue figure, a temperature, whatever your automation sends. You describe how the panels physically hang on the wall (grid shape, chain order, rotation, wiring) in a graphical editor, and the firmware rebuilds its pixel mapping live. No recompile when the hardware changes.
+
+<CardGrid stagger>
+  <Card title="Set it up" icon="rocket">
+    Pick the parts, wire the level shifter, flash the firmware over USB once, and put the display on your WiFi. Start with the [overview](getting-started/overview/), then follow [hardware](getting-started/hardware/), [first flash](getting-started/first-flash/), and [WiFi setup](getting-started/wifi-setup/).
+  </Card>
+  <Card title="Daily use" icon="setting">
+    Everything routine happens in the built-in web UI: text, saved colours, brightness, font size, scrolling, a weekly on/off schedule, and the arrangement editor for the panel layout. See the [user guide](user-guide/).
+  </Card>
+  <Card title="Integrations" icon="puzzle">
+    POST a raw value and the display formats and shows it, with a staleness guard for feeds that go quiet. Optional API key, outbound webhooks, OTA updates, config backup, and a WireGuard client. See the [API reference](api-reference/).
+  </Card>
+</CardGrid>

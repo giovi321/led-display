@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches FW_VERSION
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          grep -q "#define FW_VERSION \"$TAG\"" Firmware/main/fw_version.h || {
+            echo "Tag v$TAG does not match Firmware/main/fw_version.h"; exit 1; }
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0.1
+          target: esp32s3
+          path: Firmware
+
+      - name: Attach binary to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Firmware/build/led_display.bin
+          generate_release_notes: true
