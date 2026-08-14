@@ -2,7 +2,7 @@
 title: Backup and restore
 description: Export the whole device configuration as one JSON file and restore it section by section, on the same device or a replacement
 sidebar:
-  order: 5
+  order: 6
 ---
 
 The device exports its entire persisted configuration as a single JSON document and can restore from the same file. Both live in the System tab ([advanced mode](../advanced-mode/)) under Backup and restore, or at `GET /api/config/export` and `POST /api/config/import`.
@@ -11,13 +11,14 @@ The device exports its entire persisted configuration as a single JSON document 
 
 One file, `led-display-config.json`, holding:
 
-- display settings: text, colour, brightness and brightness cap, scroll, speed, font scale, boot screen
+- display settings: text, colour, brightness and brightness cap, scroll mode, speed, font, size, spacing, boot screen
 - the layout, exactly as the [arrangement editor](../arrangement-editor/) saved it
 - saved colour presets
 - value endpoint configuration: prefix, suffix, decimals, thousands separator, staleness settings
-- integrations: device name, webhook URL and event mask, and the API key in cleartext
+- integrations: the device name, webhook URL and event mask, and the API key in cleartext
 - WireGuard configuration, including the private key in cleartext
-- the on/off schedule
+- the on/off schedule, including the off-window action and its dim level
+- the [light sensor](../light-sensor/) configuration: pin, both calibration readings, the brightness range and the curve. The live reading is not part of it, since a backup describes the configuration and not what the room looked like
 
 WiFi credentials are deliberately excluded. A config file tends to move between devices and people, and it should not carry the network password along; a restored device joins the network with whatever credentials it already has.
 
@@ -29,7 +30,7 @@ No binary blob, no checksum magic. You can read it, diff two exports, or edit a 
 
 ## Restore semantics
 
-Restore applies the file section by section: `layout`, `display`, `colors`, `value_config`, `integrations`, `wireguard`, `schedule`. The layout goes first so a restored text renders onto the restored geometry. Sections absent from the file are left untouched, which means a hand-trimmed file works as a partial restore. A section that fails validation is skipped without aborting the rest, and the response says exactly what happened:
+Restore applies the file section by section: `layout`, `display`, `light_sensor`, `colors`, `value_config`, `integrations`, `wireguard`, `schedule`. The layout goes first so a restored text renders onto the restored geometry. Sections absent from the file are left untouched, which means a hand-trimmed file works as a partial restore, and a file written by a build before 2.2.0 (no `light_sensor`, no font or off-window fields) restores cleanly. A section that fails validation is skipped without aborting the rest, and the response says exactly what happened:
 
 ```json
 {"ok": true, "applied": ["layout", "display", "schedule"], "skipped": ["wireguard"]}
@@ -41,6 +42,8 @@ Two things to be aware of when restoring:
 
 - a file whose `integrations` section carries an API key turns key checking on the moment it is applied; clients (including other browsers) must present that key from then on
 - restoring a `wireguard` section with `enabled: true` starts the tunnel with the restored keys
+- a `device_name` in the `integrations` section renames the device: hostname, setup network, and the `device` field in webhooks all follow it, so two devices restored from the same file end up with the same name
+- a `light_sensor` section with `enabled: true` hands the brightness to the sensor as soon as it is applied; a section that enables it without a pin, that names a pin outside GPIO1 to GPIO10, or whose two calibration readings are equal, lands in `skipped` instead. The pin is validated rather than clamped, so a file from a board wired differently does not silently move the sensor to another pin
 
 ## When to export
 

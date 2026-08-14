@@ -6,7 +6,8 @@
 // replaces the whole list so the web UI never has to diff. /api/value is
 // the generic inbound endpoint: whatever posts a number here (a webhook
 // source, a home-automation flow, curl) gets it formatted through the
-// value config and shown as static text.
+// value config and shown in the display's current colour, scrolling mode
+// and speed.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -151,13 +152,16 @@ static esp_err_t value_post(httpd_req_t *req)
     char text[DISPLAY_TEXT_MAX];
     valuefmt_format(&vcfg, raw, text, sizeof(text));
 
-    // Show as static text in the current colour/speed; persist so the value
-    // survives a reboot; scale 0 = keep the active scale.
+    // Show in the current colour, scrolling mode and speed; persist so the
+    // value survives a reboot; scale 0 = keep the active scale. The mode is
+    // passed through rather than forced off: a long formatted value is exactly
+    // what continuous scrolling is for, and settings_save_text has no
+    // keep-current sentinel for it, so forcing it here would wipe the setting.
     display_color_t color;
-    uint8_t speed;
-    display_get_state(NULL, 0, &color, NULL, &speed, NULL);
-    display_show_text(text, color, false, speed, 0);
-    settings_save_text(text, NULL, false, speed, 0);
+    uint8_t mode, speed;
+    display_get_state(NULL, 0, &color, &mode, &speed, NULL);
+    display_show_text(text, color, mode, speed, 0);
+    settings_save_text(text, NULL, mode, speed, 0);
 
     // Freshness bookkeeping: this is what un-stales the display (the
     // scheduler tick restores brightness / stops re-poking the marker).

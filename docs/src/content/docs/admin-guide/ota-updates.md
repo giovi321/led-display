@@ -2,7 +2,7 @@
 title: OTA updates
 description: Update the firmware from the browser or from a URL, with two flash slots and automatic rollback when a new image fails to boot
 sidebar:
-  order: 4
+  order: 5
 ---
 
 From firmware v2 onward the device updates itself over WiFi. The flash holds two 6 MB application slots, `ota_0` and `ota_1`; an update streams into whichever slot is not running, and the bootloader switches over only after the image has been fully written and validated. The display keeps working while the update streams in.
@@ -47,9 +47,9 @@ Releases are produced by the repository's release workflow: pushing a tag `vX.Y.
 
 ```json
 {
-  "running_version": "2.0.0",
+  "running_version": "2.2.0",
   "running_slot": "ota_0",
-  "last_result": "ok: 2.0.0 flashed to ota_1, rebooting",
+  "last_result": "ok: 2.2.0 flashed to ota_1, rebooting",
   "in_progress": false,
   "progress_pct": 100
 }

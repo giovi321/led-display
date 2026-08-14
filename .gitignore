@@ -1,6 +1,10 @@
 # Host-test binaries (compiled by Firmware/test/host/run_tests.sh).
 Firmware/test/host/test_mapping
 Firmware/test/host/test_valuefmt
+Firmware/test/host/test_fonts
+Firmware/test/host/test_wifi_pick
+Firmware/test/host/test_devname
+Firmware/test/host/test_light_curve
 
 # Firmware build artefacts (ESP-IDF). Patterns are unanchored so they catch
 # Firmware/build/ etc. without listing the prefix explicitly.
@@ -21,7 +25,7 @@ dependencies.lock
 *.skb
 _old/
 
-# Editor / OS / agent dotfiles.
+# Editor / OS / tooling dotfiles.
 .impeccable/
 .playwright-mcp/
 .cache/

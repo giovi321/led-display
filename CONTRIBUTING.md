@@ -47,7 +47,18 @@ npm install
 npm run dev
 ```
 
-`npm run build` must pass; the GitHub Pages workflow runs it on every push to `main` that touches `docs/`.
+`npm run build` must pass; the GitHub Pages workflow runs it on every push to `main` that touches `docs/`. Astro needs Node 22 or newer.
+
+## Releases
+
+Maintainers only. The release workflow builds the firmware and attaches `led_display.bin` to the GitHub release, which is the file devices download through their update check, so the asset name must not change:
+
+1. Bump `FW_VERSION` in `Firmware/main/fw_version.h` and add the section to `CHANGELOG.md`
+2. Commit both on `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`
+3. The tag push runs `.github/workflows/release.yml`: it fails fast if the tag and `FW_VERSION` disagree, builds with ESP-IDF v6.0.1 for `esp32s3`, and creates the release with `led_display.bin` attached
+4. Check the release lists `led_display.bin`, then verify a device finds it under System, "Check GitHub for updates"
+
+If a release ends up without the binary (tag already on the remote, release left as a draft, workflow broken at the time), run the Release workflow manually from the Actions tab with the tag name. The full process, including prerelease tags, is in the [releasing guide](https://giovi321.github.io/led-display/development/releasing/).
 
 ## Pull requests
 

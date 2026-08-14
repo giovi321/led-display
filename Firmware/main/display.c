@@ -8,136 +8,36 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#include "fonts.h"
 #include "led_driver.h"
 
 static const char *TAG = "display";
 
-// 5x7 monospace pixel font, ASCII 32..126. Each glyph is 5 bytes; each byte
-// is one column. Bit 0 = top row, bit 6 = bottom row. Bit 7 unused.
-//
-// Compact public-domain style 5x7 set, sufficient for the panel UI.
-static const uint8_t font5x7[95][FONT_WIDTH] = {
-    {0x00,0x00,0x00,0x00,0x00}, // 0x20 ' '
-    {0x00,0x00,0x5F,0x00,0x00}, // 0x21 '!'
-    {0x00,0x07,0x00,0x07,0x00}, // 0x22 '"'
-    {0x14,0x7F,0x14,0x7F,0x14}, // 0x23 '#'
-    {0x24,0x2A,0x7F,0x2A,0x12}, // 0x24 '$'
-    {0x23,0x13,0x08,0x64,0x62}, // 0x25 '%'
-    {0x36,0x49,0x55,0x22,0x50}, // 0x26 '&'
-    {0x00,0x05,0x03,0x00,0x00}, // 0x27 '\''
-    {0x00,0x1C,0x22,0x41,0x00}, // 0x28 '('
-    {0x00,0x41,0x22,0x1C,0x00}, // 0x29 ')'
-    {0x08,0x2A,0x1C,0x2A,0x08}, // 0x2A '*'
-    {0x08,0x08,0x3E,0x08,0x08}, // 0x2B '+'
-    {0x00,0x50,0x30,0x00,0x00}, // 0x2C ','
-    {0x08,0x08,0x08,0x08,0x08}, // 0x2D '-'
-    {0x00,0x60,0x60,0x00,0x00}, // 0x2E '.'
-    {0x20,0x10,0x08,0x04,0x02}, // 0x2F '/'
-    {0x3E,0x51,0x49,0x45,0x3E}, // 0x30 '0'
-    {0x00,0x42,0x7F,0x40,0x00}, // 0x31 '1'
-    {0x42,0x61,0x51,0x49,0x46}, // 0x32 '2'
-    {0x21,0x41,0x45,0x4B,0x31}, // 0x33 '3'
-    {0x18,0x14,0x12,0x7F,0x10}, // 0x34 '4'
-    {0x27,0x45,0x45,0x45,0x39}, // 0x35 '5'
-    {0x3C,0x4A,0x49,0x49,0x30}, // 0x36 '6'
-    {0x01,0x71,0x09,0x05,0x03}, // 0x37 '7'
-    {0x36,0x49,0x49,0x49,0x36}, // 0x38 '8'
-    {0x06,0x49,0x49,0x29,0x1E}, // 0x39 '9'
-    {0x00,0x36,0x36,0x00,0x00}, // 0x3A ':'
-    {0x00,0x56,0x36,0x00,0x00}, // 0x3B ';'
-    {0x00,0x08,0x14,0x22,0x41}, // 0x3C '<'
-    {0x14,0x14,0x14,0x14,0x14}, // 0x3D '='
-    {0x41,0x22,0x14,0x08,0x00}, // 0x3E '>'
-    {0x02,0x01,0x51,0x09,0x06}, // 0x3F '?'
-    {0x32,0x49,0x79,0x41,0x3E}, // 0x40 '@'
-    {0x7E,0x11,0x11,0x11,0x7E}, // 0x41 'A'
-    {0x7F,0x49,0x49,0x49,0x36}, // 0x42 'B'
-    {0x3E,0x41,0x41,0x41,0x22}, // 0x43 'C'
-    {0x7F,0x41,0x41,0x22,0x1C}, // 0x44 'D'
-    {0x7F,0x49,0x49,0x49,0x41}, // 0x45 'E'
-    {0x7F,0x09,0x09,0x01,0x01}, // 0x46 'F'
-    {0x3E,0x41,0x41,0x51,0x32}, // 0x47 'G'
-    {0x7F,0x08,0x08,0x08,0x7F}, // 0x48 'H'
-    {0x00,0x41,0x7F,0x41,0x00}, // 0x49 'I'
-    {0x20,0x40,0x41,0x3F,0x01}, // 0x4A 'J'
-    {0x7F,0x08,0x14,0x22,0x41}, // 0x4B 'K'
-    {0x7F,0x40,0x40,0x40,0x40}, // 0x4C 'L'
-    {0x7F,0x02,0x04,0x02,0x7F}, // 0x4D 'M'
-    {0x7F,0x04,0x08,0x10,0x7F}, // 0x4E 'N'
-    {0x3E,0x41,0x41,0x41,0x3E}, // 0x4F 'O'
-    {0x7F,0x09,0x09,0x09,0x06}, // 0x50 'P'
-    {0x3E,0x41,0x51,0x21,0x5E}, // 0x51 'Q'
-    {0x7F,0x09,0x19,0x29,0x46}, // 0x52 'R'
-    {0x46,0x49,0x49,0x49,0x31}, // 0x53 'S'
-    {0x01,0x01,0x7F,0x01,0x01}, // 0x54 'T'
-    {0x3F,0x40,0x40,0x40,0x3F}, // 0x55 'U'
-    {0x1F,0x20,0x40,0x20,0x1F}, // 0x56 'V'
-    {0x7F,0x20,0x18,0x20,0x7F}, // 0x57 'W'
-    {0x63,0x14,0x08,0x14,0x63}, // 0x58 'X'
-    {0x03,0x04,0x78,0x04,0x03}, // 0x59 'Y'
-    {0x61,0x51,0x49,0x45,0x43}, // 0x5A 'Z'
-    {0x00,0x7F,0x41,0x41,0x00}, // 0x5B '['
-    {0x02,0x04,0x08,0x10,0x20}, // 0x5C '\'
-    {0x00,0x41,0x41,0x7F,0x00}, // 0x5D ']'
-    {0x04,0x02,0x01,0x02,0x04}, // 0x5E '^'
-    {0x40,0x40,0x40,0x40,0x40}, // 0x5F '_'
-    {0x00,0x01,0x02,0x04,0x00}, // 0x60 '`'
-    {0x20,0x54,0x54,0x54,0x78}, // 0x61 'a'
-    {0x7F,0x48,0x44,0x44,0x38}, // 0x62 'b'
-    {0x38,0x44,0x44,0x44,0x20}, // 0x63 'c'
-    {0x38,0x44,0x44,0x48,0x7F}, // 0x64 'd'
-    {0x38,0x54,0x54,0x54,0x18}, // 0x65 'e'
-    {0x08,0x7E,0x09,0x01,0x02}, // 0x66 'f'
-    {0x0C,0x52,0x52,0x52,0x3E}, // 0x67 'g'
-    {0x7F,0x08,0x04,0x04,0x78}, // 0x68 'h'
-    {0x00,0x44,0x7D,0x40,0x00}, // 0x69 'i'
-    {0x20,0x40,0x44,0x3D,0x00}, // 0x6A 'j'
-    {0x7F,0x10,0x28,0x44,0x00}, // 0x6B 'k'
-    {0x00,0x41,0x7F,0x40,0x00}, // 0x6C 'l'
-    {0x7C,0x04,0x18,0x04,0x78}, // 0x6D 'm'
-    {0x7C,0x08,0x04,0x04,0x78}, // 0x6E 'n'
-    {0x38,0x44,0x44,0x44,0x38}, // 0x6F 'o'
-    {0x7C,0x14,0x14,0x14,0x08}, // 0x70 'p'
-    {0x08,0x14,0x14,0x18,0x7C}, // 0x71 'q'
-    {0x7C,0x08,0x04,0x04,0x08}, // 0x72 'r'
-    {0x48,0x54,0x54,0x54,0x20}, // 0x73 's'
-    {0x04,0x3F,0x44,0x40,0x20}, // 0x74 't'
-    {0x3C,0x40,0x40,0x20,0x7C}, // 0x75 'u'
-    {0x1C,0x20,0x40,0x20,0x1C}, // 0x76 'v'
-    {0x3C,0x40,0x30,0x40,0x3C}, // 0x77 'w'
-    {0x44,0x28,0x10,0x28,0x44}, // 0x78 'x'
-    {0x0C,0x50,0x50,0x50,0x3C}, // 0x79 'y'
-    {0x44,0x64,0x54,0x4C,0x44}, // 0x7A 'z'
-    {0x00,0x08,0x36,0x41,0x00}, // 0x7B '{'
-    {0x00,0x00,0x7F,0x00,0x00}, // 0x7C '|'
-    {0x00,0x41,0x36,0x08,0x00}, // 0x7D '}'
-    {0x08,0x04,0x08,0x10,0x08}, // 0x7E '~'
-};
-
-static inline const uint8_t *glyph_for(char c)
-{
-    unsigned char u = (unsigned char)c;
-    if (u < 0x20 || u > 0x7E) {
-        u = '?';
-    }
-    return font5x7[u - 0x20];
-}
-
 typedef struct {
     char text[DISPLAY_TEXT_MAX];
     display_color_t color;
-    bool scroll;
-    uint8_t speed;   // 0..255, mapped to a frame interval
-    uint8_t scale;   // 1..FONT_SCALE_MAX (integer font multiplier)
+    uint8_t scroll_mode;  // display_scroll_t
+    uint8_t speed;        // 0..255, mapped to a frame interval
+    uint8_t scale;        // 1..FONT_SCALE_MAX (integer font multiplier)
+    uint8_t font;         // FONT_ID_*
+    bool prop;            // proportional spacing (monospace when false)
 } display_state_t;
 
-static uint8_t clamp_scale(uint8_t s)
+// The stored font id survives layout changes even when it no longer fits;
+// rendering falls back via font_fit so the user's choice comes back when a
+// tall enough layout returns.
+static const font_def_t *active_font(uint8_t font_id)
+{
+    return font_get(font_fit(font_id, led_driver_height()));
+}
+
+static uint8_t clamp_scale(const font_def_t *f, uint8_t s)
 {
     if (s < FONT_SCALE_MIN) s = FONT_SCALE_MIN;
     if (s > FONT_SCALE_MAX) s = FONT_SCALE_MAX;
-    // A glyph at scale N is FONT_HEIGHT*N rows tall, so clamp to what
-    // actually fits the panel - no point silently clipping the top/bottom.
-    int fits = led_driver_height() / FONT_HEIGHT;
+    // A glyph at scale N is f->h*N rows tall, so clamp to what actually
+    // fits the panel - no point silently clipping the top/bottom.
+    int fits = led_driver_height() / f->h;
     if (fits < 1) fits = 1;
     if (s > fits) s = (uint8_t)fits;
     return s;
@@ -146,11 +46,11 @@ static uint8_t clamp_scale(uint8_t s)
 // Pick a sensible default scale based on the active display height: 2x for
 // the 64x16 grid, 1x for a single 32x8 panel, 3x if the display is taller.
 // Deliberately conservative (max 3) - anything bigger is a user choice.
-static uint8_t default_scale(void)
+static uint8_t default_scale(const font_def_t *f)
 {
     int h = led_driver_height();
-    if (h >= FONT_HEIGHT * 3) return 3;
-    if (h >= FONT_HEIGHT * 2) return 2;
+    if (h >= f->h * 3) return 3;
+    if (h >= f->h * 2) return 2;
     return 1;
 }
 
@@ -173,30 +73,20 @@ static volatile uint32_t s_state_gen;
 // step_raw/step_xy walkers otherwise run for minutes on large grids.
 static volatile bool s_test_cancel;
 
-static int cell_width_at(uint8_t scale)
+static int text_pixel_width_at(const font_def_t *f, const char *s,
+                               bool prop, uint8_t scale)
 {
-    return FONT_WIDTH * scale + scale;  // glyph + 1-col gap, both scaled
+    return font_text_width(f, s, prop, scale);
 }
 
-static int glyph_height_at(uint8_t scale)
+static void draw_char(const font_def_t *f, int x_origin, char c,
+                      display_color_t col, uint8_t scale,
+                      int col_start, int col_count)
 {
-    return FONT_HEIGHT * scale;
-}
-
-static int text_pixel_width_at(const char *s, uint8_t scale)
-{
-    int len = (int)strlen(s);
-    if (len == 0) return 0;
-    return len * cell_width_at(scale) - scale;  // drop the trailing gap
-}
-
-static void draw_char(int x_origin, char c, display_color_t col, uint8_t scale)
-{
-    const uint8_t *g = glyph_for(c);
-    const int y_off = (led_driver_height() - glyph_height_at(scale)) / 2;
-    for (int col_i = 0; col_i < FONT_WIDTH; col_i++) {
-        uint8_t bits = g[col_i];
-        for (int row_i = 0; row_i < FONT_HEIGHT; row_i++) {
+    const int y_off = (led_driver_height() - f->h * scale) / 2;
+    for (int col_i = 0; col_i < col_count; col_i++) {
+        uint16_t bits = font_glyph_col(f, c, col_start + col_i);
+        for (int row_i = 0; row_i < f->h; row_i++) {
             if (!(bits & (1u << row_i))) continue;
             // Each source bit becomes a `scale x scale` block of LEDs.
             int x0 = x_origin + col_i * scale;
@@ -211,38 +101,47 @@ static void draw_char(int x_origin, char c, display_color_t col, uint8_t scale)
     }
 }
 
-// Render `text` so its leftmost column lands at column `x_origin` (which may
-// be negative or past the display width for scrolling). Clipping is implicit:
+// Draw one run of `text` with its leftmost column at `x_origin` (which may
+// be negative or past the display width for scrolling). No clear/refresh:
+// the marquee mode paints several runs into one frame. Clipping is implicit:
 // `led_driver_set_pixel` ignores out-of-range coordinates.
-static void render_text_at(int x_origin, const char *text,
-                           display_color_t col, uint8_t scale)
+static void draw_text_run(const font_def_t *f, int x_origin, const char *text,
+                          display_color_t col, uint8_t scale, bool prop)
 {
     const int disp_w = led_driver_width();
-    led_driver_clear();
     int cursor = x_origin;
-    const int cw = cell_width_at(scale);
-    const int gw = FONT_WIDTH * scale;
     for (const char *p = text; *p; p++) {
+        int start, width;
+        font_glyph_span(f, *p, prop, &start, &width);
         // Skip whole glyphs that fall entirely off either edge for speed.
-        if (cursor + gw > 0 && cursor < disp_w) {
-            draw_char(cursor, *p, col, scale);
+        if (cursor + width * scale > 0 && cursor < disp_w) {
+            draw_char(f, cursor, *p, col, scale, start, width);
         }
-        cursor += cw;
+        cursor += (width + 1) * scale;
         if (cursor >= disp_w && x_origin >= 0) {
             break;
         }
     }
+}
+
+static void render_text_at(const font_def_t *f, int x_origin, const char *text,
+                           display_color_t col, uint8_t scale, bool prop)
+{
+    led_driver_clear();
+    draw_text_run(f, x_origin, text, col, scale, prop);
     led_driver_refresh();
 }
 
 static void render_static_locked(void)
 {
-    int w = text_pixel_width_at(s_state.text, s_state.scale);
+    const font_def_t *f = active_font(s_state.font);
+    int w = text_pixel_width_at(f, s_state.text, s_state.prop, s_state.scale);
     int x = 0;
     if (w < led_driver_width()) {
         x = (led_driver_width() - w) / 2;
     }
-    render_text_at(x, s_state.text, s_state.color, s_state.scale);
+    render_text_at(f, x, s_state.text, s_state.color, s_state.scale,
+                   s_state.prop);
 }
 
 static TickType_t speed_to_period(uint8_t speed)
@@ -253,42 +152,78 @@ static TickType_t speed_to_period(uint8_t speed)
     return pdMS_TO_TICKS(ms);
 }
 
+// Gap between marquee repetitions: two character cells of the active font,
+// so it grows with the text instead of a fixed pixel count.
+static int marquee_gap(const font_def_t *f, uint8_t scale)
+{
+    return 2 * (f->w + 1) * scale;
+}
+
 static void scroll_task(void *arg)
 {
     (void)arg;
     int offset = led_driver_width();  // start off the right edge
+    uint32_t seen_gen = s_state_gen;
 
     while (1) {
         xSemaphoreTake(s_state_lock, portMAX_DELAY);
-        bool scroll = s_state.scroll;
+        uint8_t mode = s_state.scroll_mode;
         char text[DISPLAY_TEXT_MAX];
         strncpy(text, s_state.text, sizeof(text));
         text[sizeof(text) - 1] = '\0';
         display_color_t col = s_state.color;
         TickType_t period = speed_to_period(s_state.speed);
         uint8_t scale = s_state.scale;
+        uint8_t font = s_state.font;
+        bool prop = s_state.prop;
         uint32_t gen = s_state_gen;
         xSemaphoreGive(s_state_lock);
 
-        if (s_identify || !scroll || text[0] == '\0') {
+        // New content enters from the right edge instead of picking up the
+        // previous text's position mid-screen.
+        if (gen != seen_gen) {
+            seen_gen = gen;
+            offset = led_driver_width();
+        }
+
+        if (s_identify || mode == DISPLAY_SCROLL_OFF || text[0] == '\0') {
             // Idle: just wait for the next state change.
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
             continue;
         }
 
-        int w = text_pixel_width_at(text, scale);
+        const font_def_t *f = active_font(font);
+        int w = text_pixel_width_at(f, text, prop, scale);
         led_driver_lock();
         // Re-check under the driver lock: identify may have been switched on
         // or the state replaced (clear, new static text) after we copied it,
         // and one stale frame painted now would stay on screen forever once
         // this task goes idle on the next iteration.
         if (!s_identify && gen == s_state_gen) {
-            render_text_at(offset, text, col, scale);
+            if (mode == DISPLAY_SCROLL_CONTINUOUS) {
+                // Repetitions follow the tail after a gap; paint every copy
+                // that overlaps the frame so the display is never left empty.
+                const int span = w + marquee_gap(f, scale);
+                int x = offset;
+                while (x + w > 0) x -= span;
+                led_driver_clear();
+                for (x += span; x < led_driver_width(); x += span) {
+                    draw_text_run(f, x, text, col, scale, prop);
+                }
+                led_driver_refresh();
+            } else {
+                render_text_at(f, offset, text, col, scale, prop);
+            }
         }
         led_driver_unlock();
 
         offset--;
-        if (offset < -w) {
+        if (mode == DISPLAY_SCROLL_CONTINUOUS) {
+            const int span = w + marquee_gap(f, scale);
+            if (offset <= -span) {
+                offset += span;
+            }
+        } else if (offset < -w) {
             offset = led_driver_width();
         }
 
@@ -394,7 +329,7 @@ static void test_task(void *arg)
     // Make sure the scroll task isn't going to overwrite us.
     xSemaphoreTake(s_state_lock, portMAX_DELAY);
     s_state.text[0] = '\0';
-    s_state.scroll  = false;
+    s_state.scroll_mode = DISPLAY_SCROLL_OFF;
     s_state_gen++;
     xSemaphoreGive(s_state_lock);
     if (s_task) xTaskNotifyGive(s_task);
@@ -459,11 +394,11 @@ void display_identify(bool on)
         // the current scale).
         char tx[DISPLAY_TEXT_MAX];
         display_color_t col;
-        bool scroll;
+        uint8_t mode;
         uint8_t speed, scale;
-        display_get_state(tx, sizeof(tx), &col, &scroll, &speed, &scale);
+        display_get_state(tx, sizeof(tx), &col, &mode, &speed, &scale);
         if (tx[0] != '\0') {
-            display_show_text(tx, col, scroll, speed, 0);
+            display_show_text(tx, col, mode, speed, 0);
         } else {
             // No stored text: leave a blank display rather than stale
             // identify colours.
@@ -516,10 +451,12 @@ esp_err_t display_init(void)
     // Stored amber chosen so that brightness=32/255 lands on the spec's
     // ~(10, 4, 0) displayed value. At brightness=255 the panel shows the
     // full (80, 32, 0).
-    s_state.color   = (display_color_t){80, 32, 0};
-    s_state.scroll  = false;
-    s_state.speed   = 50;
-    s_state.scale   = default_scale();
+    s_state.color       = (display_color_t){80, 32, 0};
+    s_state.scroll_mode = DISPLAY_SCROLL_OFF;
+    s_state.speed       = 50;
+    s_state.font        = FONT_ID_5X7;
+    s_state.prop        = true;
+    s_state.scale       = default_scale(font_get(s_state.font));
 
     BaseType_t ok = xTaskCreatePinnedToCore(scroll_task, "display_scroll",
                                             4096, NULL, 5, &s_task, 1);
@@ -533,9 +470,12 @@ esp_err_t display_init(void)
 }
 
 void display_show_text(const char *text, display_color_t color,
-                       bool scroll, uint8_t speed, uint8_t scale)
+                       uint8_t scroll_mode, uint8_t speed, uint8_t scale)
 {
     if (!text) text = "";
+    if (scroll_mode > DISPLAY_SCROLL_CONTINUOUS) {
+        scroll_mode = DISPLAY_SCROLL_RESTART;
+    }
 
     // Any explicit content change ends identify mode and aborts a walking
     // test pattern, mirroring the documented exit contract.
@@ -545,17 +485,21 @@ void display_show_text(const char *text, display_color_t color,
     xSemaphoreTake(s_state_lock, portMAX_DELAY);
     strncpy(s_state.text, text, sizeof(s_state.text));
     s_state.text[sizeof(s_state.text) - 1] = '\0';
-    s_state.color  = color;
-    s_state.scroll = scroll;
-    s_state.speed  = speed;
+    s_state.color       = color;
+    s_state.scroll_mode = scroll_mode;
+    s_state.speed       = speed;
     // scale 0 means "keep the current scale", but the kept value still has
     // to fit the CURRENT display: after a reconfigure to a shorter grid the
     // stored scale may be too tall, and every re-render path passes 0.
-    s_state.scale = clamp_scale(scale != 0 ? scale : s_state.scale);
+    s_state.scale = clamp_scale(active_font(s_state.font),
+                                scale != 0 ? scale : s_state.scale);
     s_state_gen++;
     xSemaphoreGive(s_state_lock);
 
-    if (!scroll) {
+    // Empty text repaints even in a scroll mode: the scroll task's idle branch
+    // covers an empty string and never clears, so the last marquee frame would
+    // stay lit until the next reboot.
+    if (scroll_mode == DISPLAY_SCROLL_OFF || text[0] == '\0') {
         led_driver_lock();
         render_static_locked();
         led_driver_unlock();
@@ -567,7 +511,27 @@ void display_show_text(const char *text, display_color_t color,
 
 void display_show_text_static(const char *text, display_color_t color)
 {
-    display_show_text(text, color, false, 50, 0);
+    display_show_text(text, color, DISPLAY_SCROLL_OFF, 50, 0);
+}
+
+void display_set_font(uint8_t font_id, bool prop)
+{
+    if (font_id >= FONT_COUNT) font_id = FONT_ID_5X7;
+    xSemaphoreTake(s_state_lock, portMAX_DELAY);
+    s_state.font = font_id;
+    s_state.prop = prop;
+    s_state.scale = clamp_scale(active_font(font_id), s_state.scale);
+    s_state_gen++;
+    xSemaphoreGive(s_state_lock);
+    if (s_task) xTaskNotifyGive(s_task);
+}
+
+void display_get_font(uint8_t *font_id_out, bool *prop_out)
+{
+    xSemaphoreTake(s_state_lock, portMAX_DELAY);
+    if (font_id_out) *font_id_out = s_state.font;
+    if (prop_out)    *prop_out    = s_state.prop;
+    xSemaphoreGive(s_state_lock);
 }
 
 void display_clear(void)
@@ -577,7 +541,7 @@ void display_clear(void)
 
     xSemaphoreTake(s_state_lock, portMAX_DELAY);
     s_state.text[0] = '\0';
-    s_state.scroll  = false;
+    s_state.scroll_mode = DISPLAY_SCROLL_OFF;
     s_state_gen++;
     xSemaphoreGive(s_state_lock);
 
@@ -591,7 +555,7 @@ void display_clear(void)
 
 void display_get_state(char *text_out, size_t text_size,
                        display_color_t *color_out,
-                       bool *scroll_out,
+                       uint8_t *scroll_mode_out,
                        uint8_t *speed_out,
                        uint8_t *scale_out)
 {
@@ -600,9 +564,9 @@ void display_get_state(char *text_out, size_t text_size,
         strncpy(text_out, s_state.text, text_size);
         text_out[text_size - 1] = '\0';
     }
-    if (color_out)  *color_out  = s_state.color;
-    if (scroll_out) *scroll_out = s_state.scroll;
-    if (speed_out)  *speed_out  = s_state.speed;
-    if (scale_out)  *scale_out  = s_state.scale;
+    if (color_out)       *color_out       = s_state.color;
+    if (scroll_mode_out) *scroll_mode_out = s_state.scroll_mode;
+    if (speed_out)       *speed_out       = s_state.speed;
+    if (scale_out)       *scale_out       = s_state.scale;
     xSemaphoreGive(s_state_lock);
 }

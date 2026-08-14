@@ -113,6 +113,12 @@ static esp_err_t integrations_post_handler(httpd_req_t *req)
         }
         snprintf(cfg.webhook_url, sizeof(cfg.webhook_url), "%s", it->valuestring);
     }
+    // The device name moved to the System tab (POST /api/system/device_name),
+    // where it is validated strictly - it is a hostname and an SSID now. This
+    // field stays for existing clients and writes the same single value, but
+    // leniently: whatever it is given is cleaned to the allowed charset rather
+    // than rejected, so a script written against 2.1 keeps working. The GET
+    // above reports the cleaned result.
     if (cJSON_IsString(it = cJSON_GetObjectItem(body, "device_name"))) {
         if (strlen(it->valuestring) > INTEGR_NAME_MAX) {
             cJSON_Delete(body);

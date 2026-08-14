@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 
+#include "devname.h"
 #include "integrations.h"
 #include "wifi_manager.h"
 #include "wg_client.h"
@@ -89,10 +90,11 @@ static bool key_equal(const char *a, const char *b)
 // The API key is optional, so in the documented LAN-trust default any web
 // page the user's browser loads could POST to the device (CSRF) or, with DNS
 // rebinding, even read responses. Two cheap checks close that off: the Host
-// header must be an address this device actually answers to, and a browser
-// Origin header, when present, must point at the device. Skipped in AP mode:
-// the captive-portal sheet posts /api/wifi/connect under the probe hostname
-// it was hijacked from.
+// header must be a name or address this device actually answers to - its WiFi
+// IP, its WireGuard address, or its own device name, which is what a router
+// registers from the DHCP hostname - and a browser Origin header, when present,
+// must point at the same. Skipped in AP mode: the captive-portal sheet posts
+// /api/wifi/connect under the probe hostname it was hijacked from.
 
 static bool host_is_us(const char *host, const char *ip)
 {
@@ -120,15 +122,22 @@ static bool request_origin_ok(httpd_req_t *req)
         if (slash) *slash = '\0';
     }
 
+    // The resolved device name, which is also the DHCP hostname: browsing to
+    // http://<name>/ is the documented way in, so its writes must not 403.
+    char name[INTEGR_NAME_MAX + 1];
+    integrations_get_device_name(name, sizeof(name));
+
     char hdr[96];
     if (httpd_req_get_hdr_value_str(req, "Host", hdr, sizeof(hdr)) == ESP_OK) {
-        if (!host_is_us(hdr, w.ip) && !host_is_us(hdr, wg_ip)) {
+        if (!host_is_us(hdr, w.ip) && !host_is_us(hdr, wg_ip) &&
+            !devname_host_matches(hdr, name)) {
             return false;   // DNS rebinding or a request meant for elsewhere
         }
     }
     if (httpd_req_get_hdr_value_str(req, "Origin", hdr, sizeof(hdr)) == ESP_OK) {
         const char *h = strncmp(hdr, "http://", 7) == 0 ? hdr + 7 : hdr;
-        if (!host_is_us(h, w.ip) && !host_is_us(h, wg_ip)) {
+        if (!host_is_us(h, w.ip) && !host_is_us(h, wg_ip) &&
+            !devname_host_matches(h, name)) {
             return false;   // cross-site browser request (CSRF)
         }
     }

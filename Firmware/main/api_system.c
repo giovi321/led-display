@@ -12,10 +12,12 @@
 #include "freertos/task.h"
 
 #include "api_handlers.h"
+#include "devname.h"
 #include "display.h"
 #include "fw_version.h"
 #include "integrations.h"
 #include "led_driver.h"
+#include "light_sensor.h"
 #include "mapping.h"
 #include "ota_update.h"
 #include "scheduler.h"
@@ -44,10 +46,13 @@ static esp_err_t status_get(httpd_req_t *req)
 
     char text[DISPLAY_TEXT_MAX];
     display_color_t col;
-    bool scroll;
+    uint8_t scroll_mode;
     uint8_t speed;
     uint8_t scale;
-    display_get_state(text, sizeof(text), &col, &scroll, &speed, &scale);
+    display_get_state(text, sizeof(text), &col, &scroll_mode, &speed, &scale);
+    uint8_t font_id;
+    bool prop;
+    display_get_font(&font_id, &prop);
 
     esp_chip_info_t chip;
     esp_chip_info(&chip);
@@ -62,12 +67,22 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddStringToObject(wifi, "ip",   w.ip);
     cJSON_AddNumberToObject(wifi, "rssi", w.rssi);
     cJSON_AddBoolToObject(wifi,   "connected", w.connected);
+    // Reported in every mode: the System tab shows which SSID the setup
+    // network would appear under, without knowing how the name is resolved.
+    cJSON_AddStringToObject(wifi, "ap_ssid", w.ap_ssid);
 
     cJSON *d = cJSON_AddObjectToObject(r, "display");
     cJSON_AddStringToObject(d, "text", text);
-    cJSON_AddBoolToObject(d,   "scroll", scroll);
+    // Both scroll spellings: the bool for pre-2.2 clients, the mode string
+    // for everyone else.
+    cJSON_AddBoolToObject(d,   "scroll", scroll_mode != 0);
+    static const char *SCROLL_NAMES[] = {"off", "restart", "continuous"};
+    cJSON_AddStringToObject(d, "scroll_mode",
+                            SCROLL_NAMES[scroll_mode <= 2 ? scroll_mode : 1]);
     cJSON_AddNumberToObject(d, "speed", speed);
     cJSON_AddNumberToObject(d, "scale", scale);
+    cJSON_AddStringToObject(d, "font", font_name(font_id));
+    cJSON_AddStringToObject(d, "spacing", prop ? "proportional" : "monospace");
     cJSON_AddNumberToObject(d, "brightness", led_driver_get_brightness());
     cJSON *c = cJSON_AddObjectToObject(d, "color");
     cJSON_AddNumberToObject(c, "r", col.r);
@@ -83,9 +98,25 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddNumberToObject(s, "uptime", esp_timer_get_time() / 1000000);
     cJSON_AddNumberToObject(s, "brightness_cap", led_driver_get_brightness_cap());
 
+    // The single device name: hostname, setup-AP SSID and webhook "device".
+    // Always the resolved value, so a client never has to know the default.
+    char dname[INTEGR_NAME_MAX + 1];
+    integrations_get_device_name(dname, sizeof(dname));
+    cJSON_AddStringToObject(s, "device_name", dname);
+    // Empty when no name is stored: the UI shows its placeholder instead of
+    // pre-filling the field with a default the user never chose.
+    char dstored[DEVNAME_MAX + 1];
+    settings_load_device_name(dstored, sizeof(dstored));
+    cJSON_AddStringToObject(s, "device_name_stored", dstored);
+
     // Surface the saved boot-screen choice so the System tab can reflect it.
     settings_t cfg;
     settings_load(&cfg);
+    // display.brightness is what the arbiter last applied (0 in a blanked
+    // off-window, halved by the staleness guard); the stored user level is a
+    // separate field, so the UI slider can be an input without writing the
+    // applied value back.
+    cJSON_AddNumberToObject(d, "brightness_stored", cfg.brightness);
     const char *bs = "text";
     if      (cfg.boot_screen == BOOT_SHOW_IP)   bs = "ip";
     else if (cfg.boot_screen == BOOT_SHOW_NONE) bs = "none";
@@ -120,6 +151,16 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddStringToObject(oj, "slot", ota.running_slot);
     cJSON_AddStringToObject(oj, "version", ota.running_version);
     cJSON_AddBoolToObject(oj, "in_progress", ota.in_progress);
+
+    // Ambient sensor: `enabled` tells the Display tab that the brightness
+    // slider is not in charge; `raw`/`level` are -1 until the first sample.
+    light_sensor_status_t ls;
+    light_sensor_get_status(&ls);
+    cJSON *lsj = cJSON_AddObjectToObject(r, "light_sensor");
+    cJSON_AddBoolToObject(lsj, "enabled", ls.enabled);
+    cJSON_AddBoolToObject(lsj, "sampling", ls.sampling);
+    cJSON_AddNumberToObject(lsj, "raw", ls.raw);
+    cJSON_AddNumberToObject(lsj, "level", ls.level);
 
     // true = the schedule currently allows the display to be on.
     cJSON_AddBoolToObject(r, "schedule_active", !scheduler_display_is_off());
@@ -158,8 +199,57 @@ static esp_err_t system_boot_screen_post(httpd_req_t *req)
     }
     cJSON_Delete(json);
 
-    settings_save_boot_screen(which);
+    esp_err_t err = settings_save_boot_screen(which);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "saving boot screen failed: %s", esp_err_to_name(err));
+        return web_send_err(req, "saving boot screen failed", 500);
+    }
     return web_send_ok(req);
+}
+
+// One name, three uses (hostname, setup-AP SSID, webhook "device"). An empty
+// name clears it and every consumer goes back to its historical default.
+static esp_err_t system_device_name_post(httpd_req_t *req)
+{
+    if (web_require_auth(req) != ESP_OK) return ESP_OK;
+
+    cJSON *json = web_read_json(req, BODY_MAX);
+    if (!json) return web_send_err(req, "bad json", 400);
+
+    const cJSON *n = cJSON_GetObjectItem(json, "name");
+    if (!cJSON_IsString(n)) {
+        cJSON_Delete(json);
+        return web_send_err(req, "name required", 400);
+    }
+    char name[DEVNAME_MAX + 2];   // one over, so an over-long name still fails
+    snprintf(name, sizeof(name), "%s", n->valuestring);
+    cJSON_Delete(json);
+
+    if (name[0] != '\0' && !devname_valid(name)) {
+        return web_send_err(req,
+                            "name must be 1-24 letters, digits or hyphens, "
+                            "starting and ending with a letter or digit", 400);
+    }
+
+    esp_err_t err = integrations_set_device_name(name);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "saving device name failed: %s", esp_err_to_name(err));
+        return web_send_err(req, "saving device name failed", 500);
+    }
+
+    // Report what the name now resolves to, so the UI does not have to
+    // duplicate the default rules.
+    char resolved[INTEGR_NAME_MAX + 1];
+    integrations_get_device_name(resolved, sizeof(resolved));
+    wifi_mgr_status_t w;
+    wifi_manager_get_status(&w);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddBoolToObject(r, "ok", true);
+    cJSON_AddStringToObject(r, "device_name", resolved);
+    cJSON_AddStringToObject(r, "hostname", resolved);
+    cJSON_AddStringToObject(r, "ap_ssid", w.ap_ssid);
+    return web_send_json(req, r);
 }
 
 // Wipes the "cfg" NVS namespace only: WiFi credentials live in their own
@@ -199,6 +289,9 @@ static esp_err_t schedule_get(httpd_req_t *req)
     cJSON_AddNumberToObject(r, "off_min", sc.off_min);
     cJSON_AddNumberToObject(r, "days", sc.days);
     cJSON_AddNumberToObject(r, "utc_offset", sc.utc_offset);
+    cJSON_AddStringToObject(r, "off_action",
+                            sc.off_action == SCHED_OFF_ACT_DIM ? "dim" : "off");
+    cJSON_AddNumberToObject(r, "off_brightness", sc.off_brightness);
     return web_send_json(req, r);
 }
 
@@ -219,6 +312,8 @@ static esp_err_t schedule_post(httpd_req_t *req)
     const cJSON *fm = cJSON_GetObjectItem(json, "off_min");
     const cJSON *d  = cJSON_GetObjectItem(json, "days");
     const cJSON *u  = cJSON_GetObjectItem(json, "utc_offset");
+    const cJSON *oa = cJSON_GetObjectItem(json, "off_action");
+    const cJSON *ob = cJSON_GetObjectItem(json, "off_brightness");
 
     // Reject out-of-range values instead of letting the uint8/int16 casts
     // wrap: a stored on_hour of 300 -> 44 would persistently corrupt the
@@ -231,6 +326,21 @@ static esp_err_t schedule_post(httpd_req_t *req)
         cJSON_Delete(json);
         return web_send_err(req, "hours 0-23, minutes 0-59, utc_offset -840..840", 400);
     }
+    // Absent off_action/off_brightness keep the stored values, so a client
+    // that only knows the pre-2.2 fields cannot silently change the action.
+    if (cJSON_IsNumber(ob) && (ob->valueint < 1 || ob->valueint > 255)) {
+        cJSON_Delete(json);
+        return web_send_err(req, "off_brightness 1-255", 400);
+    }
+    if (cJSON_IsString(oa)) {
+        if      (!strcmp(oa->valuestring, "off")) sc.off_action = SCHED_OFF_ACT_OFF;
+        else if (!strcmp(oa->valuestring, "dim")) sc.off_action = SCHED_OFF_ACT_DIM;
+        else {
+            cJSON_Delete(json);
+            return web_send_err(req, "off_action must be off or dim", 400);
+        }
+    }
+    if (cJSON_IsNumber(ob)) sc.off_brightness = (uint8_t)ob->valueint;
 
     if (cJSON_IsBool(en))   sc.enabled    = cJSON_IsTrue(en);
     if (cJSON_IsNumber(oh)) sc.on_hour    = (uint8_t)oh->valueint;
@@ -241,7 +351,14 @@ static esp_err_t schedule_post(httpd_req_t *req)
     if (cJSON_IsNumber(u))  sc.utc_offset = (int16_t)u->valueint;
 
     cJSON_Delete(json);
-    scheduler_set(&sc);
+    // scheduler_set() applies the schedule before it persists it, so a failed
+    // write leaves the new schedule live until the next reboot - say so instead
+    // of replying ok and silently reverting.
+    esp_err_t err = scheduler_set(&sc);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "saving schedule failed: %s", esp_err_to_name(err));
+        return web_send_err(req, "schedule applied but not saved", 500);
+    }
     return web_send_ok(req);
 }
 
@@ -251,6 +368,7 @@ void api_system_register(httpd_handle_t srv)
         {.uri = "/api/status",               .method = HTTP_GET,  .handler = status_get},
         {.uri = "/api/system/reboot",        .method = HTTP_POST, .handler = system_reboot_post},
         {.uri = "/api/system/boot_screen",   .method = HTTP_POST, .handler = system_boot_screen_post},
+        {.uri = "/api/system/device_name",   .method = HTTP_POST, .handler = system_device_name_post},
         {.uri = "/api/system/factory_reset", .method = HTTP_POST, .handler = system_factory_reset_post},
         {.uri = "/api/schedule",             .method = HTTP_GET,  .handler = schedule_get},
         {.uri = "/api/schedule",             .method = HTTP_POST, .handler = schedule_post},

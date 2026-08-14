@@ -2,7 +2,7 @@
 title: First flash
 description: Build the firmware with ESP-IDF and flash it over USB
 sidebar:
-  order: 3
+  order: 4
 ---
 
 The first flash goes over USB. Every update after that can go [over the air](../../admin-guide/ota-updates/).
@@ -37,7 +37,7 @@ v2 changed the partition table from a single `factory` app to two OTA slots (`ot
 
 ## Verifying the build
 
-Host-side unit tests cover the pixel-mapping engine and the value formatter without any hardware:
+Host-side unit tests cover the pure modules (pixel mapping, value formatting, the fonts, the saved-network ordering, the device-name rules, the light-sensor curve) without any hardware:
 
 ```sh
 cd Firmware/test/host

@@ -53,14 +53,14 @@ Two environment variables: `SRC=` overrides the source checkout path (default `/
 
 ## Host tests
 
-The pure C modules (`mapping.c`, `valuefmt.c`) have unit tests that run on any machine with gcc, no ESP-IDF required:
+The pure C modules (`mapping.c`, `valuefmt.c`, `fonts.c`, `wifi_pick.c`, `devname.c`, `light_curve.c`) have unit tests that run on any machine with gcc, no ESP-IDF required:
 
 ```sh
 cd Firmware/test/host
 ./run_tests.sh
 ```
 
-The script compiles with `-std=c11 -Wall -Wextra -Werror -g` and runs both binaries; tests are plain `assert`, and the run ends with `ALL HOST TESTS PASSED`. The mapping tests include the oracle comparison against the v1 implementation described in [pixel mapping](../../architecture/pixel-mapping/). Run them after any change to the mapping or value-formatting code; they are the fast feedback loop for exactly the code that is hardest to debug on hardware.
+The script compiles with `-std=c11 -Wall -Wextra -Werror -g` and runs every binary in turn (`light_curve` also links libm for its gamma shape); tests are plain `assert`, and the run ends with `ALL HOST TESTS PASSED`. The mapping tests include the oracle comparison against the v1 implementation described in [pixel mapping](../../architecture/pixel-mapping/). Run them after any change to those modules; they are the fast feedback loop for exactly the code that is hardest to debug on hardware.
 
 ## Web asset editing loop
 

@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 
+#include "devname.h"
 #include "display.h"
 #include "mapping.h"
 
@@ -20,9 +21,11 @@ typedef struct {
     display_color_t color;
     uint8_t         brightness;
     uint8_t         brightness_cap;   // 255 = uncapped (power-budget guard)
-    bool            scroll;
+    uint8_t         scroll_mode;      // display_scroll_t
     uint8_t         speed;
     uint8_t         scale;
+    uint8_t         font;             // FONT_ID_*
+    bool            prop;             // proportional glyph spacing
     boot_screen_t   boot_screen;
     // Legacy v1 pixel-mapping mode ("map" NVS key). -1 when absent. Only
     // used once, to migrate to the "layout" blob via mapping_from_legacy().
@@ -40,13 +43,27 @@ esp_err_t settings_save(const settings_t *in);
 // so each endpoint doesn't have to know the full schema.
 esp_err_t settings_save_text(const char *text,
                              const display_color_t *color,
-                             bool scroll,
+                             uint8_t scroll_mode,
                              uint8_t speed,
                              uint8_t scale);
+esp_err_t settings_save_font(uint8_t font, bool prop);
 esp_err_t settings_save_brightness(uint8_t brightness);
 esp_err_t settings_save_brightness_cap(uint8_t cap);
 esp_err_t settings_save_boot_screen(boot_screen_t which);
 esp_err_t settings_clear_text(void);
+
+// ---- device name ----------------------------------------------------------
+//
+// The single device name (rules in devname.h), stored as the scalar NVS key
+// "dname" rather than inside a blob: wifi_manager needs it to set the hostname
+// and build the setup-AP SSID before any blob-backed module has initialised.
+// `buf` comes back empty when no name is set, which every consumer resolves to
+// its own historical default via devname_hostname()/devname_ap_ssid().
+esp_err_t settings_load_device_name(char *buf, size_t bufsize);
+
+// An empty or NULL name erases the key (back to the defaults). The caller has
+// already validated with devname_valid().
+esp_err_t settings_save_device_name(const char *name);
 
 // ---- structured blobs (JSON strings in the same "cfg" namespace) --------
 //

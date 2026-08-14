@@ -98,19 +98,33 @@ captive-portal probes, and a registration table each module contributes to.
 ## 4. Settings and persistence
 
 NVS namespace `cfg` keeps existing scalar keys (text, colour, brightness,
-scroll, speed, scale, boot screen, schedule). New structured state is stored
-as JSON blobs under new keys:
+scroll, speed, scale, boot screen). New scalar keys: `scm` (scroll mode,
+section 11), `font`, `prop` (spacing, section 11) and `dname` (device name;
+absent means unset and every consumer falls back to its historical default).
+Structured state is stored as JSON blobs under their own keys:
 
 | Key | Content |
 |-----|---------|
 | `layout` | panel type + grid + cells (section 1) |
 | `colors` | array of `{name, r, g, b}`, max 12 |
 | `valuecfg` | prefix, suffix, decimals, thousands separator, stale_hours, stale_action, stale_text |
-| `integr` | api_key, webhook url, webhook event mask |
+| `integr` | api_key, webhook url, webhook event mask, plus the legacy device-name copy `dname` superseded |
 | `wg` | WireGuard enable, private key, peer public key, endpoint, port, allowed IPs, keepalive |
+| `lsen` | light sensor: enabled, gpio, dark_raw, bright_raw, min_bri, max_bri, gamma |
 
 `settings.c` gains load/save helpers per blob; every blob has a version
 field for forward migration.
+
+Two namespaces outside `cfg`:
+
+- `sched` holds the schedule scalars (`en`, `on_h`, `on_m`, `off_h`,
+  `off_m`, `days`, `utc`) plus `oact` (off-window action) and `obri` (the
+  level the `dim` action holds); absent keys default to the blanking
+  behaviour older builds had
+- `wifi` holds five credential slots, `ssid0`..`ssid4` and
+  `pass0`..`pass4`. Slot 0 is mirrored onto the single legacy `ssid`/`pass`
+  pair so an OTA rollback still finds credentials, and a device that only
+  has the legacy pair adopts it into slot 0 on the first boot
 
 ## 5. API surface (v2)
 
@@ -123,26 +137,75 @@ All existing endpoints remain. New/changed:
 | GET/POST | `/api/colors` | saved colour presets |
 | POST | `/api/value` | `{"value":"4.2"}` or `{"value":4.2}`; device formats via valuecfg template and displays |
 | GET/POST | `/api/value/config` | prefix/suffix/decimals/staleness settings |
-| GET | `/api/config/export` | full config JSON (all blobs + scalars + wifi ssid; secrets included - endpoint requires API key when one is set) |
+| GET | `/api/config/export` | full config JSON (all blobs + scalars, WiFi credentials excluded; API key and WG private key included - endpoint requires the API key when one is set) |
 | POST | `/api/config/import` | restore config, rebuild LUT, apply |
 | POST | `/api/ota/upload` | raw `.bin` body -> inactive OTA slot |
 | POST | `/api/ota/url` | `{"url":"https://..."}` pull update |
 | GET | `/api/ota/status` | slot info, running version, last result |
 | GET/POST | `/api/integrations` | API key, outbound webhook config |
 | GET/POST | `/api/wireguard` | WireGuard config; status surfaced in `/api/status` |
+| GET/POST | `/api/display/light_sensor` | ambient sensor config; the GET adds the live reading, the level and the pins that can be used |
+| POST | `/api/system/device_name` | `{"name":".."}`; one name for hostname, setup-AP SSID and the webhook `device` field |
+| GET | `/api/wifi/networks` | `{networks:[{ssid,connected}],count,max}`; passwords are never returned |
+| POST | `/api/wifi/networks` | `{ssid,password}` adds or updates a slot; 409 when all five are in use |
+| POST | `/api/wifi/networks/delete` | `{ssid}` forgets one network |
+
+Changed shapes: `/api/display/text` accepts `scroll_mode`, `font` and
+`spacing` (section 11); `/api/schedule` accepts `off_action` (`off`, `dim`)
+and `off_brightness` (1..255); `/api/wifi/connect` adds or updates a network
+and reboots instead of replacing the single stored one; `/api/wifi/reset`
+forgets every network; `/api/wifi/scan` items gain `saved`.
 
 `/api/status` gains: firmware version + build date, layout summary, value
-age (seconds since last `/api/value`), WireGuard state, OTA slot.
+age (seconds since last `/api/value`), WireGuard state, OTA slot,
+`display.scroll_mode`/`font`/`spacing`, `display.brightness_stored` next to
+the applied `display.brightness`, `light_sensor` (`enabled`, `sampling`,
+`raw`, `level`), `system.device_name` (resolved) and
+`system.device_name_stored` (empty when unset), and `wifi.ap_ssid` in every
+mode.
 
 **Auth**: if an API key is configured, every mutating endpoint (POST) checks
-`X-Api-Key`; GETs stay open except `/api/config/export`. In AP/captive-portal
-setup mode the WiFi endpoints stay keyless. No key configured = everything
-open (LAN-trust default), stated plainly in the docs.
+`X-Api-Key`; GETs stay open except `/api/config/export`. The WiFi endpoints
+stay keyless in exactly one case: the setup AP of a device with no saved
+network, which is genuine first-time provisioning where no key could have
+been configured yet. A provisioned device that raised the setup AP after an
+outage still requires the key, because that AP is open and the exception
+would otherwise let a passer-by move the display onto their own network. The
+consequence is deliberate: with a key set and then forgotten, WiFi cannot be
+reconfigured from the fallback portal and recovery is a USB reflash. No key
+configured = everything open (LAN-trust default), stated plainly in the docs.
+
+**Cross-site hardening**: because the LAN-trust default leaves POSTs open,
+`web_require_auth` also checks where the request claims to be going. A `Host`
+header, and an `Origin` header when the browser sends one, must name the
+device's WiFi IP, its WireGuard address, or its resolved device name
+(optionally with one DNS suffix label such as `.local`, and an optional
+`:port`). Anything else is 403 `cross-origin request rejected`, which closes
+off DNS rebinding and cross-site POSTs from an unrelated page. Skipped in AP
+mode, where the captive-portal sheet posts under the probe hostname it was
+hijacked from.
 
 **Value staleness**: `scheduler.c` grows a minute-tick check: if
 `stale_hours > 0` and no value update for that long, apply `stale_action`:
-`none`, `dim` (halve brightness), `marker` (blinking corner pixel), or
-`text` (show `stale_text`). Cleared by the next value post.
+`none`, `dim` (halve the level the schedule and the cap allow), `marker` (blinking
+corner pixel), or `text` (show `stale_text`). Cleared by the next value post.
+
+**Brightness arbitration**: `scheduler.c` owns the one function that decides
+what reaches the panel, in this order: the schedule level (inside the
+on-window the stored user brightness, replaced by the ambient sensor's level
+while the sensor is enabled and has read something; outside it 0 or
+`off_brightness` per `off_action`), then the brightness cap, then the stale
+halving. The cap is applied before the halving on purpose: clamping last
+would swallow the staleness dim whenever the level is at least twice the cap,
+because dimmed and undimmed would both land on the cap. Setup-AP mode is the
+exception in all directions: the panel then carries the only copy of the AP
+name and address, so the schedule does not blank it, the staleness guard
+yields, and the sensor is bypassed in favour of the stored brightness.
+
+`/api/status` reports both ends of this: `display.brightness` is what the
+arbiter last applied (0 in a blanked off-window, halved when stale) and
+`display.brightness_stored` is the user's level, so the UI slider can stay an
+input without writing the applied value back.
 
 ## 6. Outbound webhooks
 
@@ -176,8 +239,28 @@ experimental; nothing else in this design depends on it.
 
 ## 9. Boot flow (v2)
 
-settings -> layout/LUT -> display init -> splash -> WiFi -> SNTP/scheduler
--> WireGuard (if enabled) -> HTTP -> mark OTA image valid -> `boot` webhook.
+settings -> layout/LUT -> display init (stored font + spacing) -> splash ->
+WiFi -> integrations/webhooks -> boot screen -> SNTP/scheduler -> light
+sensor -> WireGuard (if enabled) -> HTTP -> mark OTA image valid -> `boot`
+webhook.
+
+Ordering constraints inside that sequence:
+
+- the hostname is set on both netifs before the radio starts, so the first
+  DHCP request already carries it
+- WiFi scans first, then walks the saved networks strongest-RSSI-first and
+  finally the ones the scan missed (hidden SSIDs) in stored order, 10 s per
+  attempt; with nothing reachable it raises the setup AP. Once boot ends in
+  STA mode a reconnect task retries forever with a 2/5/15/30/60 s backoff and,
+  after 30 min offline, raises the setup AP alongside the retries (AP+STA,
+  every 5 min) until a reconnect tears it down again
+- the boot screen is user-selectable except in AP mode, where the scrolling
+  `Setup AP: <ssid> / <ip>` banner always wins - including when the AP is
+  raised later, at runtime, by the reconnect task
+- the light sensor starts after the scheduler: its first reading re-applies
+  the brightness through the scheduler's arbiter (section 5), which needs its
+  mutex to exist. Sampling runs whenever a valid pin is stored, even with the
+  sensor disabled, so the UI can calibrate against a live reading
 
 ## 10. Security posture
 
@@ -187,7 +270,30 @@ WireGuard rather than port-forwarding the device. Secrets (WiFi password,
 API key, WireGuard private key) never appear in `/api/status` or logs; the
 config export contains them and is key-protected when a key is set.
 
-## 11. Out of scope (deferred)
+## 11. Text rendering (v2.2)
 
-Multiple parallel data pins, MQTT, additional fonts, clock/countdown modes,
-HTTPS on-device, per-panel type mixing (heterogeneous panels in one grid).
+Three column-major pixel fonts in `fonts.[hc]` (pure C, host-tested):
+`5x7` (default, the original set), `3x5` (compact, uppercase letterforms)
+and `7x12` (tall, real lowercase with descenders). All cover ASCII 32..126;
+integer scaling 1..8 clamped to the display height, and a font too tall for
+the active layout falls back to the tallest one that fits (`font_fit`).
+
+Spacing is proportional by default: blank edge columns are trimmed per
+glyph, spaces advance `space_w`, and digits always advance `digit_w`
+(tabular figures - a ticking value keeps a stable width). `monospace`
+restores the fixed cell.
+
+Scrolling has three modes (`display_scroll_t`): `off`, `restart` (text
+exits fully before re-entering - the former scroll bool) and `continuous`
+(marquee: the next repetition follows the tail after a two-character gap).
+
+Wire/NVS vocabulary: `/api/display/text` accepts `scroll_mode`
+(off|restart|continuous, wins over the legacy `scroll` bool), `font`
+(5x7|3x5|7x12) and `spacing` (proportional|monospace); `/api/status` and
+the config export report the same fields. NVS keys: `scm` (mode, `scrl`
+kept in sync for rollback), `font`, `prop`.
+
+## 12. Out of scope (deferred)
+
+Multiple parallel data pins, MQTT, clock/countdown modes, HTTPS on-device,
+per-panel type mixing (heterogeneous panels in one grid).

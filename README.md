@@ -21,8 +21,13 @@ led-display is ESP-IDF firmware for the ESP32-S3 that drives chained WS2812B mat
 
 - Web UI with a simple mode (text, colour, brightness, schedule) and an advanced mode that unlocks hardware, network, integrations and system tabs; no frameworks, one page, served gzipped from flash
 - Graphical arrangement editor: describe your panel once (size, first-LED corner, row or column walk, serpentine), lay panels out on a grid up to 8x16 cells (32 panels, 8192 pixels), drag to swap, click to rotate, with identify mode to match the drawing to the physical wall
+- Three pixel fonts (5x7, a tiny 3x5, a tall 7x12 with real lowercase) at integer sizes, proportionally spaced with fixed-width digits so a ticking value never wobbles; monospace on request
+- Scrolling off, restart, or continuous as a marquee that repeats after a short gap
 - Value endpoint for any webhook-capable system: `POST /api/value` with `{"value": 4210.5}` and the device formats it (prefix, suffix, decimals, thousands separator) and displays it; a staleness guard dims the display, blinks a corner pixel or swaps in a fallback text when no update arrives for a configured number of hours
-- Saved colours (up to 12 named presets), per-weekday on/off schedule, configurable boot screen
+- Saved colours (up to 12 named presets), per-weekday schedule that turns the display off or holds it at a dim level, configurable boot screen
+- Up to 5 saved WiFi networks: the strongest one in range wins at boot, a lost link is retried with a growing backoff, and the setup AP only comes back when nothing answers
+- Optional ambient light sensor: an LDR divider on an ADC pin sets the brightness from the room, calibrated against the live reading in the browser
+- One device name for the network hostname, the setup AP SSID and the webhook payloads
 - OTA updates both ways: upload a `.bin` from the browser or have the device pull one from a URL, with automatic rollback if the new image fails to boot
 - Config backup and restore as one JSON file; WiFi credentials are deliberately excluded so the file can move between devices and people
 - Optional API key: when set, every POST requires the `X-Api-Key` header
@@ -44,7 +49,7 @@ The reference build this firmware runs on:
 | Data pin    | GPIO 16 (through SN74HCT125N level shifter to 5 V)  |
 | PCB         | See `PCB/` (Fritzing v3 source + Gerbers)           |
 
-Nothing about that grid is hardcoded anymore. The firmware takes any identical-panel grid: panel sizes 1..64 in each dimension, up to 8 rows by 16 columns, capped at 32 panels and 8192 pixels total. Hardware notes (parts, level shifter wiring, connectors) are in the [hardware guide](https://giovi321.github.io/led-display/getting-started/hardware/), and the measured power figures in the [power budget](https://giovi321.github.io/led-display/architecture/power/).
+Nothing about that grid is hardcoded anymore. The firmware takes any identical-panel grid: panel sizes 1..64 in each dimension, up to 8 rows by 16 columns, capped at 32 panels and 8192 pixels total. Hardware notes (parts, level shifter wiring, connectors) are in the [hardware guide](https://giovi321.github.io/led-display/getting-started/hardware/), the physical build in the [assembly guide](https://giovi321.github.io/led-display/getting-started/assembly/), and the measured power figures in the [power budget](https://giovi321.github.io/led-display/architecture/power/).
 
 ## Quick start
 
@@ -59,7 +64,7 @@ Nothing about that grid is hardcoded anymore. The firmware takes any identical-p
 
    Devices running v1 also need this one USB reflash, because 2.0.0 installs a new OTA partition table. Stored settings and WiFi credentials survive it. Every later update goes through the web UI.
 
-2. The device boots, finds no stored credentials and opens an AP named `LEDDisplay-Setup`. Connect from a phone or laptop; the captive portal redirects to `http://192.168.4.1/`.
+2. The device boots, finds no stored credentials and opens an AP named `LEDDisplay-Setup`, or after the device name you set. The panels scroll the SSID and the address; connect from a phone or laptop and the captive portal redirects to `http://192.168.4.1/`.
 
 3. Pick your network, enter the password, save. The device reboots onto your network and shows its IP on the panels (default boot screen on a fresh install). Open that IP in a browser.
 
@@ -77,7 +82,8 @@ This is a LAN device speaking plain HTTP. Treat it that way.
 - There is no TLS on the device. Anything on the same network can read the traffic
 - With no API key configured, every endpoint is open. That is the deliberate trusted-LAN default
 - With an API key configured, every POST requires `X-Api-Key`. GETs stay open, except the config export, which contains the API key and the WireGuard private key and is therefore key-protected. The key guards against casual misuse, not against a hostile network
-- The WiFi endpoints stay keyless while the device is in captive-portal setup mode, since you could not present a key there yet
+- The WiFi endpoints stay keyless in one case only: the captive-portal setup AP of a device with no saved network, where no key could have been set yet. A provisioned device that fell back to that AP still needs the key, so keep it: without it, WiFi cannot be reconfigured from the portal and the way back is a USB reflash
+- Requests that change something must address the device by its own IP, WireGuard address or device name; anything else is refused with 403, which keeps a random page in your browser from posting to the display
 - Secrets (WiFi password, API key, WireGuard private key) never appear in status or config GET responses; they only leave the device in the key-protected export
 - For remote access, run the built-in WireGuard client to a peer you control. Do not port-forward the device
 
@@ -95,13 +101,16 @@ This is a LAN device speaking plain HTTP. Treat it that way.
 │   │   ├── main.c           boot order
 │   │   ├── mapping.[hc]     pure LUT builder for the panel arrangement (host-testable)
 │   │   ├── led_driver.[hc]  RMT/led_strip, brightness + cap, LUT application
-│   │   ├── display.[hc]     font, frame buffer, scroll, test patterns, identify
+│   │   ├── display.[hc]     frame buffer, scroll modes, test patterns, identify
+│   │   ├── fonts.[hc]       the three pixel fonts + spacing rules (pure, host-testable)
 │   │   ├── valuefmt.[hc]    value formatting (pure, host-testable)
 │   │   ├── settings.[hc]    NVS persistence, JSON blobs
-│   │   ├── scheduler.[hc]   on/off schedule + staleness tick
+│   │   ├── scheduler.[hc]   on/off schedule, brightness arbiter, staleness tick
+│   │   ├── light_sensor.[hc] ambient sensor sampling; light_curve.[hc] is its pure half
 │   │   ├── integrations.[hc] API key, value config, webhook config
+│   │   ├── devname.[hc]     device-name rules (pure, host-testable)
 │   │   ├── webhooks.[hc]    outbound webhook queue
-│   │   ├── wifi_manager.[hc] STA + captive-portal AP
+│   │   ├── wifi_manager.[hc] saved networks, STA + captive-portal AP; wifi_pick.[hc] orders the attempts
 │   │   ├── wg_client.[hc]   WireGuard lifecycle
 │   │   ├── ota_update.[hc]  OTA slots, rollback
 │   │   ├── web_server.c     server setup, static assets, captive-portal probes
@@ -110,15 +119,20 @@ This is a LAN device speaking plain HTTP. Treat it that way.
 │   ├── test/host/           host unit tests (plain gcc + assert)
 │   └── tools/wsl_build.sh   build helper for a WSL-hosted toolchain
 ├── PCB/                     Fritzing source + Gerbers (v3 board)
-└── 3D/                      printable and cuttable parts
-    ├── 8x32/                frame panels (DXF) and spacers (STL) for 32x8 panels
-    ├── Box for PCB_v2.stl   enclosure for the controller board
+└── 3D/                      enclosure parts: DXF outlines to cut, STL to print
+    ├── 8x32/                parts of the reference build, from 32x8 panels
+    │   ├── Display modules support panel.dxf
+    │   ├── Front and back panels.dxf
+    │   └── Spacers.stl
+    ├── Box for PCB_v2.stl   printed case for the controller board
     └── USB type c connector flange.stl
 ```
 
+The SketchUp sources the parts were modelled in are not tracked; the repository ships the STL and DXF exports. The [assembly guide](https://giovi321.github.io/led-display/getting-started/assembly/) walks through building the reference display from them.
+
 ## Development
 
-The [documentation site](https://giovi321.github.io/led-display/) covers the API reference, the mapping model and the build setup in detail. The short version: ESP-IDF v6.0.1, `idf.py set-target esp32s3`, and if your toolchain lives in WSL, `Firmware/tools/wsl_build.sh` mirrors the tree and builds outside the network mount. The pure modules (`mapping.c`, `valuefmt.c`) have host-side unit tests under `Firmware/test/host/`; they must pass before any PR. See [CONTRIBUTING.md](CONTRIBUTING.md).
+The [documentation site](https://giovi321.github.io/led-display/) covers the API reference, the mapping model and the build setup in detail. The short version: ESP-IDF v6.0.1, `idf.py set-target esp32s3`, and if your toolchain lives in WSL, `Firmware/tools/wsl_build.sh` mirrors the tree and builds outside the network mount. The pure modules (`mapping.c`, `valuefmt.c`, `fonts.c`, `wifi_pick.c`, `devname.c`, `light_curve.c`) have host-side unit tests under `Firmware/test/host/`; they must pass before any PR. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

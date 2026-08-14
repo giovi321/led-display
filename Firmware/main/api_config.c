@@ -21,6 +21,7 @@
 #include "fw_version.h"
 #include "integrations.h"
 #include "led_driver.h"
+#include "light_sensor.h"
 #include "mapping.h"
 #include "scheduler.h"
 #include "settings.h"
@@ -38,6 +39,8 @@ static const char *TAG = "api_config";
 static const char *STALE_NAMES[] = {"none", "dim", "marker", "text"};
 static const char *ORIGIN_NAMES[] = {"TL", "TR", "BL", "BR"};
 static const char *AXIS_NAMES[]   = {"row", "col"};
+static const char *SCROLL_NAMES[]  = {"off", "restart", "continuous"};
+static const char *OFF_ACT_NAMES[] = {"off", "dim"};
 
 // ---- section builders (export) ---------------------------------------------
 
@@ -51,9 +54,15 @@ static cJSON *display_to_json(const settings_t *s)
     cJSON_AddNumberToObject(col, "b", s->color.b);
     cJSON_AddNumberToObject(d, "brightness", s->brightness);
     cJSON_AddNumberToObject(d, "brightness_cap", s->brightness_cap);
-    cJSON_AddBoolToObject(d, "scroll", s->scroll);
+    // The bool keeps old backups/firmware working; the mode string is the
+    // full off/restart/continuous state.
+    cJSON_AddBoolToObject(d, "scroll", s->scroll_mode != 0);
+    cJSON_AddStringToObject(d, "scroll_mode",
+                            SCROLL_NAMES[s->scroll_mode <= 2 ? s->scroll_mode : 1]);
     cJSON_AddNumberToObject(d, "speed", s->speed);
     cJSON_AddNumberToObject(d, "scale", s->scale);
+    cJSON_AddStringToObject(d, "font", font_name(s->font));
+    cJSON_AddStringToObject(d, "spacing", s->prop ? "proportional" : "monospace");
     cJSON_AddNumberToObject(d, "boot_screen", (int)s->boot_screen);
     return d;
 }
@@ -160,6 +169,25 @@ static cJSON *wireguard_to_json(void)
     return r;
 }
 
+// Same field names as GET /api/display/light_sensor, minus the live reading:
+// a backup describes the configuration, not what the room looked like.
+static cJSON *light_sensor_to_json(void)
+{
+    light_sensor_cfg_t c;
+    light_sensor_get(&c);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddNumberToObject(r, "v", 1);
+    cJSON_AddBoolToObject(r, "enabled", c.enabled);
+    cJSON_AddNumberToObject(r, "gpio", c.gpio);
+    cJSON_AddNumberToObject(r, "dark_raw", c.curve.dark_raw);
+    cJSON_AddNumberToObject(r, "bright_raw", c.curve.bright_raw);
+    cJSON_AddNumberToObject(r, "min_brightness", c.curve.min_bri);
+    cJSON_AddNumberToObject(r, "max_brightness", c.curve.max_bri);
+    cJSON_AddNumberToObject(r, "gamma_x10", c.curve.gamma_x10);
+    return r;
+}
+
 static cJSON *schedule_to_json(void)
 {
     schedule_t sc;
@@ -173,6 +201,8 @@ static cJSON *schedule_to_json(void)
     cJSON_AddNumberToObject(r, "off_min", sc.off_min);
     cJSON_AddNumberToObject(r, "days", sc.days);
     cJSON_AddNumberToObject(r, "utc_offset", sc.utc_offset);
+    cJSON_AddStringToObject(r, "off_action", OFF_ACT_NAMES[sc.off_action <= 1 ? sc.off_action : 0]);
+    cJSON_AddNumberToObject(r, "off_brightness", sc.off_brightness);
     return r;
 }
 
@@ -200,6 +230,7 @@ static esp_err_t config_export(httpd_req_t *req)
     cJSON_AddItemToObject(root, "integrations", integrations_to_json());
     cJSON_AddItemToObject(root, "wireguard", wireguard_to_json());
     cJSON_AddItemToObject(root, "schedule", schedule_to_json());
+    cJSON_AddItemToObject(root, "light_sensor", light_sensor_to_json());
 
     httpd_resp_set_hdr(req, "Content-Disposition",
                        "attachment; filename=led-display-config.json");
@@ -317,7 +348,15 @@ static bool apply_display(const cJSON *sec)
         s.brightness_cap = (uint8_t)clampi(it->valueint, 0, 255);
     }
     if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "scroll"))) {
-        s.scroll = cJSON_IsTrue(it);
+        // Pre-2.2 backups only carry the bool; mapped like the NVS key.
+        s.scroll_mode = cJSON_IsTrue(it) ? 1 : 0;
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "scroll_mode"))) {
+        for (unsigned i = 0; i < sizeof(SCROLL_NAMES) / sizeof(SCROLL_NAMES[0]); i++) {
+            if (strcmp(it->valuestring, SCROLL_NAMES[i]) == 0) {
+                s.scroll_mode = (uint8_t)i;
+            }
+        }
     }
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "speed"))) {
         s.speed = (uint8_t)clampi(it->valueint, 0, 255);
@@ -325,22 +364,29 @@ static bool apply_display(const cJSON *sec)
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "scale"))) {
         s.scale = (uint8_t)clampi(it->valueint, 0, FONT_SCALE_MAX);
     }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "font"))) {
+        int id = font_id_by_name(it->valuestring);
+        if (id >= 0) s.font = (uint8_t)id;   // unknown names keep the current font
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "spacing"))) {
+        if      (strcmp(it->valuestring, "proportional") == 0) s.prop = true;
+        else if (strcmp(it->valuestring, "monospace") == 0)    s.prop = false;
+    }
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "boot_screen"))) {
         s.boot_screen = (boot_screen_t)clampi(it->valueint, 0, 2);
     }
 
     if (settings_save(&s) != ESP_OK) return false;
 
-    // Live-apply. The cap goes first so the brightness lands under it. If
-    // the schedule currently has the display off we still render the text
-    // (into a 0-brightness frame) but leave the brightness at 0 - the
-    // scheduler restores it when the on-window starts.
+    // Live-apply. The cap goes first so the brightness lands under it, then the
+    // arbiter picks the level: a scheduled-off window keeps the panel dark (the
+    // text still renders into the frame) and an enabled light sensor keeps
+    // driving it, with the imported value stored for when it stops.
     led_driver_set_brightness_cap(s.brightness_cap);
-    if (!scheduler_display_is_off()) {
-        led_driver_set_brightness(s.brightness);
-    }
+    scheduler_reapply_brightness();
+    display_set_font(s.font, s.prop);
     if (s.text[0] != '\0') {
-        display_show_text(s.text, s.color, s.scroll, s.speed, s.scale);
+        display_show_text(s.text, s.color, s.scroll_mode, s.speed, s.scale);
     } else {
         display_clear();
     }
@@ -441,6 +487,9 @@ static bool apply_integrations(const cJSON *sec)
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "webhook_url"))) {
         snprintf(c.webhook_url, sizeof(c.webhook_url), "%s", it->valuestring);
     }
+    // The device name is now a hostname and an SSID too. integrations_set()
+    // cleans it to that charset, so a pre-2.2 backup carrying "Office Panel"
+    // still imports (as "Office-Panel") instead of failing the section.
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "device_name"))) {
         snprintf(c.device_name, sizeof(c.device_name), "%s", it->valuestring);
     }
@@ -491,6 +540,45 @@ static bool apply_wireguard(const cJSON *sec)
     return err == ESP_OK;
 }
 
+static bool apply_light_sensor(const cJSON *sec)
+{
+    light_sensor_cfg_t c;
+    light_sensor_get(&c);
+
+    const cJSON *it;
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "enabled"))) {
+        c.enabled = cJSON_IsTrue(it);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "gpio"))) {
+        // Validated, not clamped: clamping would silently move the sensor to
+        // GPIO10, and a file naming a pin this board cannot read belongs in
+        // "skipped".
+        int g = it->valueint;
+        if (g != 0 && !light_curve_valid_gpio(g)) return false;
+        c.gpio = (uint8_t)g;
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "dark_raw"))) {
+        c.curve.dark_raw = (uint16_t)clampi(it->valueint, 0, LIGHT_RAW_MAX);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "bright_raw"))) {
+        c.curve.bright_raw = (uint16_t)clampi(it->valueint, 0, LIGHT_RAW_MAX);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "min_brightness"))) {
+        c.curve.min_bri = (uint8_t)clampi(it->valueint, 0, 255);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "max_brightness"))) {
+        c.curve.max_bri = (uint8_t)clampi(it->valueint, 0, 255);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "gamma_x10"))) {
+        c.curve.gamma_x10 = (uint8_t)clampi(it->valueint, LIGHT_GAMMA_MIN,
+                                            LIGHT_GAMMA_MAX);
+    }
+    // A file describing a sensor this board does not have (no pin, a pin it
+    // cannot read, or two equal calibration points) is reported as skipped
+    // rather than half-applied.
+    return light_sensor_set(&c) == ESP_OK;
+}
+
 static bool apply_schedule(const cJSON *sec)
 {
     schedule_t sc;
@@ -518,6 +606,16 @@ static bool apply_schedule(const cJSON *sec)
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "utc_offset"))) {
         sc.utc_offset = (int16_t)clampi(it->valueint, -14 * 60, 14 * 60);
     }
+    // Pre-2.2 backups carry neither field: the stored action stays as it is,
+    // which for a device that never set one is "off" (old behaviour).
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "off_action"))) {
+        for (unsigned i = 0; i < sizeof(OFF_ACT_NAMES) / sizeof(OFF_ACT_NAMES[0]); i++) {
+            if (strcmp(it->valuestring, OFF_ACT_NAMES[i]) == 0) sc.off_action = (uint8_t)i;
+        }
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "off_brightness"))) {
+        sc.off_brightness = (uint8_t)clampi(it->valueint, 1, 255);
+    }
     return scheduler_set(&sc) == ESP_OK;
 }
 
@@ -542,6 +640,7 @@ static esp_err_t config_import(httpd_req_t *req)
     } sections[] = {
         {"layout",       apply_layout},
         {"display",      apply_display},
+        {"light_sensor", apply_light_sensor},
         {"colors",       apply_colors},
         {"value_config", apply_value_config},
         {"integrations", apply_integrations},
@@ -572,7 +671,7 @@ static esp_err_t config_import(httpd_req_t *req)
         settings_t s;
         settings_load(&s);
         if (s.text[0] != '\0') {
-            display_show_text(s.text, s.color, s.scroll, s.speed, s.scale);
+            display_show_text(s.text, s.color, s.scroll_mode, s.speed, s.scale);
         }
     }
     cJSON_Delete(doc);

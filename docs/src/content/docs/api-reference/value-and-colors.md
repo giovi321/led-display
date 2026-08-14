@@ -5,7 +5,7 @@ sidebar:
   order: 4
 ---
 
-`/api/value` is the integration workhorse: anything that can POST JSON (a home-automation flow, a cron job, curl) sends a number, the firmware formats it through the value config and shows it as static text. The saved colors are a device-side palette the web UI offers as one-click choices.
+`/api/value` is the integration workhorse: anything that can POST JSON (a home-automation flow, a cron job, curl) sends a number, the firmware formats it through the value config and puts it on the display. The saved colors are a device-side palette the web UI offers as one-click choices.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -17,7 +17,7 @@ sidebar:
 
 ## POST /api/value
 
-Body: `{"value": <number or string>}`. Numbers are normalized to up to 10 significant digits, so `4.2` and `"4.2"` behave the same. The raw value goes through the value config (prefix, suffix, decimals, thousands separator) and is shown as static text in the current color and speed, then persisted so it survives a reboot. Posting also resets the staleness clock (see below).
+Body: `{"value": <number or string>}`. Numbers are normalized to up to 10 significant digits, so `4.2` and `"4.2"` behave the same. The raw value goes through the value config (prefix, suffix, decimals, thousands separator) and is shown in the current color, scroll mode and speed, then persisted so it survives a reboot. The scroll mode is passed through rather than forced off, so a long formatted value keeps scrolling if that is how the display is set up, and posting a value never rewrites the stored mode. Posting also resets the staleness clock (see below).
 
 ```bash
 curl -X POST http://192.168.1.50/api/value \
@@ -85,7 +85,7 @@ When no value arrives for `stale_hours`, the display flags it so a frozen number
 | `marker` | Blink a corner pixel |
 | `text` | Replace the display with `stale_text` |
 
-Crossing into staleness also fires the `value_stale` [webhook](../integrations/#outbound-webhooks) with the age in seconds. The next `POST /api/value` clears the condition and restores brightness. `GET /api/status` reports `value_age_s`, seconds since the last value, -1 when none was ever received (see [system](../system/#get-apistatus)).
+Crossing into staleness also fires the `value_stale` [webhook](../integrations/#outbound-webhook-payloads) with the age in seconds. The next `POST /api/value` clears the condition and restores brightness. `GET /api/status` reports `value_age_s`, seconds since the last value, -1 when none was ever received (see [system](../system/#get-apistatus)).
 
 ## GET /api/colors
 

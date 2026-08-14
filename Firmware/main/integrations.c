@@ -3,6 +3,12 @@
 // because web_auth_ok() calls integrations_get() on every mutating request
 // and the scheduler polls the value config every 30 s.
 //
+// The device name is a special case: from 2.2 it is ONE value shared with the
+// network hostname and the setup-AP SSID, stored as the scalar NVS key "dname"
+// (settings.c). This module still owns the RAM copy, because the webhook worker
+// reads it on every delivery, and it stays mirrored into the "integr" blob so an
+// OTA rollback to an older image still finds a webhook name.
+//
 // Blob shapes (versioned for forward migration, DESIGN.md section 4):
 //   "integr"   {"v":1,"api_key":"..","webhook_url":"..",
 //               "webhook_events":<mask>,"device_name":".."}
@@ -21,14 +27,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include "devname.h"
 #include "settings.h"
+#include "wifi_manager.h"
 
 static const char *TAG = "integr";
 
 #define BLOB_INTEGR   "integr"
 #define BLOB_VALUECFG "valuecfg"
 
-#define DEVICE_NAME_DEFAULT "led-display"
+#define DEVICE_NAME_DEFAULT DEVNAME_DEFAULT_HOST
 
 // Static initialisers double as the pre-init defaults: web_auth_ok() may run
 // before integrations_init() finishes and must see "no key = open".
@@ -84,30 +92,61 @@ static void json_get_str(const cJSON *root, const char *key,
     if (cJSON_IsString(it)) snprintf(dst, dstsz, "%s", it->valuestring);
 }
 
+// Fill out->device_name from the single stored name, migrating a pre-2.2 blob
+// value on the way: that value was only a webhook label, and it becomes the
+// device name in all three roles. Only a name the user actually chose is
+// adopted - one that resolves to the default means this device was never named,
+// so the setup-AP SSID stays the historical one and the hostname the default.
+static void resolve_device_name(integrations_cfg_t *out)
+{
+    char stored[DEVNAME_MAX + 1];
+    settings_load_device_name(stored, sizeof(stored));
+
+    if (stored[0] == '\0' && out->device_name[0] != '\0') {
+        char cleaned[DEVNAME_MAX + 1];
+        // The old field allowed anything (spaces, 32 chars); the name is now a
+        // hostname and an SSID, so it goes through the lenient pass. A value
+        // that cleans to the default (say "led display") means the device was
+        // never really named, so it stays unset - the same rule
+        // integrations_set_device_name() applies.
+        if (devname_clean(out->device_name, cleaned, sizeof(cleaned)) &&
+            strcmp(cleaned, DEVICE_NAME_DEFAULT) != 0 &&
+            settings_save_device_name(cleaned) == ESP_OK) {
+            snprintf(stored, sizeof(stored), "%s", cleaned);
+            // WiFi came up before this ran, so hand the name over now instead
+            // of waiting for the next boot.
+            wifi_manager_set_device_name(cleaned);
+            ESP_LOGI(TAG, "adopted '%s' as the device name", cleaned);
+        }
+    }
+    snprintf(out->device_name, sizeof(out->device_name), "%s",
+             devname_hostname(stored));
+}
+
 static void load_integr(integrations_cfg_t *out)
 {
     cfg_defaults(out);
 
     char buf[SETTINGS_BLOB_MAX];
     if (settings_load_blob(BLOB_INTEGR, buf, sizeof(buf), NULL) != ESP_OK) {
-        return;   // never written: defaults
+        resolve_device_name(out);   // never written: defaults + the stored name
+        return;
     }
     cJSON *root = cJSON_Parse(buf);
     if (!root) {
         ESP_LOGW(TAG, "integr blob unparseable, using defaults");
+        resolve_device_name(out);
         return;
     }
 
     json_get_str(root, "api_key",     out->api_key,     sizeof(out->api_key));
     json_get_str(root, "webhook_url", out->webhook_url, sizeof(out->webhook_url));
     json_get_str(root, "device_name", out->device_name, sizeof(out->device_name));
-    if (out->device_name[0] == '\0') {
-        snprintf(out->device_name, sizeof(out->device_name), DEVICE_NAME_DEFAULT);
-    }
     const cJSON *ev = cJSON_GetObjectItem(root, "webhook_events");
     if (cJSON_IsNumber(ev)) out->webhook_events = (uint32_t)ev->valuedouble;
 
     cJSON_Delete(root);
+    resolve_device_name(out);
 }
 
 static void load_valuecfg(value_cfg_t *out)
@@ -228,6 +267,38 @@ void integrations_get(integrations_cfg_t *out)
     unlock();
 }
 
+// The one place a device name is written. Stores it under the "dname" key,
+// refreshes the cache the webhook worker reads, and hands it to the WiFi
+// manager for the hostname and the setup-AP SSID. `name` is cleaned rather
+// than rejected here - the API handlers do the strict validation and report
+// the rule; this path also serves config imports, whose files may predate it.
+//
+// A name equal to the default is stored as "unset", so an untouched device
+// keeps the historical hostname and setup-AP SSID.
+esp_err_t integrations_set_device_name(const char *name)
+{
+    char cleaned[DEVNAME_MAX + 1];
+    if (!devname_clean(name, cleaned, sizeof(cleaned))) cleaned[0] = '\0';
+    if (strcmp(cleaned, DEVICE_NAME_DEFAULT) == 0) cleaned[0] = '\0';
+
+    esp_err_t err = settings_save_device_name(cleaned);
+    if (err != ESP_OK) return err;
+
+    integrations_cfg_t cfg;
+    integrations_get(&cfg);
+    snprintf(cfg.device_name, sizeof(cfg.device_name), "%s",
+             devname_hostname(cleaned));
+    err = save_integr(&cfg);   // keep the rollback mirror in step
+    if (err != ESP_OK) return err;
+
+    lock();
+    s_cfg = cfg;
+    unlock();
+
+    wifi_manager_set_device_name(cleaned);
+    return ESP_OK;
+}
+
 esp_err_t integrations_set(const integrations_cfg_t *in)
 {
     if (!in) return ESP_ERR_INVALID_ARG;
@@ -238,9 +309,16 @@ esp_err_t integrations_set(const integrations_cfg_t *in)
     cfg.api_key[INTEGR_API_KEY_MAX]  = '\0';
     cfg.webhook_url[INTEGR_URL_MAX]  = '\0';
     cfg.device_name[INTEGR_NAME_MAX] = '\0';
-    if (cfg.device_name[0] == '\0') {
-        snprintf(cfg.device_name, sizeof(cfg.device_name), DEVICE_NAME_DEFAULT);
+
+    // The name has its own storage and its own side effects: route it through
+    // the funnel, then let the blob write below carry the resolved value.
+    char current[INTEGR_NAME_MAX + 1];
+    integrations_get_device_name(current, sizeof(current));
+    if (strcmp(cfg.device_name, current) != 0) {
+        esp_err_t nerr = integrations_set_device_name(cfg.device_name);
+        if (nerr != ESP_OK) return nerr;
     }
+    integrations_get_device_name(cfg.device_name, sizeof(cfg.device_name));
 
     esp_err_t err = save_integr(&cfg);
     if (err != ESP_OK) return err;
@@ -249,6 +327,14 @@ esp_err_t integrations_set(const integrations_cfg_t *in)
     s_cfg = cfg;
     unlock();
     return ESP_OK;
+}
+
+void integrations_get_device_name(char *buf, size_t bufsize)
+{
+    if (!buf || bufsize == 0) return;
+    lock();
+    snprintf(buf, bufsize, "%s", s_cfg.device_name);
+    unlock();
 }
 
 void integrations_get_value_cfg(value_cfg_t *out)

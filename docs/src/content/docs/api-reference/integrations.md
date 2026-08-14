@@ -27,7 +27,9 @@ Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep th
 | `api_key` | string | max 64 chars, empty clears |
 | `webhook_url` | string | max 160 chars, empty disables webhooks |
 | `webhook_events` | array of strings | any of `boot`, `ip_change`, `ota_result`, `schedule_on`, `schedule_off`, `value_stale`; an unknown name is a 400 |
-| `device_name` | string | max 32 chars, reported in webhook payloads |
+| `device_name` | string | max 32 chars; kept for older clients, see below |
+
+The device name is no longer webhook-specific: one name is the network hostname, the setup-AP SSID and the webhook `device` field, and it is set in the System tab through [`POST /api/system/device_name`](../system/#post-apisystemdevice_name). This endpoint still accepts `device_name` and writes the same stored value, cleaning it to the hostname charset (letters, digits, hyphens, max 24) instead of rejecting it, so a script written against an earlier firmware keeps working. The GET reports the resolved name, which is `led-display` while none is set.
 
 ```sh
 curl -X POST http://<device-ip>/api/integrations \
@@ -48,13 +50,15 @@ When an enabled event fires, the device POSTs JSON to `webhook_url` with `Conten
 }
 ```
 
+`device` is the [device name](../system/#post-apisystemdevice_name), which is how a receiver tells several panels apart. It is `led-display` until you set one, and a new name is used from the next event on.
+
 `data` is present only when the event carries detail:
 
 | Event | Fires | `data` |
 |-------|-------|--------|
 | `boot` | once the device is fully up (HTTP reachable) | none |
 | `ip_change` | station interface got an IP | `{"ip": "192.168.10.8"}` |
-| `ota_result` | an update finished, either path | `{"result": "ok", "version": "2.1.0"}` or the error text |
+| `ota_result` | an update finished, either path | `{"result": "ok", "version": "2.2.0"}` or the error text |
 | `schedule_on` | the schedule turned the display on | none |
 | `schedule_off` | the schedule turned the display off | none |
 | `value_stale` | the staleness guard tripped (once per episode) | `{"age_s": <seconds since last value>}` |

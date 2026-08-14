@@ -13,15 +13,15 @@ The split follows how the settings are used. Display and Schedule get touched re
 
 Simple mode:
 
-- Display: text, colour picker with saved-colour chips, font size, brightness, scroll toggle and speed
-- Schedule: on/off times per weekday, synced to your browser's timezone
+- Display: text, colour picker with saved-colour chips, text size and spacing, brightness, scroll mode and speed
+- Schedule: on/off times per weekday, the off-window action, synced to your browser's timezone
 
 Advanced mode adds:
 
-- Hardware: the [arrangement editor](../arrangement-editor/), test patterns, and the brightness cap that protects the power supply
-- Network: WiFi scan/connect/reset and the [WireGuard](../wireguard/) tunnel
-- Integrations: device name, the [API key](../api-key/), the outbound webhook, and the value endpoint configuration
-- System: firmware and status info, boot screen, [OTA updates](../ota-updates/), [backup and restore](../backup-restore/), reboot, and factory reset
+- Hardware: the [arrangement editor](../arrangement-editor/), test patterns, the brightness cap that protects the power supply, and the [light sensor](../light-sensor/)
+- Network: the saved WiFi networks, scan and connect, and the [WireGuard](../wireguard/) tunnel
+- Integrations: the [API key](../api-key/), the outbound webhook, and the value endpoint configuration
+- System: firmware and status info, the device name, boot screen, [OTA updates](../ota-updates/), [backup and restore](../backup-restore/), reboot, and factory reset
 
 ## Behaviour details
 

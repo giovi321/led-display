@@ -40,9 +40,14 @@ idf_component_register(
         "main.c"
         "mapping.c"
         "valuefmt.c"
+        "fonts.c"
+        "devname.c"
+        "light_curve.c"
+        "light_sensor.c"
         "led_driver.c"
         "display.c"
         "wifi_manager.c"
+        "wifi_pick.c"
         "settings.c"
         "scheduler.c"
         "integrations.c"
@@ -73,6 +78,7 @@ idf_component_register(
         app_update
         mbedtls
         esp_timer
+        esp_adc
         ${_cjson_dep}
         lwip
         driver

@@ -5,19 +5,23 @@ sidebar:
   order: 5
 ---
 
-Everything that keeps the device running: the status tree the web UI polls, power-cycle style operations, the on/off schedule, WiFi provisioning, firmware updates and whole-config backup. Auth follows the [shared rules](../): POSTs need `X-Api-Key` when a key is set, GETs are open except `/api/config/export`.
+Everything that keeps the device running: the status tree the web UI polls, power-cycle style operations, the on/off schedule, WiFi provisioning, firmware updates and whole-config backup. Auth follows the [shared rules](../): POSTs need `X-Api-Key` when a key is set, GETs are open except `/api/config/export`, and every checked request must also address the device by its own [IP, WireGuard address or name](../#where-the-request-claims-to-be-going) or it is refused with 403 `"cross-origin request rejected"`.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/api/status` | no | Full device status |
 | POST | `/api/system/reboot` | yes | Reboot |
 | POST | `/api/system/boot_screen` | yes | What to show right after boot |
+| POST | `/api/system/device_name` | yes | Set the one name used for hostname, setup AP and webhooks |
 | POST | `/api/system/factory_reset` | yes | Wipe settings, keep WiFi |
 | GET | `/api/schedule` | no | Read the on/off schedule |
 | POST | `/api/schedule` | yes | Update the schedule (partial update) |
 | GET | `/api/wifi/scan` | no | Scan for networks |
-| POST | `/api/wifi/connect` | yes, except in AP setup mode | Save credentials and reboot |
-| POST | `/api/wifi/reset` | yes, except in AP setup mode | Clear credentials and reboot into setup |
+| GET | `/api/wifi/networks` | no | List the saved networks |
+| POST | `/api/wifi/networks` | yes, except when provisioning | Add or update a saved network |
+| POST | `/api/wifi/networks/delete` | yes, except when provisioning | Forget one saved network |
+| POST | `/api/wifi/connect` | yes, except when provisioning | Save a network and reboot onto it |
+| POST | `/api/wifi/reset` | yes, except when provisioning | Forget every network and reboot into setup |
 | POST | `/api/ota/upload` | yes | Flash a firmware image from the request body |
 | POST | `/api/ota/url` | yes | Pull a firmware image from a URL |
 | GET | `/api/ota/status` | no | Update progress and last result |
@@ -39,24 +43,31 @@ curl http://192.168.1.50/api/status
     "ssid": "MyNetwork",
     "ip": "192.168.1.50",
     "rssi": -52,
-    "connected": true
+    "connected": true,
+    "ap_ssid": "LEDDisplay-Setup"
   },
   "display": {
     "text": "$1,234,567.89",
     "scroll": false,
+    "scroll_mode": "off",
     "speed": 50,
     "scale": 1,
+    "font": "5x7",
+    "spacing": "proportional",
     "brightness": 60,
+    "brightness_stored": 60,
     "color": {"r": 80, "g": 32, "b": 0}
   },
   "system": {
-    "fw": "2.0.0",
-    "chip": "ESP32",
+    "fw": "2.2.0",
+    "chip": "ESP32-S3",
     "cores": 2,
     "rev": 3,
     "heap": 123456,
     "uptime": 3600,
     "brightness_cap": 128,
+    "device_name": "led-display",
+    "device_name_stored": "",
     "boot_screen": "ip"
   },
   "layout": {
@@ -74,8 +85,14 @@ curl http://192.168.1.50/api/status
   },
   "ota": {
     "slot": "ota_0",
-    "version": "2.0.0",
+    "version": "2.2.0",
     "in_progress": false
+  },
+  "light_sensor": {
+    "enabled": false,
+    "sampling": false,
+    "raw": -1,
+    "level": -1
   },
   "schedule_active": true
 }
@@ -85,14 +102,21 @@ curl http://192.168.1.50/api/status
 |---|---|
 | `wifi.mode` | `sta` (joined a network), `ap` (setup portal) or `boot` (still deciding) |
 | `wifi.rssi` | Signal strength in dBm |
-| `display.*` | Current text state; `speed` and `scale` as documented under [display control](../display/#post-apidisplaytext) |
+| `wifi.ap_ssid` | The SSID the setup network appears under, reported in every mode |
+| `display.*` | Current text state; `scroll_mode`, `font`, `spacing`, `speed` and `scale` as documented under [display control](../display/#post-apidisplaytext) |
+| `display.scroll` | The legacy bool, true for both scrolling modes |
+| `display.brightness` | The level the panel is actually running at: 0 in a blanked off-window, the light sensor's level while it drives, halved when the value is stale, never above the cap |
+| `display.brightness_stored` | The brightness you set and the device persisted. It is what the display returns to when the schedule, the sensor or the staleness guard stops overriding it |
 | `system.heap` | Free heap in bytes |
 | `system.uptime` | Seconds since boot |
+| `system.device_name` | The resolved name, so a client never has to know the default |
+| `system.device_name_stored` | The name you set, empty when none is stored |
 | `system.boot_screen` | `text`, `ip` or `none` |
 | `layout.*` | Summary of the active layout; the full config comes from [`GET /api/layout`](../layout/) |
 | `value_age_s` | Seconds since the last `POST /api/value`; -1 means never |
 | `wireguard.last_handshake` | Unix seconds, 0 means never |
 | `ota.slot` | Running partition: `factory`, `ota_0` or `ota_1` |
+| `light_sensor` | Ambient sensor state; the full config comes from [`GET /api/display/light_sensor`](../display/#get-apidisplaylight_sensor) |
 | `schedule_active` | `true` when the schedule currently allows the display to be on |
 
 ## POST /api/system/reboot
@@ -116,11 +140,35 @@ curl -X POST http://192.168.1.50/api/system/boot_screen \
   -H "X-Api-Key: mysecret" -d '{"mode": "ip"}'
 ```
 
-Errors: 400 `"unknown mode"`.
+Errors: 400 `"unknown mode"`, 500 `"saving boot screen failed"` when the write to flash fails.
+
+## POST /api/system/device_name
+
+Sets the one name that identifies the device in three places: the network hostname on both interfaces, the SSID of the setup network, and the `device` field of the [outbound webhooks](../integrations/#outbound-webhook-payloads).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `name` | string | Required. 1 to 24 characters, letters, digits and hyphens, starting and ending with a letter or digit. An empty string clears the name |
+
+```bash
+curl -X POST http://192.168.1.50/api/system/device_name \
+  -H "X-Api-Key: mysecret" -d '{"name": "office-panel"}'
+```
+
+```json
+{"ok": true, "device_name": "office-panel", "hostname": "office-panel",
+ "ap_ssid": "office-panel"}
+```
+
+The response reports what the name now resolves to, so a client does not have to duplicate the default rules. With no name stored, the hostname and the webhook `device` field are `led-display` and the setup network is `LEDDisplay-Setup`, exactly as before this endpoint existed.
+
+Webhooks use a new name immediately. The hostname follows on the next DHCP renewal or reboot, and the setup network is renamed the next time it comes up, so saving a name never disconnects whoever is on the portal. A device name set through `POST /api/integrations` by an earlier build is adopted here once, cleaned to the charset above.
+
+Errors: 400 `"name required"` when the field is missing or not a string, 400 `"name must be 1-24 letters, digits or hyphens, starting and ending with a letter or digit"`, 500 `"saving device name failed"`.
 
 ## POST /api/system/factory_reset
 
-Erases all display settings (text, layout, colors, value config, integrations, WireGuard, schedule) and reboots. WiFi credentials live in a separate NVS namespace and survive on purpose, so a factory reset cannot strand a wall-mounted device off the network; use `/api/wifi/reset` for that.
+Erases the settings namespace (text, font and spacing, brightness and cap, layout, colors, value config, integrations, device name, WireGuard, light sensor) and reboots. WiFi credentials live in a separate NVS namespace and survive on purpose, so a factory reset cannot strand a wall-mounted device off the network; use `/api/wifi/reset` for that. The schedule has its own namespace as well and is left as it is.
 
 ```bash
 curl -X POST http://192.168.1.50/api/system/factory_reset -H "X-Api-Key: mysecret"
@@ -144,7 +192,9 @@ curl http://192.168.1.50/api/schedule
   "on_hour": 8, "on_min": 0,
   "off_hour": 22, "off_min": 30,
   "days": 31,
-  "utc_offset": 60
+  "utc_offset": 60,
+  "off_action": "off",
+  "off_brightness": 16
 }
 ```
 
@@ -153,18 +203,27 @@ curl http://192.168.1.50/api/schedule
 | `days` | Bitmask, bit 0 = Monday through bit 6 = Sunday; 127 = every day, 31 = weekdays |
 | `utc_offset` | Minutes from UTC, for example 60 for CET |
 | `on_hour`/`on_min`, `off_hour`/`off_min` | Local switch-on and switch-off times; a window that wraps midnight (on 22:00, off 06:00) works |
+| `off_action` | What the off window does: `off` blanks the panel (the default), `dim` holds it at `off_brightness` |
+| `off_brightness` | The level the `dim` action holds, 1..255. Still subject to the brightness cap |
 
 ## POST /api/schedule
 
-Partial update: only fields present in the body change. The handler does not range-check; keep hours in 0..23, minutes in 0..59, `days` in 0..127 and `utc_offset` in -840..840 minutes yourself.
+Partial update: only fields present in the body change, so a client that does not know `off_action` cannot change it by accident.
 
 ```bash
 curl -X POST http://192.168.1.50/api/schedule \
   -H "X-Api-Key: mysecret" \
-  -d '{"enabled":true,"on_hour":8,"off_hour":22,"days":127,"utc_offset":60}'
+  -d '{"enabled":true,"on_hour":8,"off_hour":22,"days":127,"utc_offset":60,
+       "off_action":"dim","off_brightness":16}'
 ```
 
-Response: `{"ok": true}`. Schedule transitions fire the `schedule_on` / `schedule_off` [webhooks](../integrations/#outbound-webhooks).
+Out-of-range values are rejected rather than wrapped: hours must be 0..23, minutes 0..59, `utc_offset` -840..840 and `off_brightness` 1..255. `days` is masked to its seven bits.
+
+Response: `{"ok": true}`. A changed action or level is applied at once, not at the next 30 second tick. Schedule transitions fire the `schedule_on` / `schedule_off` [webhooks](../integrations/#outbound-webhook-payloads) whichever action is configured.
+
+Errors: 400 `"hours 0-23, minutes 0-59, utc_offset -840..840"`, 400 `"off_brightness 1-255"`, 400 `"off_action must be off or dim"`, 500 `"schedule applied but not saved"`.
+
+The 500 is worth handling rather than retrying blindly: the schedule is applied before it is written, so a failed write leaves the new schedule running until the next reboot, after which the device is back on the previously stored one.
 
 ## GET /api/wifi/scan
 
@@ -177,32 +236,86 @@ curl http://192.168.1.50/api/wifi/scan
 ```json
 {
   "networks": [
-    {"ssid": "MyNetwork", "rssi": -48, "auth": 3}
+    {"ssid": "MyNetwork", "rssi": -48, "auth": 3, "saved": true}
   ]
 }
 ```
 
-`auth` is the numeric ESP-IDF `wifi_auth_mode_t` value (0 = open, 3 = WPA2-PSK). When the scan itself fails, `networks` is empty and an `error` field carries the ESP-IDF error name.
+`auth` is the numeric ESP-IDF `wifi_auth_mode_t` value (0 = open, 3 = WPA2-PSK). `saved` marks the networks the device already has credentials for, so a client can offer them without asking for a password again. When the scan itself fails, `networks` is empty and an `error` field carries the ESP-IDF error name.
 
-## POST /api/wifi/connect
+## GET /api/wifi/networks
 
-Saves credentials and reboots to join the network. The `{"ok": true}` reply is sent before the reboot. In AP setup mode this endpoint is keyless (you could not have entered a key yet); otherwise the normal auth applies.
+Open. Lists the saved networks. Passwords are write-only: no endpoint ever returns one.
+
+```bash
+curl http://192.168.1.50/api/wifi/networks
+```
+
+```json
+{
+  "networks": [
+    {"ssid": "MyNetwork", "connected": true},
+    {"ssid": "Hotspot", "connected": false}
+  ],
+  "count": 2,
+  "max": 5
+}
+```
+
+`connected` marks the network the station interface is currently on. `max` is the number of slots the firmware keeps, five.
+
+## POST /api/wifi/networks
+
+Adds a network, or replaces the password of one that is already stored. Nothing reboots. An online device keeps the connection it has, which is how a fallback network gets added while the display is in use; a device that is offline or sitting on its setup AP tries the new network within moments and takes the AP down if it joins.
+
+"Except when provisioning" means the one keyless case: the setup AP of a device that has no saved network yet. A provisioned device on its fallback AP needs the key like everywhere else, see the [auth rules](../#authentication).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `ssid` | string | Required, non-empty |
-| `password` | string | Optional; omit or empty for an open network |
+| `ssid` | string | Required, non-empty, max 32 characters |
+| `password` | string | Optional, max 64 characters; omit or empty for an open network |
+
+```bash
+curl -X POST http://192.168.1.50/api/wifi/networks \
+  -H "X-Api-Key: mysecret" -d '{"ssid": "Hotspot", "password": "hunter2"}'
+```
+
+```json
+{"ok": true, "count": 2}
+```
+
+Errors: 400 `"ssid required"`, 400 `"ssid max 32 chars, password max 64"`, 409 `"all network slots are in use"` when all five are taken (forget one first), 500 `"could not save"`.
+
+## POST /api/wifi/networks/delete
+
+Forgets one saved network. The connection is not dropped, so removing the network the device is currently on takes effect at the next boot.
+
+```bash
+curl -X POST http://192.168.1.50/api/wifi/networks/delete \
+  -H "X-Api-Key: mysecret" -d '{"ssid": "Hotspot"}'
+```
+
+Response: `{"ok": true, "count": 1}`. Errors: 400 `"ssid required"`, 404 `"not saved"`, 500 `"could not save"`.
+
+## POST /api/wifi/connect
+
+Adds or updates a network like `POST /api/wifi/networks`, then reboots so the device comes up on it from a clean start. The other saved networks stay. The `{"ok": true}` reply is sent before the reboot. Same provisioning exception as above.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `ssid` | string | Required, non-empty, max 32 characters |
+| `password` | string | Optional, max 64 characters; omit or empty for an open network |
 
 ```bash
 curl -X POST http://192.168.1.50/api/wifi/connect \
   -d '{"ssid": "MyNetwork", "password": "hunter2"}'
 ```
 
-Errors: 400 `"ssid required"`.
+Errors: 400 `"ssid required"`, 400 `"ssid max 32 chars, password max 64"`.
 
 ## POST /api/wifi/reset
 
-Clears the stored credentials, replies `{"ok": true}` and reboots into the setup AP. No body needed. Same AP-mode auth exception as connect.
+Forgets every saved network, replies `{"ok": true}` and reboots into the setup AP. No body needed. Same provisioning exception as connect, which in practice means a device with a key set needs it here: the endpoint is only keyless while nothing is saved, and then there is nothing to reset.
 
 ## POST /api/ota/upload
 
@@ -246,7 +359,7 @@ curl -X POST http://192.168.1.50/api/ota/url \
 {"ok": true, "note": "update started"}
 ```
 
-Errors: 400 for a missing `url`, a scheme other than http/https or a URL over the length limit; 409 when an update is already running; 500 when the worker could not start. The outcome also fires the `ota_result` [webhook](../integrations/#outbound-webhooks).
+Errors: 400 for a missing `url`, a scheme other than http/https or a URL over the length limit; 409 when an update is already running; 500 when the worker could not start. The outcome also fires the `ota_result` [webhook](../integrations/#outbound-webhook-payloads).
 
 ## GET /api/ota/check
 
@@ -274,9 +387,9 @@ curl http://192.168.1.50/api/ota/status
 
 ```json
 {
-  "running_version": "2.0.0",
+  "running_version": "2.2.0",
   "running_slot": "ota_0",
-  "last_result": "ok: 2.0.0 flashed to ota_1",
+  "last_result": "ok: 2.2.0 flashed to ota_1",
   "in_progress": false,
   "progress_pct": 100
 }
@@ -298,27 +411,34 @@ Top-level shape:
 ```json
 {
   "v": 1,
-  "fw": "2.0.0",
+  "fw": "2.2.0",
   "note": "wifi credentials not included",
   "display": {"text": "...", "color": {"r":80,"g":32,"b":0}, "brightness": 60,
-              "brightness_cap": 128, "scroll": false, "speed": 50, "scale": 1,
-              "boot_screen": 1},
+              "brightness_cap": 128, "scroll": false, "scroll_mode": "off",
+              "speed": 50, "scale": 1, "font": "5x7",
+              "spacing": "proportional", "boot_screen": 1},
   "layout": {"v":1, "panel": {}, "grid": {}, "cells": []},
   "colors": {"v":1, "colors": []},
   "value_config": {"v":1, "prefix": "", "suffix": "", "decimals": -1,
                    "thousands": "", "stale_hours": 0, "stale_action": "none",
                    "stale_text": ""},
   "integrations": {"v":1, "api_key": "...", "webhook_url": "",
-                   "webhook_events": 0, "device_name": ""},
+                   "webhook_events": 0, "device_name": "led-display"},
   "wireguard": {"enabled": false, "private_key": "...", "peer_public_key": "",
                 "endpoint_host": "", "endpoint_port": 0, "address": "",
                 "allowed_ips": "", "keepalive_s": 0},
   "schedule": {"enabled": false, "on_hour": 8, "on_min": 0, "off_hour": 22,
-               "off_min": 0, "days": 127, "utc_offset": 0}
+               "off_min": 0, "days": 127, "utc_offset": 0,
+               "off_action": "off", "off_brightness": 16},
+  "light_sensor": {"v":1, "enabled": false, "gpio": 0, "dark_raw": 200,
+                   "bright_raw": 2800, "min_brightness": 8,
+                   "max_brightness": 128, "gamma_x10": 10}
 }
 ```
 
 Two fields use the storage dialect rather than the API dialect: `display.boot_screen` is numeric (0 text, 1 ip, 2 none) and `integrations.webhook_events` is the numeric bitmask, not the name array used by [`/api/integrations`](../integrations/#post-apiintegrations).
+
+The `light_sensor` section describes the configuration only; the live reading is not part of a backup. A file written by a build before 2.2.0 has no `light_sensor` section and no `scroll_mode`, `font`, `spacing`, `off_action` or `off_brightness`; it still imports, and the missing settings keep their current values.
 
 ## POST /api/config/import
 
@@ -338,4 +458,4 @@ curl -X POST http://192.168.1.50/api/config/import \
 }
 ```
 
-Notes on section behavior: numeric fields are clamped to their valid ranges rather than rejected; an empty `wireguard.private_key` keeps the stored key; the `wireguard` section lands in `skipped` when applying the tunnel config fails (including when WireGuard is not compiled in). Errors: 400 `"invalid JSON body"`, 401.
+Notes on section behavior: numeric fields are clamped to their valid ranges rather than rejected; an empty `wireguard.private_key` keeps the stored key; the `wireguard` section lands in `skipped` when applying the tunnel config fails (including when WireGuard is not compiled in); a `light_sensor` section describing a sensor this board does not have (no pin, or two equal calibration readings) also lands in `skipped` rather than being half-applied. An `integrations.device_name` that predates the [name rules](#post-apisystemdevice_name) is cleaned to them, so `"Office Panel"` imports as `Office-Panel` instead of failing the section. Errors: 400 `"invalid JSON body"`, 401.

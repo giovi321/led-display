@@ -2,7 +2,7 @@
 title: API key
 description: An optional shared key that gates every mutating request, what it protects against, and what it deliberately does not
 sidebar:
-  order: 3
+  order: 4
 ---
 
 The device speaks plain HTTP and is designed for a trusted LAN. By default there is no authentication at all: anyone who can reach port 80 can change the text, reflash the firmware, or factory reset the device. Setting an API key changes that for mutating requests.
@@ -20,11 +20,21 @@ With a key set:
 - every POST endpoint requires it: display, layout, schedule, system, OTA, WiFi, integrations, WireGuard, config import
 - `GET /api/config/export` requires it too, because the export contains the key itself and the WireGuard private key
 - all other GET endpoints stay open (status, layout, schedule, OTA status)
-- exception: while the device is in AP setup mode (the captive portal shown before WiFi is configured), the WiFi endpoints skip the check, since a user on the setup screen has no way to present a key
+- one exception: on the setup AP of a device that has no saved network, the WiFi endpoints skip the check. That is genuine first-time provisioning, where nobody could have set a key yet
+
+The exception is narrow on purpose. A device that already has saved networks and fell back to the setup AP after an outage still requires the key on WiFi POSTs: that AP is open, so a wider exception would let anyone within radio range move the display onto their own network or wipe its credentials.
+
+The cost of that is worth stating plainly: if you set a key and then lose it, you cannot reconfigure WiFi from the fallback portal either, and the way back is a USB reflash. Keep the key somewhere you will still have it when the display is the thing that is broken.
 
 With no key set, everything is open. That is the deliberate LAN-trust default.
 
 Requests that fail the check get `401 {"ok":false,"error":"missing or wrong X-Api-Key"}`.
+
+## Cross-site requests
+
+Independently of the key, a POST has to look like it was meant for this device. The `Host` header, and the `Origin` header when a browser sends one, must name the device's IP, its WireGuard address, or its device name (optionally with one suffix label such as `.local`, and an optional port). Anything else is refused with `403 {"ok":false,"error":"cross-origin request rejected"}`.
+
+That is what stops a random web page in your browser from posting to the display, and stops DNS rebinding from reading responses back, in the default configuration where no key is set. Browsing to `http://<device-name>/` is a documented way in, so writes from that URL pass. The check is skipped while the device runs its own setup AP, where the captive-portal sheet is served under whichever probe hostname the phone asked for.
 
 ## Setting and clearing the key
 

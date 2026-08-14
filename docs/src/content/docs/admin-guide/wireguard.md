@@ -2,7 +2,7 @@
 title: WireGuard
 description: An optional built-in WireGuard client for reaching the display from outside the LAN without exposing its plain-HTTP port to the internet
 sidebar:
-  order: 6
+  order: 7
 ---
 
 The firmware includes an optional WireGuard client. Its purpose is remote access done right: the device dials out to a WireGuard peer you control (a VPS, a home router, an existing VPN server) and becomes reachable through the encrypted tunnel. The alternative, port-forwarding the device's plain-HTTP port 80 to the internet, would expose an unauthenticated or at best [shared-key](../api-key/) HTTP API to the whole world. Do not do that.

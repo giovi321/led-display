@@ -1,23 +1,61 @@
 name: Release
 
+# Every release must carry a led_display.bin asset. The device's update check
+# (GET /api/ota/check) reads /releases/latest and matches that exact file name;
+# a release without it answers "release has no led_display.bin asset" and the
+# System tab offers no update.
+#
+# Normal path: push a tag vX.Y.Z. Publishing a release from the web UI also
+# creates the tag and fires this workflow.
+#
+# Manual path: run the workflow from the Actions tab with the tag name. Needed
+# when the push event never arrived or produced no asset, which happens when
+# the release was saved as a draft (a draft creates no tag), when the tag was
+# already on the remote before the release existed, when more than three tags
+# were pushed at once (GitHub emits no push events in that case), or when the
+# workflow itself was broken at the time.
+
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach led_display.bin to, e.g. v2.1.0'
+        required: true
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
 
       - name: Check tag matches FW_VERSION
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          grep -q "#define FW_VERSION \"$TAG\"" Firmware/main/fw_version.h || {
-            echo "Tag v$TAG does not match Firmware/main/fw_version.h"; exit 1; }
+          want="${TAG#v}"
+          # tr strips a CR so the check survives a CRLF checkout.
+          have=$(tr -d '\r' < Firmware/main/fw_version.h |
+                 sed -n 's/^#define FW_VERSION "\(.*\)"$/\1/p')
+          if [ -z "$have" ]; then
+            echo "::error::No FW_VERSION define found in Firmware/main/fw_version.h. The release check parses '#define FW_VERSION \"X.Y.Z\"'."
+            exit 1
+          fi
+          if [ "$have" != "$want" ]; then
+            echo "::error::Tag $TAG expects FW_VERSION \"$want\" but Firmware/main/fw_version.h has \"$have\". Bump fw_version.h on the tagged commit, then move the tag."
+            exit 1
+          fi
+          echo "Tag $TAG matches FW_VERSION $have"
 
       - name: Build firmware
         uses: espressif/esp-idf-ci-action@v1
@@ -26,8 +64,20 @@ jobs:
           target: esp32s3
           path: Firmware
 
+      # Fail here rather than publish a release the device cannot use. The name
+      # comes from project(led_display) in Firmware/CMakeLists.txt and must stay
+      # in step with GH_ASSET_NAME in Firmware/main/ota_update.c.
+      - name: Check the expected binary exists
+        run: test -f Firmware/build/led_display.bin
+
       - name: Attach binary to release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           files: Firmware/build/led_display.bin
+          fail_on_unmatched_files: true
           generate_release_notes: true
+          # A tag with a suffix (v2.2.0-rc1) is published as a prerelease, so
+          # /releases/latest keeps pointing at the last stable build and devices
+          # are never offered a release candidate.
+          prerelease: ${{ contains(env.TAG, '-') }}

@@ -214,11 +214,10 @@ static esp_err_t layout_post(httpd_req_t *req)
 
     char            text[DISPLAY_TEXT_MAX];
     display_color_t col;
-    bool            scroll;
-    uint8_t         speed, scale;
-    display_get_state(text, sizeof(text), &col, &scroll, &speed, &scale);
+    uint8_t         mode, speed, scale;
+    display_get_state(text, sizeof(text), &col, &mode, &speed, &scale);
     if (text[0] != '\0') {
-        display_show_text(text, col, scroll, speed, 0);   // 0 = keep scale
+        display_show_text(text, col, mode, speed, 0);   // 0 = keep scale
     } else {
         display_clear();
     }

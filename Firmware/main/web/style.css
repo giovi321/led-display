@@ -43,22 +43,73 @@ header {
   background: #000;
   border-bottom: 1px solid var(--line);
 }
+.hdr-left {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
 header h1 {
   font-size: 17px;
   margin: 0;
   letter-spacing: 0.04em;
   color: var(--accent);
+  white-space: nowrap;
+  /* Carries the device name when one is set: clip a long one instead of
+   * pushing the connection readout off the row. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+.hdr-fw {
+  color: var(--mut);
+  font-size: 11.5px;
 }
 .hdr-right {
   display: flex;
   align-items: center;
   gap: 14px;
 }
-#hdrstatus {
-  color: var(--mut);
+
+/* Connection readout: state dot + network name over IP. The dot never
+ * carries meaning alone - the text next to it says the same thing. */
+.conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.conn-txt {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+#hdrnet {
   font-size: 13px;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+#hdrip {
+  font-size: 12px;
+  color: var(--mut);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #5a5a64;
+}
+.dot.ok   { background: var(--ok); }
+.dot.ap   { background: var(--accent); }
+.dot.bad  { background: var(--err); }
+.dot.wait { background: #5a5a64; }
 
 nav {
   display: flex;
@@ -121,6 +172,9 @@ main {
 .row > input[type=text],
 .row > input[type=password],
 .row > code { flex: 1; min-width: 0; }
+/* A slider sharing a row with other controls takes the leftover width and
+ * wraps to its own line when there isn't enough. */
+.row > input[type=range] { width: auto; flex: 1 1 150px; }
 
 .grid2 {
   display: grid;
@@ -143,6 +197,16 @@ label {
 }
 label.inline { margin: 0; width: 72px; }
 label .val { color: var(--fg); }
+
+/* Field label carrying a help button; a <label> may not wrap a button. */
+.flab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0 4px;
+  color: var(--mut);
+  font-size: 13px;
+}
 
 input[type=text],
 input[type=password],
@@ -174,7 +238,9 @@ input[type=range] {
   min-height: 42px;
   accent-color: var(--accent);
 }
-input[type=checkbox] { accent-color: var(--accent); }
+input[type=range]:disabled { opacity: 0.45; }
+input[type=checkbox],
+input[type=radio] { accent-color: var(--accent); }
 
 input[type=color] {
   width: 52px;
@@ -355,6 +421,36 @@ button.sec:not(:disabled):hover { border-color: var(--accent); }
 .net:hover { border-color: var(--accent); }
 .net .ssid { font-weight: 600; overflow-wrap: anywhere; }
 .net .rssi { color: var(--mut); font-size: 12px; flex: none; }
+.net .tag,
+.snet .tag { color: var(--mut); font-size: 12px; flex: none; }
+
+/* Saved-network row: not a button - the row carries its own controls. */
+.snet {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 10px;
+  margin: 4px 0;
+  background: var(--inp);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.snet .ssid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.snet button.sec {
+  flex: none;
+  min-height: 34px;
+  padding: 5px 12px;
+  font-size: 13px;
+}
 
 .note {
   color: var(--mut);
@@ -363,6 +459,48 @@ button.sec:not(:disabled):hover { border-color: var(--accent); }
 }
 .note.warn { color: var(--accent); }
 .note code { color: var(--fg); }
+
+/* ---- circled-? help buttons + tooltip ------------------------------- */
+/* Same pattern as the arrangement editor's .ed-help: a 16 px circle whose
+ * ::after grows the tap target to ~38 px without moving the layout. */
+
+.hlp {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: none;
+  border: 1.4px solid currentColor;
+  border-radius: 50%;
+  color: var(--mut);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.hlp:hover { color: var(--accent); }
+.hlp::after {
+  content: "";
+  position: absolute;
+  inset: -11px;
+}
+
+.tip {
+  position: fixed;
+  z-index: 11;
+  max-width: 280px;
+  background: #000;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
 
 .code {
   display: block;
@@ -431,6 +569,11 @@ footer {
 
 /* ---- small screens ---------------------------------------------------- */
 
+@media (max-width: 480px) {
+  .hdr-fw { display: none; }
+  #hdrnet { max-width: 110px; }
+  header h1 { max-width: 150px; }
+}
 @media (max-width: 400px) {
   header { flex-wrap: wrap; }
   main { padding: 10px; }

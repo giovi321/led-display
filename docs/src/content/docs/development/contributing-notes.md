@@ -17,7 +17,7 @@ Short and factual: what you need to know before touching the code.
 | `Firmware/test/host/` | host unit tests for the pure C modules |
 | `Firmware/tools/` | `gzip_asset.py` (asset pipeline), `wsl_build.sh` (WSL build helper) |
 | `PCB/` | Fritzing source and exported Gerbers |
-| `3D/` | enclosure parts: DXF outlines for cutting, STL for printing |
+| `3D/` | enclosure parts: DXF outlines to cut, STL to print, `8x32/` holding the parts of the reference build. Exports only; the SketchUp sources are gitignored |
 | `docs/` | this documentation site (Astro Starlight) |
 | `DESIGN.md` | the v2 design document; JSON shapes and API contracts reference it |
 
@@ -27,7 +27,7 @@ Match the existing modules; there is no separate style config:
 
 - C11, 4-space indent, file-scope statics prefixed with `s_`, one module prefix per file (`led_driver_*`, `mapping_*`, ...)
 - comments explain why, not what; module headers state ownership and threading expectations
-- pure logic goes in ESP-IDF-free modules (`mapping.c`, `valuefmt.c` are the pattern) so it stays host-testable; JSON and NVS handling stay in the API and settings layers
+- pure logic goes in ESP-IDF-free modules (`mapping.c`, `valuefmt.c`, `fonts.c`, `wifi_pick.c`, `devname.c`, `light_curve.c` are the pattern) so it stays host-testable; JSON and NVS handling stay in the API and settings layers
 - LF line endings everywhere
 
 ## Adding an API endpoint
@@ -43,7 +43,7 @@ Each `api_*.c` file owns its URI space exclusively; the ownership table is in `a
 
 ## PR expectations
 
-- host tests pass (`Firmware/test/host/run_tests.sh`); changes to `mapping.c` or `valuefmt.c` come with test updates
+- host tests pass (`Firmware/test/host/run_tests.sh`); changes to a host-tested module come with test updates
 - the firmware builds clean with ESP-IDF v6.0.1 for `esp32s3` (see [building](../building/))
 - no build artifacts, `sdkconfig`, or `managed_components/` in the diff
 - small, focused commits; docs updated in the same PR as the code they describe

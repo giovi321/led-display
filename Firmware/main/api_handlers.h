@@ -4,11 +4,13 @@
 // web_server.c starts httpd and calls each of these once. Every module owns
 // its file exclusively:
 //
-//   api_display.c      /api/display/{text,brightness,clear,test,map,identify}
+//   api_display.c      /api/display/{text,brightness,brightness_cap,
+//                      light_sensor,clear,test,map,identify}
 //   api_layout.c       /api/layout (GET/POST)
 //   api_colors.c       /api/colors, /api/value, /api/value/config
-//   api_wifi.c         /api/wifi/{scan,connect,reset}
-//   api_system.c       /api/status, /api/system/{reboot,boot_screen}, /api/schedule
+//   api_wifi.c         /api/wifi/{scan,networks,networks/delete,connect,reset}
+//   api_system.c       /api/status, /api/system/{reboot,boot_screen,device_name,
+//                      factory_reset}, /api/schedule
 //   api_config.c       /api/config/{export,import}
 //   api_ota.c          /api/ota/{upload,url,status}
 //   api_integrations.c /api/integrations, /api/wireguard

@@ -11,7 +11,9 @@ esp_err_t web_server_start(void)
     httpd_handle_t srv = NULL;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 48;
+    // Headroom over the ~50 currently registered: httpd silently refuses
+    // handlers past this bound, so it must never sit at the exact count.
+    cfg.max_uri_handlers = 64;
     cfg.stack_size       = 10240;
     cfg.uri_match_fn     = httpd_uri_match_wildcard;
 

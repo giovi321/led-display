@@ -17,11 +17,15 @@ static const char *NS  = "cfg";
 #define K_COLOR_B    "cb"
 #define K_BRIGHTNESS "bri"
 #define K_BRI_CAP    "bcap"
-#define K_SCROLL     "scrl"
+#define K_SCROLL     "scrl"   // legacy on/off bool; kept in sync for rollback
+#define K_SCROLL_MODE "scm"   // display_scroll_t; wins over K_SCROLL
 #define K_SPEED      "spd"
 #define K_SCALE      "scl"
+#define K_FONT       "font"   // FONT_ID_*
+#define K_PROP       "prop"   // proportional spacing bool
 #define K_MAP_MODE   "map"    // legacy v1 key, read-only (migration)
 #define K_BOOT_SCR   "boot"
+#define K_DEVNAME    "dname"  // device name; absent = unset (defaults apply)
 
 static void apply_defaults(settings_t *s)
 {
@@ -30,9 +34,11 @@ static void apply_defaults(settings_t *s)
     s->color           = (display_color_t){80, 32, 0};   // matches display.c default
     s->brightness      = 32;                             // LED_DEFAULT_BRIGHTNESS
     s->brightness_cap  = 255;                            // uncapped
-    s->scroll          = false;
+    s->scroll_mode     = 0;      // DISPLAY_SCROLL_OFF
     s->speed           = 50;
     s->scale           = 0;      // 0 -> display module picks a default
+    s->font            = 0;      // FONT_ID_5X7, the pre-font-setting default
+    s->prop            = true;
     s->boot_screen     = BOOT_SHOW_TEXT;
     s->legacy_map_mode = -1;     // absent
 }
@@ -59,16 +65,32 @@ esp_err_t settings_load(settings_t *out)
     nvs_get_u8(h, K_BRI_CAP,    &out->brightness_cap);
 
     uint8_t v;
-    if (nvs_get_u8(h, K_SCROLL, &v) == ESP_OK) out->scroll = v ? true : false;
+    // Two keys describe one setting: the pre-2.2 on/off bool and the full
+    // off/restart/continuous mode. Every save from this build writes both, so a
+    // disagreement means only the bool was written afterwards - by an older
+    // image - and the bool then carries the newer choice. Cases: agree -> mode
+    // wins (continuous survives); scm=2/scrl=0 -> off; scm=0/scrl=1 -> restart;
+    // either key absent -> the other one.
+    bool scrl_present = (nvs_get_u8(h, K_SCROLL, &v) == ESP_OK);
+    bool scrl_on      = scrl_present && v != 0;
+    if (scrl_present) out->scroll_mode = scrl_on ? 1 : 0;
+
+    uint8_t scm;
+    if (nvs_get_u8(h, K_SCROLL_MODE, &scm) == ESP_OK && scm <= 2 &&
+        (!scrl_present || (scm != 0) == scrl_on)) {
+        out->scroll_mode = scm;
+    }
     nvs_get_u8(h, K_SPEED, &out->speed);
     nvs_get_u8(h, K_SCALE, &out->scale);
+    nvs_get_u8(h, K_FONT, &out->font);
+    if (nvs_get_u8(h, K_PROP, &v) == ESP_OK) out->prop = v ? true : false;
     if (nvs_get_u8(h, K_MAP_MODE, &v) == ESP_OK) out->legacy_map_mode = (int)v;
     if (nvs_get_u8(h, K_BOOT_SCR, &v) == ESP_OK) out->boot_screen = (boot_screen_t)v;
 
     nvs_close(h);
-    ESP_LOGI(TAG, "settings loaded: brightness=%u cap=%u scroll=%d speed=%u scale=%u boot=%u text='%s'",
-             out->brightness, out->brightness_cap, out->scroll, out->speed,
-             out->scale, (unsigned)out->boot_screen, out->text);
+    ESP_LOGI(TAG, "settings loaded: brightness=%u cap=%u scroll=%u speed=%u scale=%u font=%u prop=%d boot=%u text='%s'",
+             out->brightness, out->brightness_cap, out->scroll_mode, out->speed,
+             out->scale, out->font, out->prop, (unsigned)out->boot_screen, out->text);
     return ESP_OK;
 }
 
@@ -85,9 +107,14 @@ esp_err_t settings_save(const settings_t *in)
     nvs_set_u8 (h, K_COLOR_B,    in->color.b);
     nvs_set_u8 (h, K_BRIGHTNESS, in->brightness);
     nvs_set_u8 (h, K_BRI_CAP,    in->brightness_cap);
-    nvs_set_u8 (h, K_SCROLL,     in->scroll ? 1 : 0);
+    // Both scroll keys are written so an OTA rollback to a scroll-bool
+    // build still sees a sensible on/off value.
+    nvs_set_u8 (h, K_SCROLL,     in->scroll_mode ? 1 : 0);
+    nvs_set_u8 (h, K_SCROLL_MODE, in->scroll_mode);
     nvs_set_u8 (h, K_SPEED,      in->speed);
     nvs_set_u8 (h, K_SCALE,      in->scale);
+    nvs_set_u8 (h, K_FONT,       in->font);
+    nvs_set_u8 (h, K_PROP,       in->prop ? 1 : 0);
     nvs_set_u8 (h, K_BOOT_SCR,   (uint8_t)in->boot_screen);
 
     err = nvs_commit(h);
@@ -97,7 +124,7 @@ esp_err_t settings_save(const settings_t *in)
 
 esp_err_t settings_save_text(const char *text,
                              const display_color_t *color,
-                             bool scroll,
+                             uint8_t scroll_mode,
                              uint8_t speed,
                              uint8_t scale)
 {
@@ -110,9 +137,22 @@ esp_err_t settings_save_text(const char *text,
         nvs_set_u8(h, K_COLOR_G, color->g);
         nvs_set_u8(h, K_COLOR_B, color->b);
     }
-    nvs_set_u8(h, K_SCROLL, scroll ? 1 : 0);
+    nvs_set_u8(h, K_SCROLL, scroll_mode ? 1 : 0);
+    nvs_set_u8(h, K_SCROLL_MODE, scroll_mode);
     nvs_set_u8(h, K_SPEED,  speed);
     if (scale != 0) nvs_set_u8(h, K_SCALE, scale);
+    err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t settings_save_font(uint8_t font, bool prop)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    nvs_set_u8(h, K_FONT, font);
+    nvs_set_u8(h, K_PROP, prop ? 1 : 0);
     err = nvs_commit(h);
     nvs_close(h);
     return err;
@@ -123,8 +163,10 @@ static esp_err_t save_u8(const char *key, uint8_t v)
     nvs_handle_t h;
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
-    nvs_set_u8(h, key, v);
-    err = nvs_commit(h);
+    // The set can fail on its own (a full or worn partition), so it has to be
+    // reported: the callers turn this into the API's 500.
+    err = nvs_set_u8(h, key, v);
+    if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
 }
@@ -151,7 +193,39 @@ esp_err_t settings_clear_text(void)
     if (err != ESP_OK) return err;
     nvs_set_str(h, K_TEXT, "");
     nvs_set_u8(h, K_SCROLL, 0);
+    nvs_set_u8(h, K_SCROLL_MODE, 0);
     err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+// ---- device name ----------------------------------------------------------
+
+esp_err_t settings_load_device_name(char *buf, size_t bufsize)
+{
+    if (!buf || bufsize == 0) return ESP_ERR_INVALID_ARG;
+    buf[0] = '\0';
+
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return ESP_OK;   // unset
+    size_t len = bufsize;
+    if (nvs_get_str(h, K_DEVNAME, buf, &len) != ESP_OK) buf[0] = '\0';
+    nvs_close(h);
+    return ESP_OK;
+}
+
+esp_err_t settings_save_device_name(const char *name)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    if (name && name[0] != '\0') {
+        err = nvs_set_str(h, K_DEVNAME, name);
+    } else {
+        err = nvs_erase_key(h, K_DEVNAME);
+        if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;   // already unset
+    }
+    if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
 }

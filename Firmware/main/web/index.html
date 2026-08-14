@@ -8,9 +8,18 @@
 </head>
 <body>
 <header>
-  <h1>LED Display</h1>
+  <div class="hdr-left">
+    <h1 id="hdrname">LED Display</h1>
+    <span id="hdrfw" class="hdr-fw"></span>
+  </div>
   <div class="hdr-right">
-    <span id="hdrstatus">-</span>
+    <div id="hdrconn" class="conn" role="status">
+      <span id="hdrdot" class="dot wait" aria-hidden="true"></span>
+      <span class="conn-txt">
+        <span id="hdrnet">Connecting...</span>
+        <span id="hdrip"></span>
+      </span>
+    </div>
     <label class="switch" title="Show advanced tabs">
       <input type="checkbox" id="advtoggle">
       <span>Advanced</span>
@@ -41,19 +50,35 @@
       <div id="chips" class="chips" aria-label="Saved colours"></div>
     </div>
 
-    <label for="scale">Font size</label>
-    <select id="scale">
-      <option value="1">Small - 5x7</option>
-      <option value="2" selected>Medium - 10x14</option>
-      <option value="3">Large - 15x21</option>
-    </select>
+    <div class="grid2">
+      <div>
+        <label for="size">Text size</label>
+        <select id="size"></select>
+      </div>
+      <div>
+        <label for="spacing">Spacing</label>
+        <select id="spacing">
+          <option value="proportional">Proportional</option>
+          <option value="monospace">Monospace</option>
+        </select>
+      </div>
+    </div>
+    <p class="note">Sizes list every font that fits this display's height.
+      Proportional trims the blank space around narrow letters; digits keep a
+      fixed width in both modes, so a changing value never wobbles.</p>
 
     <label for="brightness">Brightness <span id="brval" class="val">32</span></label>
     <input id="brightness" type="range" min="0" max="255" value="32">
+    <p id="br-auto" class="note warn hidden">The light sensor is setting the
+      brightness. Switch it off under Hardware to move this slider yourself -
+      your saved level is kept and comes back when you do.</p>
 
-    <div class="row">
-      <label class="check"><input id="scroll" type="checkbox"> Scroll</label>
-    </div>
+    <label for="scrollmode">Scrolling</label>
+    <select id="scrollmode">
+      <option value="off">Off - text stays put</option>
+      <option value="restart">Restart - scrolls off, then re-enters</option>
+      <option value="continuous">Continuous - repeats after a short gap</option>
+    </select>
 
     <label for="speed">Scroll speed <span id="spval" class="val">50</span></label>
     <input id="speed" type="range" min="0" max="255" value="50">
@@ -86,6 +111,16 @@
       <label class="check"><input type="checkbox" data-day="4" checked> Fri</label>
       <label class="check"><input type="checkbox" data-day="5" checked> Sat</label>
       <label class="check"><input type="checkbox" data-day="6" checked> Sun</label>
+    </div>
+    <div class="flab">Outside those hours<button type="button" class="hlp"
+      data-help="Between the OFF and the ON time the display either goes dark or stays readable at a lower brightness. A stale-value dim, if you configured one, halves whichever level is active."
+      aria-expanded="false" aria-label="Explain this setting">?</button></div>
+    <div class="row" id="sched-offact">
+      <label class="check"><input type="radio" name="offact" value="off" checked> Turn off</label>
+      <label class="check"><input type="radio" name="offact" value="dim"> Dim to
+        <span id="sched-dimval" class="val">8</span></label>
+      <input id="sched-dim" type="range" min="1" max="255" value="8"
+             aria-label="Brightness outside the on-window">
     </div>
     <p class="note">Times use your browser's local timezone. The device syncs time via NTP.</p>
     <div class="row"><button class="act" id="sched-save">Save schedule</button></div>
@@ -120,6 +155,63 @@
     <p class="note warn">The cap limits maximum brightness to protect the power
       supply. The brightness slider and API requests cannot exceed it.</p>
   </div>
+  <div class="card">
+    <h2>Light sensor</h2>
+    <p class="note">Optional. An analog light sensor - an LDR voltage divider or
+      an analog lux module - can set the brightness for you as the room changes.</p>
+
+    <div class="flab">Sensor pin<button type="button" class="hlp"
+      data-help="Only GPIO1 to GPIO10 are offered: those are the ADC1 pins. The chip's second ADC shares hardware with the WiFi radio, so it cannot be read on a device that is online."
+      aria-expanded="false" aria-label="Explain the pin choice">?</button></div>
+    <select id="ls-gpio"></select>
+
+    <div id="ls-live" class="kvs"></div>
+    <p id="ls-hint" class="note"></p>
+
+    <div class="grid2">
+      <div>
+        <div class="flab">Dark reading<button type="button" class="hlp"
+          data-help="Cover the sensor, let the live reading settle, then press Use current. This reading is the dim end of the range."
+          aria-expanded="false" aria-label="Explain the dark reading">?</button></div>
+        <div class="row">
+          <input id="ls-dark" type="number" min="0" max="4095" value="200" class="num">
+          <button class="sec" id="ls-usedark">Use current</button>
+        </div>
+      </div>
+      <div>
+        <div class="flab">Bright reading<button type="button" class="hlp"
+          data-help="Light the sensor as brightly as the room ever gets, let the reading settle, then press Use current. Either reading may be the higher number - the wiring decides."
+          aria-expanded="false" aria-label="Explain the bright reading">?</button></div>
+        <div class="row">
+          <input id="ls-bright" type="number" min="0" max="4095" value="2800" class="num">
+          <button class="sec" id="ls-usebright">Use current</button>
+        </div>
+      </div>
+      <div>
+        <label for="ls-min">Brightness when dark <span id="ls-minval" class="val">8</span></label>
+        <input id="ls-min" type="range" min="0" max="255" value="8">
+      </div>
+      <div>
+        <label for="ls-max">Brightness when bright <span id="ls-maxval" class="val">128</span></label>
+        <input id="ls-max" type="range" min="0" max="255" value="128">
+      </div>
+    </div>
+
+    <div class="flab">Response curve <span id="ls-gammaval" class="val">1.0</span><button
+      type="button" class="hlp"
+      data-help="1.0 follows the sensor in a straight line. Below 1.0 brightens early, as soon as any light appears. Above 1.0 keeps the panel dim until the room is properly lit."
+      aria-expanded="false" aria-label="Explain the response curve">?</button></div>
+    <input id="ls-gamma" type="range" min="5" max="40" value="10"
+           aria-label="Response curve">
+
+    <div class="row">
+      <label class="check big"><input id="ls-en" type="checkbox"> Set brightness from the sensor</label>
+    </div>
+    <div class="row"><button class="act" id="ls-save">Save light sensor</button></div>
+    <p class="note">Readings are smoothed and only re-applied once they move a
+      few steps, so a passing shadow will not make the panel flicker. The
+      brightness cap and the schedule still have the last word.</p>
+  </div>
 </section>
 
 <!-- ============================ Network ============================ -->
@@ -127,17 +219,27 @@
   <div class="card">
     <h2>WiFi</h2>
     <div id="wifistate" class="kvs"></div>
+
+    <div class="flab">Saved networks<button type="button" class="hlp"
+      data-help="The device remembers up to 5 networks. At boot it scans, joins the strongest one in range, and then tries the rest - hidden ones included - one at a time."
+      aria-expanded="false" aria-label="Explain saved networks">?</button></div>
+    <div id="savednets"></div>
+    <p id="savednote" class="note"></p>
+
     <div class="row"><button class="sec" id="scan">Scan networks</button></div>
     <div id="nets"></div>
+
     <label for="wssid">SSID</label>
     <input id="wssid" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
     <label for="wpass">Password</label>
     <input id="wpass" type="password" autocomplete="off">
     <div class="row">
-      <button class="act" id="wconnect">Save &amp; connect</button>
-      <button class="danger" id="wreset">Reset WiFi</button>
+      <button class="act" id="wadd">Add network</button>
+      <button class="sec" id="wconnect">Add &amp; connect now</button>
     </div>
-    <p class="note">Saving reboots the device onto the new network.</p>
+    <p class="note">Adding keeps the device online and stores the network for
+      later. "Add &amp; connect now" reboots straight onto it.</p>
+    <div class="row"><button class="danger" id="wreset">Forget all networks</button></div>
   </div>
   <div class="card" id="wg-card">
     <h2>WireGuard</h2>
@@ -173,12 +275,6 @@
 
 <!-- ========================== Integrations ========================= -->
 <section id="tab-integrations" class="hidden">
-  <div class="card">
-    <h2>Device</h2>
-    <label for="devname">Device name (reported in webhook payloads)</label>
-    <input id="devname" type="text" maxlength="32" placeholder="led-display" autocomplete="off">
-    <div class="row"><button class="act" id="devname-save">Save name</button></div>
-  </div>
   <div class="card">
     <h2>API key</h2>
     <p id="apikey-state" class="note"></p>
@@ -260,6 +356,19 @@
   <div class="card">
     <h2>Status</h2>
     <div id="sys" class="kvs"></div>
+  </div>
+  <div class="card">
+    <h2>Device name</h2>
+    <label for="devname">Name</label>
+    <input id="devname" type="text" maxlength="24" placeholder="led-display"
+           autocomplete="off" autocapitalize="off" spellcheck="false">
+    <p id="devname-err" class="note warn hidden"></p>
+    <div id="devname-uses" class="kvs"></div>
+    <div class="row"><button class="act" id="devname-save">Save name</button></div>
+    <p class="note">Letters, digits and hyphens, up to 24 characters. Leave it
+      empty for the defaults. Webhooks use a new name straight away; the network
+      hostname follows on the next DHCP renewal or reboot, and the setup network
+      is renamed the next time it appears - so saving will not disconnect you.</p>
   </div>
   <div class="card">
     <h2>Boot screen</h2>

@@ -7,6 +7,6 @@ sidebar:
 
 The daily-use side of the web UI and API:
 
-- [Display](display/): text, saved colours, brightness, scrolling, font size
-- [Schedule](schedule/): switch the display off and on by weekday and time
+- [Display](display/): text, saved colours, brightness, scroll modes, fonts, size and spacing
+- [Schedule](schedule/): switch the display off or dim it by weekday and time
 - [Value updates](value-updates/): push a number from n8n or any webhook source, with device-side formatting and a staleness guard

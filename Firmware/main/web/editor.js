@@ -148,8 +148,9 @@
     `<text class="ed-btx" x="${cx}" y="${cy}" font-size="${rr}" text-anchor="middle" dy=".35em">${n}</text>`;
 
   // Wiring glyph: dot on the first-LED corner plus arrows for the walk
-  // direction and the row/column advance, computed in LED units and rotated
-  // by the cell's mounting rotation. Geometry mirrors mapping_xy_to_index().
+  // direction and the row/column advance, computed in LED units. Drawn only
+  // in the wiring preview; grid panels carry the simpler first-LED dot and
+  // rotation chip. Geometry mirrors mapping_xy_to_index().
   function glyphSvg(p, rot, x0, y0, px, markId) {
     const w = p.w, h = p.h, o = CORNER[p.origin];
     const sx = o[0] ? -1 : 1, sy = o[1] ? -1 : 1;    // away from the origin corner
@@ -182,6 +183,53 @@
     return out + `<circle class="ed-dot" cx="${dp[0].toFixed(1)}" cy="${dp[1].toFixed(1)}" r="${(px * 0.5).toFixed(1)}"/>`;
   }
 
+  // Clockwise mounting rotation of a panel-local point in LED units
+  // (90/270 only when square). Mirrors the transform inside glyphSvg.
+  function rotPt(p, rot, q) {
+    return rot === 90 ? [p.h - q[1], q[0]]
+      : rot === 180 ? [p.w - q[0], p.h - q[1]]
+      : rot === 270 ? [q[1], p.w - q[0]] : q;
+  }
+
+  // Rotation chip: circular arrow + the current mounting angle, so the
+  // orientation is readable at a glance and rotating looks tappable. Pure
+  // indicator - the whole cell is the tap target.
+  function rotChip(cx, cy, h, deg, mini) {
+    // mini: degree label only, for drawings too small for the arrow icon.
+    const w = h * ((deg >= 100 ? 2.2 : 1.8) + (mini ? 0 : 0.9));
+    const x = cx - w / 2, y = cy - h / 2;
+    if (mini) {
+      return '<g pointer-events="none">' +
+        `<rect class="ed-chip" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}"` +
+        ` height="${h.toFixed(1)}" rx="${(h / 2).toFixed(1)}"/>` +
+        `<text class="ed-chipt" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle"` +
+        ` font-size="${(h * 0.66).toFixed(1)}" dy=".35em">${deg}°</text></g>`;
+    }
+    const ir = h * 0.27, icx = x + h * 0.62, icy = cy;
+    const a0 = -0.5, a1 = -1.45;   // arc gap at the top holds the arrowhead
+    const pt = (a) => (icx + ir * Math.cos(a)).toFixed(1) + ',' + (icy + ir * Math.sin(a)).toFixed(1);
+    const ex = icx + ir * Math.cos(a1), ey = icy + ir * Math.sin(a1);
+    const tx = -Math.sin(a1), ty = Math.cos(a1);   // travel direction at the arc end
+    const nx = Math.cos(a1), ny = Math.sin(a1);
+    const al = ir * 0.95, aw = ir * 0.55;
+    const tri = `${(ex + nx * aw).toFixed(1)},${(ey + ny * aw).toFixed(1)} ` +
+      `${(ex + tx * al).toFixed(1)},${(ey + ty * al).toFixed(1)} ` +
+      `${(ex - nx * aw).toFixed(1)},${(ey - ny * aw).toFixed(1)}`;
+    return '<g pointer-events="none">' +
+      `<rect class="ed-chip" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}"` +
+      ` height="${h.toFixed(1)}" rx="${(h / 2).toFixed(1)}"/>` +
+      `<path class="ed-chipa" stroke-width="${(ir * 0.45).toFixed(1)}"` +
+      ` d="M${pt(a0)} A${ir.toFixed(1)} ${ir.toFixed(1)} 0 1 1 ${pt(a1)}"/>` +
+      `<polygon class="ed-chipf" points="${tri}"/>` +
+      `<text class="ed-chipt" x="${(x + h * 1.18).toFixed(1)}" y="${cy.toFixed(1)}"` +
+      ` font-size="${(h * 0.62).toFixed(1)}" dy=".35em">${deg}°</text></g>`;
+  }
+
+  // On-screen pixels per SVG user unit of the current drawing, so badges,
+  // chips and dots keep a readable, non-cartoonish size whatever the
+  // viewBox ends up being. Set by buildSvg before the cells render.
+  let pxs = 1;
+
   function cellSvg(r, c) {
     const p = st.panel, cw = p.w * PX, ch = p.h * PX;
     const x = c * cw, y = r * ch, cl = st.cells[r][c];
@@ -191,11 +239,18 @@
     const idfy = identify
       ? ` style="fill:${PAL[cl.chain % 8]};fill-opacity:${cl.chain < 8 ? 0.9 : cl.chain < 16 ? 0.5 : 0.3}"`
       : '';
+    // First-LED dot on the wiring origin corner, following the mounting
+    // rotation - it must match what Identify shows on the wall.
+    const o = CORNER[p.origin];
+    const din = Math.min(1.6, Math.min(p.w, p.h) * 0.25);
+    const dl = rotPt(p, cl.rot, [o[0] ? p.w - din : din, o[1] ? p.h - din : din]);
+    const dotR = Math.min(PX * 0.7, 6 / pxs);
     return `<g class="ed-cell" data-r="${r}" data-c="${c}">` +
-      `<title>chain ${cl.chain}, rot ${cl.rot}° - drag to swap, tap to rotate</title>` +
+      `<title>panel ${cl.chain} in the chain, rotated ${cl.rot}° - tap to rotate, drag onto another panel to swap</title>` +
       `<rect class="ed-body" ${box} rx="${(Math.min(cw, ch) * 0.08).toFixed(1)}"${idfy}/>` +
       `<rect ${box} fill="url(#edp)" pointer-events="none"/>` +
-      glyphSvg(p, cl.rot, x, y, PX, 'edaw') + '</g>';
+      `<circle class="ed-dot" cx="${(x + dl[0] * PX).toFixed(1)}" cy="${(y + dl[1] * PX).toFixed(1)}"` +
+      ` r="${dotR.toFixed(1)}" pointer-events="none"/>` + '</g>';
   }
 
   function chainSvg() {
@@ -204,20 +259,36 @@
     const cw = st.panel.w * PX, ch = st.panel.h * PX;
     const pos = new Array(n);
     eachCell((cl, r, c) => { pos[cl.chain] = `${c * cw + cw / 2},${r * ch + ch / 2}`; });
-    return `<polyline class="ed-chain" stroke-width="${(PX * 0.45).toFixed(1)}"` +
-      ` marker-mid="url(#edac)" marker-end="url(#edac)" pointer-events="none" points="${pos.join(' ')}"/>`;
+    return `<polyline class="ed-chain" stroke-width="${Math.min(PX * 0.45, 5 / pxs).toFixed(1)}"` +
+      ` pointer-events="none" points="${pos.join(' ')}"/>`;
   }
 
   function buildSvg() {
     const p = st.panel, cw = p.w * PX, ch = p.h * PX;
-    let s = `<svg class="ed-svg" viewBox="0 0 ${st.cols * cw} ${st.rows * ch}" xmlns="http://www.w3.org/2000/svg">` +
+    const vw = st.cols * cw, vh = st.rows * ch;
+    const availW = (ui && ui.wrap && ui.wrap.clientWidth) || 640;
+    const availH = window.innerHeight * 0.7;   // matches the max-height cap
+    pxs = Math.max(0.05, Math.min(availW / vw, availH / vh));
+    let s = `<svg class="ed-svg" viewBox="0 0 ${vw} ${vh}" xmlns="http://www.w3.org/2000/svg">` +
       `<defs><pattern id="edp" width="${PX}" height="${PX}" patternUnits="userSpaceOnUse">` +
-      `<circle class="ed-led" cx="${PX / 2}" cy="${PX / 2}" r="${(PX * 0.17).toFixed(1)}"/></pattern>` +
-      marker('edaw', 'ed-mw') + marker('edac', 'ed-mc') + '</defs>';
+      `<circle class="ed-led" cx="${PX / 2}" cy="${PX / 2}" r="${(PX * 0.17).toFixed(1)}"/></pattern></defs>`;
     eachCell((cl, r, c) => { s += cellSvg(r, c); });
     s += chainSvg(); // cable path above bodies, below badges
     eachCell((cl, r, c) => {
-      s += `<g pointer-events="none">${badge(c * cw + cw / 2, r * ch + ch / 2, (Math.min(cw, ch) * 0.3).toFixed(1), cl.chain)}</g>`;
+      const cx = c * cw + cw / 2, cy = r * ch + ch / 2, m = Math.min(cw, ch);
+      const br = Math.min(m * 0.3, 24 / pxs);
+      const chipH = Math.min(m * 0.24, 19 / pxs);
+      // Wide panels put the chip beside the badge, others below it; cells
+      // where the chip would render unreadably small keep just the badge
+      // (the title still spells out the rotation).
+      const wide = cw >= ch * 1.6;
+      const bx = wide ? cx - m * 0.42 : cx;
+      const by = wide ? cy : cy - br * 1.1;
+      s += `<g pointer-events="none">${badge(bx, by, br.toFixed(1), cl.chain)}</g>`;
+      if (chipH * pxs >= 8.5) {
+        s += rotChip(wide ? cx + m * 0.55 : cx, wide ? cy : cy + chipH * 1.1,
+                     chipH, cl.rot, chipH * pxs < 12);
+      }
     });
     return s + '</svg>';
   }
@@ -225,7 +296,7 @@
   // Live preview of the first-panel walk for the current wiring selection.
   function previewSvg() {
     const p = st.panel, px = 5, w = p.w * px, h = p.h * px;
-    const sc = Math.min(110 / w, 64 / h);
+    const sc = Math.min(150 / w, 84 / h);
     return `<svg width="${Math.round(w * sc)}" height="${Math.round(h * sc)}" viewBox="0 0 ${w} ${h}">` +
       `<defs>${marker('edawp', 'ed-mw')}</defs>` +
       `<rect class="ed-body" x="1" y="1" width="${w - 2}" height="${h - 2}" rx="${(Math.min(w, h) * 0.08).toFixed(1)}"/>` +
@@ -245,7 +316,8 @@
     const cw = st.panel.w * PX, ch = st.panel.h * PX, m = Math.min(cw, ch);
     svg.insertAdjacentHTML('beforeend',
       `<g class="ed-ghost"><rect class="ed-body" width="${cw}" height="${ch}" rx="${(m * 0.08).toFixed(1)}"/>` +
-      badge(cw / 2, ch / 2, (m * 0.3).toFixed(1), st.cells[drag.r][drag.c].chain) + '</g>');
+      badge(cw / 2, ch / 2, Math.min(m * 0.3, 24 / pxs).toFixed(1),
+            st.cells[drag.r][drag.c].chain) + '</g>');
     drag.ghost = svg.lastElementChild;
   }
 
@@ -385,6 +457,77 @@
     ui.msg.classList.toggle('ed-err', !!isErr);
   }
 
+  // ---- help tooltips ------------------------------------------------------
+  // One floating bubble for the circled-? buttons. Hover and keyboard focus
+  // show it transiently; click/tap pins it until the next tap or Escape.
+
+  let tipBtn = null, tipPinned = false;
+
+  function hideTip() {
+    if (tipBtn) tipBtn.setAttribute('aria-expanded', 'false');
+    tipBtn = null;
+    tipPinned = false;
+    const t = root && root.querySelector('.ed-tip');
+    if (t) t.remove();
+  }
+
+  function showTip(btn) {
+    hideTip();
+    tipBtn = btn;
+    btn.setAttribute('aria-expanded', 'true');
+    const box = root.firstElementChild;   // .ed, position:relative
+    const tip = document.createElement('div');
+    tip.className = 'ed-tip';
+    tip.setAttribute('role', 'tooltip');
+    tip.textContent = btn.dataset.help;
+    box.appendChild(tip);
+    const eb = box.getBoundingClientRect();
+    const bb = btn.getBoundingClientRect();
+    let left = bb.left - eb.left + bb.width / 2 - tip.offsetWidth / 2;
+    left = Math.max(4, Math.min(left, eb.width - tip.offsetWidth - 4));
+    tip.style.left = left + 'px';
+    tip.style.top = (bb.bottom - eb.top + 6) + 'px';
+  }
+
+  function onHelpClick(e) {
+    const b = e.target.closest ? e.target.closest('.ed-help') : null;
+    if (!b) {
+      if (tipBtn) hideTip();
+      return;
+    }
+    e.preventDefault();
+    if (tipBtn === b && tipPinned) {
+      hideTip();
+    } else {
+      showTip(b);
+      tipPinned = true;
+    }
+  }
+
+  function onHelpOver(e) {
+    const b = e.target.closest ? e.target.closest('.ed-help') : null;
+    if (b && tipBtn !== b) showTip(b);
+  }
+
+  function onHelpOut(e) {
+    const b = e.target.closest ? e.target.closest('.ed-help') : null;
+    if (b && tipBtn === b && !tipPinned) hideTip();
+  }
+
+  function onHelpFocus(e) {
+    if (e.target.classList && e.target.classList.contains('ed-help')) {
+      showTip(e.target);
+    }
+  }
+
+  function onHelpBlur(e) {
+    if (e.target === tipBtn) hideTip();
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') hideTip();
+  }
+
   function onChange() { showMsg(''); update(); }
 
   function setStep(btn, why) { btn.disabled = !!why; btn.title = why || ''; }
@@ -422,12 +565,28 @@
   const btn = (k, label, title) =>
     `<button type="button" data-k="${k}"${title ? ` title="${title}"` : ''}>${label}</button>`;
 
+  const CORNER_NAME = { TL: 'top left', TR: 'top right', BL: 'bottom left', BR: 'bottom right' };
+
   const originBtn = (k) => {
     const o = CORNER[k];
-    return `<button type="button" class="ed-ob" data-k="o${k}" title="first LED at ${k}">` +
-      `<svg width="18" height="18" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" class="ed-obr"/>` +
-      `<circle cx="${3 + o[0] * 10}" cy="${3 + o[1] * 10}" r="2.6" class="ed-dot"/></svg></button>`;
+    return `<button type="button" class="ed-ob" data-k="o${k}" title="first LED in the ${CORNER_NAME[k]} corner">` +
+      `<svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true">` +
+      `<rect x="1.5" y="1.5" width="13" height="13" rx="2" class="ed-obr"/>` +
+      `<circle cx="${4.2 + o[0] * 7.6}" cy="${4.2 + o[1] * 7.6}" r="2.4" class="ed-dot"/></svg></button>`;
   };
+
+  // Circled question mark; tap/click toggles the explanation, hover and
+  // keyboard focus show it too.
+  const help = (text) =>
+    `<button type="button" class="ed-help" data-help="${text}" aria-expanded="false"` +
+    ` aria-label="Explain this setting">` +
+    `<svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">` +
+    `<circle cx="8" cy="8" r="7" class="ed-hc"/>` +
+    `<text x="8" y="11.5" text-anchor="middle" class="ed-ht">?</text></svg></button>`;
+
+  const H_ORIGIN = 'The corner where the LED strip enters the panel - its first LED sits there. Shown as the amber dot on every panel in the drawing.';
+  const H_AXIS = 'How the strip walks inside one panel: across in rows, or down in columns.';
+  const H_SERP = 'The strip reverses direction on every row or column (zigzag) instead of jumping back to the same side. Almost every off-the-shelf matrix is wired this way.';
 
   const CONTROLS =
     `<div class="ed-row"><span class="ed-lab">Grid</span>` +
@@ -438,10 +597,16 @@
     `<label>W <input class="ed-num" data-i="w" type="number" min="1" max="64"></label>` +
     `<label>H <input class="ed-num" data-i="h" type="number" min="1" max="64"></label></div>` +
     `<div class="ed-row"><span class="ed-lab">Wiring</span>` +
-    `<span class="ed-grp">${['TL', 'TR', 'BL', 'BR'].map(originBtn).join('')}</span>` +
-    `<span class="ed-grp">${btn('arow', 'rows', 'strip walks rows first')}${btn('acol', 'columns', 'strip walks columns first')}</span>` +
-    `<label><input type="checkbox" data-i="serp"> serpentine</label>` +
-    `<span class="ed-prev" title="first-panel walk preview"></span></div>` +
+    `<span class="ed-wire">` +
+    `<span class="ed-fld"><span class="ed-flab">First LED${help(H_ORIGIN)}</span>` +
+    `<span class="ed-grp">${['TL', 'TR', 'BL', 'BR'].map(originBtn).join('')}</span></span>` +
+    `<span class="ed-fld"><span class="ed-flab">Strip runs${help(H_AXIS)}</span>` +
+    `<span class="ed-grp">${btn('arow', 'In rows')}${btn('acol', 'In columns')}</span></span>` +
+    `<span class="ed-fld"><span class="ed-flab">Zigzag${help(H_SERP)}</span>` +
+    `<label class="ed-check"><input type="checkbox" data-i="serp"> serpentine</label></span>` +
+    `</span>` +
+    `<span class="ed-prevbox"><span class="ed-prev"></span><span class="ed-prevlab">strip path in one panel</span></span>` +
+    `</div>` +
     `<div class="ed-row">` +
     btn('ident', 'Identify', 'light every physical panel in its chain colour') +
     btn('btest', 'Border test', 'run the border test pattern') + `</div>` +
@@ -451,17 +616,45 @@
     `<div class="ed-foot"></div>`;
 
   const CSS =
-    '.ed{color:var(--fg,#e6e6e6)}' +
-    '.ed-row{display:flex;flex-wrap:wrap;align-items:center;gap:.6em;margin:.45em 0}' +
-    '.ed-grp{display:inline-flex;align-items:center;gap:.25em}' +
-    '.ed-lab{opacity:.6;min-width:3.2em}' +
-    '.ed-val{min-width:1.4em;text-align:center}' +
-    '.ed-num{width:3.6em}' +
-    '.ed button{cursor:pointer}' +
+    '.ed{color:var(--fg,#e6e6e6);position:relative}' +
+    '.ed [hidden]{display:none!important}' +
+    '.ed label{display:inline-flex;align-items:center;gap:6px;margin:0;' +
+    'color:inherit;font-size:inherit}' +
+    '.ed-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5em .9em;margin:.6em 0}' +
+    '.ed-grp{display:inline-flex;align-items:center;gap:4px}' +
+    '.ed-lab{color:var(--mut,#999);min-width:3.4em;font-size:.88em}' +
+    '.ed-val{min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}' +
+    '.ed-num{width:4em;min-height:38px;background:var(--inp,#232329);color:inherit;' +
+    'border:1px solid var(--line,#35353d);border-radius:6px;font:inherit;padding:4px 8px}' +
+    '.ed button{font:inherit;cursor:pointer;touch-action:manipulation}' +
     '.ed button:disabled{cursor:not-allowed;opacity:.45}' +
-    '.ed-ob{padding:2px;line-height:0}' +
-    '.ed-obr{fill:none;stroke:currentColor;opacity:.6}' +
-    '.ed-sel{outline:2px solid var(--accent,#4da3ff);outline-offset:1px}' +
+    '.ed [data-k]{background:var(--inp,#232329);color:var(--fg,#e6e6e6);' +
+    'border:1px solid var(--line,#35353d);border-radius:6px;min-height:38px;padding:6px 12px}' +
+    '.ed [data-k]:not(:disabled):hover{border-color:var(--accent,#4da3ff)}' +
+    '.ed-grp>[data-k]{min-width:38px;padding:6px 9px}' +
+    '.ed-ob{line-height:0;padding:6px}' +
+    '.ed-obr{fill:none;stroke:currentColor;opacity:.55}' +
+    '.ed-sel{background:var(--accent,#4da3ff)!important;' +
+    'border-color:var(--accent,#4da3ff)!important;color:#000!important;font-weight:600}' +
+    '.ed-sel .ed-dot{fill:#000;stroke:none}' +
+    '.ed-sel .ed-obr{opacity:.8}' +
+    '.ed-wire{display:inline-flex;flex-direction:column;gap:6px}' +
+    '.ed-fld{display:flex;align-items:center;gap:8px}' +
+    '.ed-flab{color:var(--mut,#999);font-size:.88em;min-width:6.4em;' +
+    'display:inline-flex;align-items:center;gap:4px}' +
+    '.ed-check{display:inline-flex;align-items:center;gap:7px;min-height:38px;cursor:pointer}' +
+    '.ed-check input{width:17px;height:17px}' +
+    '.ed .ed-help{background:none;border:none;padding:9px;margin:-5px;line-height:0;' +
+    'color:var(--mut,#999);border-radius:50%}' +
+    '.ed .ed-help:hover{color:var(--accent,#4da3ff)}' +
+    '.ed-hc{fill:none;stroke:currentColor;stroke-width:1.4}' +
+    '.ed-ht{fill:currentColor;font-size:10px;font-weight:700}' +
+    '.ed-tip{position:absolute;z-index:5;max-width:280px;background:#000;' +
+    'border:1px solid var(--accent,#4da3ff);border-radius:6px;padding:8px 10px;' +
+    'font-size:.85em;line-height:1.45;box-shadow:0 4px 14px rgba(0,0,0,.5)}' +
+    '.ed-prevbox{display:inline-flex;flex-direction:column;align-items:center;gap:3px;' +
+    'margin-left:auto}' +
+    '.ed-prevlab{color:var(--mut,#999);font-size:.72em}' +
     '.ed-banner{display:flex;align-items:center;gap:.7em;margin:.5em 0;padding:.4em .7em;' +
     'border:1px solid var(--accent,#4da3ff);border-radius:6px;background:rgba(77,163,255,.08)}' +
     '.ed-msg{margin:.4em 0;padding:.3em .6em;border-radius:4px;background:rgba(128,128,128,.12)}' +
@@ -475,15 +668,18 @@
     '.ed-led{fill:var(--fg,#888);opacity:.13}' +
     '.ed-glyph{fill:none;stroke:var(--fg,#bbb);stroke-width:2;opacity:.75}' +
     '.ed-mw{fill:var(--fg,#bbb)}' +
-    '.ed-dot{fill:var(--accent,#4da3ff)}' +
+    '.ed-dot{fill:var(--accent,#4da3ff);stroke:rgba(0,0,0,.55);stroke-width:1}' +
     '.ed-chain{fill:none;stroke:var(--accent,#4da3ff);opacity:.5;stroke-linejoin:round}' +
-    '.ed-mc{fill:var(--accent,#4da3ff)}' +
     '.ed-bbg{fill:rgba(0,0,0,.5)}' +
     '.ed-btx{fill:#fff;font-weight:600;font-family:inherit}' +
+    '.ed-chip{fill:rgba(0,0,0,.55);stroke:rgba(255,255,255,.3);stroke-width:1}' +
+    '.ed-chipa{fill:none;stroke:#fff;opacity:.92}' +
+    '.ed-chipf{fill:#fff;opacity:.92}' +
+    '.ed-chipt{fill:#fff;font-weight:600;font-family:inherit}' +
     '.ed-ghost{opacity:.65;pointer-events:none}' +
     '.ed-prev{line-height:0;opacity:.9}' +
     '.ed-prev svg{display:block}' +
-    '.ed-foot{opacity:.6;font-size:.85em}';
+    '.ed-foot{color:var(--mut,#999);font-size:.85em}';
 
   function onClick(e) {
     const b = e.target.closest ? e.target.closest('[data-k]') : null;
@@ -529,6 +725,12 @@
       };
       root.querySelectorAll('[data-k]').forEach((b) => { ui.k[b.dataset.k] = b; });
       root.addEventListener('click', onClick);
+      root.addEventListener('click', onHelpClick);
+      root.addEventListener('mouseover', onHelpOver);
+      root.addEventListener('mouseout', onHelpOut);
+      root.addEventListener('focusin', onHelpFocus);
+      root.addEventListener('focusout', onHelpBlur);
+      root.addEventListener('keydown', onKey);
       ui.serp.addEventListener('change', () => {
         if (st) { st.panel.serpentine = ui.serp.checked; onChange(); }
       });
@@ -551,7 +753,14 @@
         try { api('/api/display/identify', { on: false }); } catch (_) { /* ignore */ }
       }
       identify = false;
+      tipBtn = null; tipPinned = false;
       root.removeEventListener('click', onClick);
+      root.removeEventListener('click', onHelpClick);
+      root.removeEventListener('mouseover', onHelpOver);
+      root.removeEventListener('mouseout', onHelpOut);
+      root.removeEventListener('focusin', onHelpFocus);
+      root.removeEventListener('focusout', onHelpBlur);
+      root.removeEventListener('keydown', onKey);
       if (styleEl) styleEl.remove();
       root.innerHTML = '';
       root = null; ui = null; st = null; styleEl = null; drag = null;

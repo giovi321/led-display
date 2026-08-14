@@ -108,6 +108,70 @@ function fmtUptime(secs) {
   return m + 'm ' + s + 's';
 }
 
+// ---- circled-? help tooltips -----------------------------------------------
+// One floating bubble for every <button class="hlp" data-help="..."> on the
+// page. Hover and keyboard focus show it transiently; click/tap pins it until
+// the next tap or Escape. Same interaction as the arrangement editor's tips,
+// which keep their own copy because editor.js is self-contained.
+
+let tipBtn = null, tipPinned = false;
+
+function hideTip() {
+  if (tipBtn) tipBtn.setAttribute('aria-expanded', 'false');
+  tipBtn = null;
+  tipPinned = false;
+  const t = $('#tip');
+  if (t) t.remove();
+}
+
+function showTip(btn) {
+  hideTip();
+  tipBtn = btn;
+  btn.setAttribute('aria-expanded', 'true');
+  const tip = document.createElement('div');
+  tip.id = 'tip';
+  tip.className = 'tip';
+  tip.setAttribute('role', 'tooltip');
+  tip.textContent = btn.dataset.help;
+  document.body.appendChild(tip);
+  // position:fixed, so viewport coordinates are all the maths needed.
+  const b = btn.getBoundingClientRect();
+  let left = b.left + b.width / 2 - tip.offsetWidth / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tip.offsetWidth - 8));
+  tip.style.left = left + 'px';
+  tip.style.top = (b.bottom + 6) + 'px';
+}
+
+const hlpOf = e => (e.target.closest ? e.target.closest('.hlp') : null);
+
+document.addEventListener('click', e => {
+  const b = hlpOf(e);
+  if (!b) {
+    if (tipBtn) hideTip();
+    return;
+  }
+  e.preventDefault();
+  if (tipBtn === b && tipPinned) {
+    hideTip();
+  } else {
+    showTip(b);
+    tipPinned = true;
+  }
+});
+document.addEventListener('mouseover', e => {
+  const b = hlpOf(e);
+  if (b && tipBtn !== b) showTip(b);
+});
+document.addEventListener('mouseout', e => {
+  const b = hlpOf(e);
+  if (b && tipBtn === b && !tipPinned) hideTip();
+});
+document.addEventListener('focusin', e => {
+  if (e.target.classList && e.target.classList.contains('hlp')) showTip(e.target);
+});
+document.addEventListener('focusout', e => { if (e.target === tipBtn) hideTip(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideTip(); });
+
 // ---- shared state ----------------------------------------------------------
 // NOTE: not named "status" - a top-level var of that name would collide with
 // window.status (a string-coercing browser property).
@@ -115,6 +179,8 @@ function fmtUptime(secs) {
 let lastStatus = null;    // last /api/status payload
 let colors = [];          // saved colour presets [{name,r,g,b}]
 let editorMounted = false;
+let savedNets = [];       // saved WiFi networks [{ssid,connected}]
+let savedMax = 5;
 
 // ---- tabs + advanced mode --------------------------------------------------
 
@@ -132,14 +198,16 @@ function tab(name) {
   // Leaving the Hardware tab must switch identify mode off, or the physical
   // panels stay frozen in the chain colours with no visible way back.
   const prev = $('#tabs button.active');
-  if (prev && prev.dataset.tab === 'hardware' && name !== 'hardware'
-      && window.Editor && typeof window.Editor.leave === 'function') {
-    window.Editor.leave();
+  if (prev && prev.dataset.tab === 'hardware' && name !== 'hardware') {
+    if (window.Editor && typeof window.Editor.leave === 'function') {
+      window.Editor.leave();
+    }
+    lsPollStop();   // stop the light-sensor live poll with the tab
   }
   $$('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   $$('main > section').forEach(sec => sec.classList.toggle('hidden', sec.id !== 'tab-' + name));
   if (name === 'schedule') refreshSchedule();
-  if (name === 'hardware') openHardware();
+  if (name === 'hardware') { openHardware(); lsPollStart(); }
   if (name === 'network') refreshNetwork();
   if (name === 'integrations') refreshIntegrations();
   if (name === 'system') refreshSystem();
@@ -150,20 +218,108 @@ $('#advtoggle').onchange = e => setAdvanced(e.target.checked);
 
 // ---- Display tab -----------------------------------------------------------
 
+// Fonts baked into this firmware image (fonts.h); the size select only
+// offers combinations whose pixel height fits the active display.
+const FONTS = [
+  { name: '3x5', h: 5 },
+  { name: '5x7', h: 7 },
+  { name: '7x12', h: 12 },
+];
+
+// font:scale the device last reported, even when it no longer fits the layout:
+// the firmware keeps a stored font that is too tall and renders a smaller one
+// instead, so the select has to be able to hold it.
+let wantSize = null;
+
+function buildSizeOptions(dispH) {
+  const sel = $('#size');
+  const prev = sel.value || wantSize;
+  const opts = [];
+  FONTS.forEach(f => {
+    for (let s = 1; s <= 8 && f.h * s <= dispH; s++) {
+      opts.push({ v: f.name + ':' + s, px: f.h * s, f: f.name, s: s });
+    }
+  });
+  opts.sort((a, b) => a.px - b.px || a.f.localeCompare(b.f));
+  sel.innerHTML = '';
+  opts.forEach(o => {
+    const el = document.createElement('option');
+    el.value = o.v;
+    el.textContent = o.px + ' px · ' + o.f + (o.s > 1 ? ' ×' + o.s : '');
+    sel.appendChild(el);
+  });
+  // Without an option for the stored size the select would end up with no
+  // selection at all, and Apply would post an empty font and be rejected
+  // wholesale (text, colour, scrolling and brightness with it).
+  if (wantSize && !opts.some(o => o.v === wantSize)) {
+    const p = wantSize.split(':');
+    const el = document.createElement('option');
+    el.value = wantSize;
+    el.textContent = p[0] + (+p[1] > 1 ? ' ×' + p[1] : '')
+      + ' - taller than this display';
+    sel.appendChild(el);
+  }
+  if (prev && Array.from(sel.options).some(o => o.value === prev)) sel.value = prev;
+}
+buildSizeOptions(16);   // sane default until /api/status reports the layout
+
+function setScrollUi() {
+  $('#speed').disabled = $('#scrollmode').value === 'off';
+}
+$('#scrollmode').onchange = setScrollUi;
+setScrollUi();
+
 $('#brightness').oninput = e => { $('#brval').textContent = e.target.value; };
 $('#speed').oninput = e => { $('#spval').textContent = e.target.value; };
 
+// The light sensor and the slider are the same brightness: while the sensor is
+// driving it, the slider reads out the level it picked and stops being an input.
+// The stored level is untouched, so switching the sensor off restores it.
+// Mirrors the firmware's arbiter rather than the stored flag alone: the sensor
+// only owns the brightness once it has produced a level, and never in setup-AP
+// mode, where the panel carries the only copy of the AP name and address.
+function sensorDriven(s) {
+  const ls = s && s.light_sensor;
+  return !!(ls && ls.enabled && typeof ls.level === 'number' && ls.level >= 0
+            && s.wifi && s.wifi.mode !== 'ap');
+}
+function setBrightnessAuto(on) {
+  $('#brightness').disabled = !!on;
+  $('#br-auto').classList.toggle('hidden', !on);
+}
+
+// The schedule's off-window level is a brightness too: it lives under the same
+// cap as the main slider.
+function capSchedDim(cap) {
+  const el = $('#sched-dim');
+  el.max = Math.max(1, cap);
+  if (+el.value > el.max) {
+    el.value = el.max;
+    $('#sched-dimval').textContent = el.value;
+  }
+}
+
 $('#apply').onclick = () => act($('#apply'), async () => {
+  const raw = $('#size').value;
+  if (!raw) { toast('Pick a text size first', true); return; }
+  const size = raw.split(':');
   const body = {
     text: $('#text').value,
     color: hex2rgb($('#color').value),
-    scroll: $('#scroll').checked,
+    scroll_mode: $('#scrollmode').value,
     speed: +$('#speed').value,
-    scale: +$('#scale').value,
+    font: size[0],
+    scale: +size[1] || 1,
+    spacing: $('#spacing').value,
   };
   await jpost('/api/display/text', body);
-  await jpost('/api/display/brightness', { brightness: +$('#brightness').value });
-  toast('Applied');
+  // Don't post the slider back while the sensor owns the brightness: that would
+  // overwrite the user's stored level with whatever the room happens to be.
+  const auto = sensorDriven(lastStatus);
+  if (!auto) {
+    await jpost('/api/display/brightness', { brightness: +$('#brightness').value });
+  }
+  toast(auto ? 'Applied - brightness follows the light sensor' : 'Applied');
 });
 
 $('#clear').onclick = () => act($('#clear'), async () => {
@@ -277,6 +433,18 @@ async function addChip() {
 
 // ---- Schedule tab ----------------------------------------------------------
 
+// Off-window action: the dim slider only means something in "dim" mode.
+function schedOffAction() {
+  const on = $('#sched-offact input[type=radio]:checked');
+  return on ? on.value : 'off';
+}
+function setSchedOffUi() {
+  $('#sched-dim').disabled = schedOffAction() !== 'dim';
+}
+$$('#sched-offact input[type=radio]').forEach(r => { r.onchange = setSchedOffUi; });
+$('#sched-dim').oninput = e => { $('#sched-dimval').textContent = e.target.value; };
+setSchedOffUi();
+
 async function refreshSchedule() {
   try {
     const s = await jget('/api/schedule');
@@ -286,6 +454,15 @@ async function refreshSchedule() {
     $$('#sched-days input').forEach(cb => {
       cb.checked = !!(s.days & (1 << +cb.dataset.day));
     });
+    // Pre-2.2 firmware reports neither field: that build always turned off.
+    const offAct = s.off_action === 'dim' ? 'dim' : 'off';
+    $$('#sched-offact input[type=radio]').forEach(r => { r.checked = r.value === offAct; });
+    const cap = (lastStatus && lastStatus.system.brightness_cap) || 255;
+    const dim = $('#sched-dim');
+    dim.max = Math.max(1, cap);
+    dim.value = Math.min(s.off_brightness || 8, cap);
+    $('#sched-dimval').textContent = dim.value;
+    setSchedOffUi();
   } catch (e) { /* first load can race the device; keep defaults */ }
 }
 
@@ -299,6 +476,8 @@ $('#sched-save').onclick = () => act($('#sched-save'), async () => {
     on_hour: +on[0], on_min: +on[1],
     off_hour: +off[0], off_min: +off[1],
     days: days,
+    off_action: schedOffAction(),
+    off_brightness: +$('#sched-dim').value || 1,
     // Minutes east of UTC, taken from the browser so the device's schedule
     // matches the wall clock the user is looking at.
     utc_offset: -new Date().getTimezoneOffset(),
@@ -319,6 +498,7 @@ function openHardware() {
     }
   }
   if (lastStatus) $('#brcap').value = lastStatus.system.brightness_cap || 255;
+  refreshLightSensor();
 }
 
 $$('#tab-hardware [data-test]').forEach(b => {
@@ -328,18 +508,212 @@ $$('#tab-hardware [data-test]').forEach(b => {
   });
 });
 
+// ---- light sensor (Hardware tab) -------------------------------------------
+// Calibration needs live numbers, so the card polls the sensor endpoint while
+// the tab is open. The device samples whenever a pin is configured, enabled or
+// not, which is what makes "cover it, press Use current" work before handing
+// the brightness over.
+
+let lsTimer = 0;
+let lsRawMax = 4095;
+let lsLive = null;       // last polled {sampling, raw, level}
+
+function lsGpioOptions(list) {
+  const sel = $('#ls-gpio');
+  const prev = sel.value;
+  const pins = (list && list.length) ? list : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  sel.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '0';
+  none.textContent = 'Not connected';
+  sel.appendChild(none);
+  pins.forEach(g => {
+    const o = document.createElement('option');
+    o.value = String(g);
+    o.textContent = 'GPIO' + g;
+    sel.appendChild(o);
+  });
+  if (prev) sel.value = prev;
+}
+
+function setLsUi() {
+  const hasPin = +$('#ls-gpio').value > 0;
+  ['#ls-en', '#ls-dark', '#ls-bright', '#ls-min', '#ls-max', '#ls-gamma',
+   '#ls-usedark', '#ls-usebright'].forEach(s => {
+    $(s).disabled = !hasPin;
+  });
+  if (!hasPin) $('#ls-en').checked = false;
+  $('#ls-minval').textContent = $('#ls-min').value;
+  $('#ls-maxval').textContent = $('#ls-max').value;
+  $('#ls-gammaval').textContent = (+$('#ls-gamma').value / 10).toFixed(1);
+  $('#ls-hint').textContent = hasPin
+    ? 'Cover the sensor and press Use current for the dark reading, then light '
+      + 'it and do the same for the bright one.'
+    : 'Pick the pin your sensor is wired to, then save. The device samples it '
+      + 'once a second and the live reading appears here.';
+}
+
+function renderLsLive(j) {
+  lsLive = j || null;
+  const box = $('#ls-live');
+  if (!j || !j.sampling) {
+    box.innerHTML = kv('Live reading', 'no sensor pin saved');
+    return;
+  }
+  const level = j.level >= 0 ? String(j.level)
+              : (j.enabled ? 'waiting for a reading' : 'sensor off');
+  box.innerHTML =
+    kv('Live reading', j.raw < 0 ? 'waiting...' : j.raw + ' of ' + lsRawMax) +
+    kv('Brightness now', level);
+}
+
+async function refreshLightSensor() {
+  try {
+    const j = await jget('/api/display/light_sensor');
+    if (j.raw_max) lsRawMax = j.raw_max;
+    lsGpioOptions(j.valid_gpios);
+    $('#ls-gpio').value = String(j.gpio || 0);
+    $('#ls-en').checked = !!j.enabled;
+    $('#ls-dark').value = j.dark_raw;
+    $('#ls-bright').value = j.bright_raw;
+    $('#ls-min').value = j.min_brightness;
+    $('#ls-max').value = j.max_brightness;
+    $('#ls-gamma').value = j.gamma_x10 || 10;
+    setLsUi();
+    renderLsLive(j);
+  } catch (e) {
+    lsGpioOptions(null);
+    setLsUi();
+    renderLsLive(null);
+  }
+}
+
+function lsPollStop() {
+  if (lsTimer) { clearInterval(lsTimer); lsTimer = 0; }
+}
+function lsPollStart() {
+  lsPollStop();
+  lsTimer = setInterval(async () => {
+    try {
+      renderLsLive(await jget('/api/display/light_sensor'));
+    } catch (e) { /* transient - the next tick tries again */ }
+  }, 2000);
+}
+
+function useLiveReading(sel) {
+  if (!lsLive || !lsLive.sampling || lsLive.raw < 0) {
+    toast('No reading yet - save a sensor pin first', true);
+    return;
+  }
+  $(sel).value = lsLive.raw;
+  toast('Captured ' + lsLive.raw);
+}
+
+$('#ls-gpio').onchange = setLsUi;
+$('#ls-min').oninput = setLsUi;
+$('#ls-max').oninput = setLsUi;
+$('#ls-gamma').oninput = setLsUi;
+$('#ls-usedark').onclick = () => useLiveReading('#ls-dark');
+$('#ls-usebright').onclick = () => useLiveReading('#ls-bright');
+
+$('#ls-save').onclick = () => act($('#ls-save'), async () => {
+  const gpio = +$('#ls-gpio').value;
+  const dark = Math.round(+$('#ls-dark').value);
+  const bright = Math.round(+$('#ls-bright').value);
+  if ($('#ls-en').checked && !gpio) { toast('Pick a sensor pin first', true); return; }
+  if (dark === bright) { toast('Dark and bright readings must differ', true); return; }
+  await jpost('/api/display/light_sensor', {
+    enabled: $('#ls-en').checked,
+    gpio: gpio,
+    dark_raw: dark,
+    bright_raw: bright,
+    min_brightness: +$('#ls-min').value,
+    max_brightness: +$('#ls-max').value,
+    gamma_x10: +$('#ls-gamma').value,
+  });
+  toast($('#ls-en').checked ? 'Light sensor on' : 'Light sensor saved');
+  await refreshLightSensor();
+  // The Display tab's slider follows the sensor, so re-pull the status now.
+  try { applyStatus(await jget('/api/status')); } catch (e) { /* poll will catch up */ }
+});
+
 $('#brcap-save').onclick = () => act($('#brcap-save'), async () => {
   let v = Math.round(+$('#brcap').value);
   if (!(v >= 1 && v <= 255)) { toast('Cap must be 1-255', true); return; }
   await jpost('/api/display/brightness_cap', { cap: v });
-  // Reflect the new ceiling on the Display tab immediately.
+  // Reflect the new ceiling on the Display and Schedule tabs immediately.
   const br = $('#brightness');
   br.max = v;
   if (+br.value > v) { br.value = v; $('#brval').textContent = v; }
+  capSchedDim(v);
   toast('Brightness cap set to ' + v);
 });
 
 // ---- Network tab -----------------------------------------------------------
+
+// Saved networks: SSIDs plus which one the device is on. The API never
+// returns passwords, so the list is display-only apart from Forget.
+async function refreshSavedNets() {
+  try {
+    const j = await jget('/api/wifi/networks');
+    savedNets = (j && j.networks) || [];
+    if (j && j.max) savedMax = j.max;
+  } catch (e) {
+    savedNets = [];   // pre-2.2 firmware has no saved-network endpoint
+  }
+  renderSavedNets();
+}
+
+function renderSavedNets() {
+  const box = $('#savednets');
+  box.innerHTML = '';
+  savedNets.forEach(n => {
+    const row = document.createElement('div');
+    row.className = 'snet';
+    const left = document.createElement('span');
+    left.className = 'ssid';
+    if (n.connected) {
+      const dot = document.createElement('span');
+      dot.className = 'dot ok';
+      dot.setAttribute('aria-hidden', 'true');
+      left.appendChild(dot);
+    }
+    const name = document.createElement('span');
+    name.textContent = n.ssid;
+    left.appendChild(name);
+    if (n.connected) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = 'connected';
+      left.appendChild(tag);
+    }
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'sec';
+    del.textContent = 'Forget';
+    del.setAttribute('aria-label', 'Forget ' + n.ssid);
+    del.onclick = () => act(del, async () => {
+      if (!confirm('Forget "' + n.ssid + '"?')) return;
+      await jpost('/api/wifi/networks/delete', { ssid: n.ssid });
+      toast('Forgot ' + n.ssid);
+      await refreshSavedNets();
+    });
+    row.appendChild(left);
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+
+  const note = $('#savednote');
+  if (!savedNets.length) {
+    note.textContent = 'None saved - the device starts its own setup network '
+      + 'until you add one.';
+  } else if (savedNets.length >= savedMax) {
+    note.textContent = savedNets.length + ' of ' + savedMax
+      + ' saved - forget one before adding another.';
+  } else {
+    note.textContent = savedNets.length + ' of ' + savedMax + ' saved.';
+  }
+}
 
 async function refreshNetwork() {
   try {
@@ -355,6 +729,7 @@ async function refreshNetwork() {
     toast('Error: ' + e.message, true);
     return;
   }
+  refreshSavedNets();
   if (lastStatus.wireguard && lastStatus.wireguard.compiled_in) {
     try {
       const c = await jget('/api/wireguard');
@@ -396,6 +771,13 @@ $('#scan').onclick = () => act($('#scan'), async () => {
   const r = await jget('/api/wifi/scan');
   const nets = (r && r.networks) || [];
   const box = $('#nets');
+  if (r && r.error) {
+    // The radio is busy - usually a reconnect pass working through the
+    // saved networks.
+    box.innerHTML = '<p class="note warn">Scan unavailable right now ('
+      + esc(r.error) + '). Try again in a moment.</p>';
+    return;
+  }
   box.innerHTML = nets.length ? '' : '<p class="note">No networks found.</p>';
   nets.forEach(n => {
     const btn = document.createElement('button');
@@ -404,6 +786,13 @@ $('#scan').onclick = () => act($('#scan'), async () => {
     const ssid = document.createElement('span');
     ssid.className = 'ssid';
     ssid.textContent = n.ssid;
+    // Already-saved networks need no password retyped, so say so.
+    if (n.saved) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = ' saved';
+      ssid.appendChild(tag);
+    }
     const rssi = document.createElement('span');
     rssi.className = 'rssi';
     rssi.textContent = n.rssi + ' dBm';
@@ -412,6 +801,15 @@ $('#scan').onclick = () => act($('#scan'), async () => {
     btn.onclick = () => { $('#wssid').value = n.ssid; $('#wpass').focus(); };
     box.appendChild(btn);
   });
+});
+
+$('#wadd').onclick = () => act($('#wadd'), async () => {
+  const ssid = $('#wssid').value.trim();
+  if (!ssid) { toast('Need an SSID', true); return; }
+  await jpost('/api/wifi/networks', { ssid: ssid, password: $('#wpass').value });
+  $('#wpass').value = '';
+  toast('Saved ' + ssid);
+  await refreshSavedNets();
 });
 
 $('#wconnect').onclick = () => act($('#wconnect'), async () => {
@@ -423,9 +821,12 @@ $('#wconnect').onclick = () => act($('#wconnect'), async () => {
 });
 
 $('#wreset').onclick = () => act($('#wreset'), async () => {
-  if (!confirm('Erase WiFi credentials and reboot into setup mode?')) return;
+  const n = savedNets.length;
+  if (!confirm('Forget ' + (n ? 'all ' + n + ' saved network' + (n === 1 ? '' : 's')
+                              : 'all saved networks')
+               + ' and reboot into setup mode?')) return;
   await jpost('/api/wifi/reset');
-  toast('Resetting WiFi...');
+  toast('Forgetting all networks...');
 });
 
 $('#wg-reveal').onclick = () => {
@@ -458,7 +859,8 @@ $('#wg-save').onclick = () => act($('#wg-save'), async () => {
 async function refreshIntegrations() {
   try {
     const j = await jget('/api/integrations');
-    $('#devname').value = j.device_name || '';
+    // The device name is a System-tab setting now (one name, also used as the
+    // hostname and the setup-AP SSID); this endpoint still reports it.
     $('#whurl').value = j.webhook_url || '';
     // The wire format is an array of event names, not a bitmask.
     const evts = Array.isArray(j.webhook_events) ? j.webhook_events : [];
@@ -492,11 +894,6 @@ function updateCurl() {
   $('#curl-ex').textContent =
     "curl -X POST http://" + host + "/api/value -H 'X-Api-Key: KEY' -d '{\"value\":42}'";
 }
-
-$('#devname-save').onclick = () => act($('#devname-save'), async () => {
-  await jpost('/api/integrations', { device_name: $('#devname').value.trim() });
-  toast('Device name saved');
-});
 
 $('#apikey-set').onclick = () => act($('#apikey-set'), async () => {
   const v = $('#apikey').value.trim();
@@ -567,6 +964,57 @@ $('#curl-copy').onclick = () => act($('#curl-copy'), async () => {
 
 // ---- System tab ------------------------------------------------------------
 
+// ---- device name -----------------------------------------------------------
+// One name, three uses. Mirrors the firmware's rule (devname.h) so the field
+// can say what is wrong before a round trip; the device validates again.
+
+const DEVNAME_RE = /^[A-Za-z0-9]([A-Za-z0-9-]{0,22}[A-Za-z0-9])?$/;
+
+function devNameError(v) {
+  if (v === '') return '';    // empty = back to the defaults
+  if (v.length > 24) return 'Up to 24 characters.';
+  if (!DEVNAME_RE.test(v)) {
+    return 'Letters, digits and hyphens only, starting and ending with a '
+      + 'letter or digit.';
+  }
+  return '';
+}
+
+function renderDevNameUses(name, apSsid) {
+  $('#devname-uses').innerHTML =
+    kv('Hostname', name) +
+    kv('Setup network', apSsid || name) +
+    kv('Webhook "device"', name);
+}
+
+// The header carries the device name once one is set, and the browser tab with
+// it - several panels on one desk are otherwise indistinguishable.
+function setDeviceTitle(name, isSet) {
+  const label = (isSet && name) ? name : 'LED Display';
+  $('#hdrname').textContent = label;
+  if (document.title !== label) document.title = label;
+}
+
+$('#devname').oninput = () => {
+  const err = devNameError($('#devname').value.trim());
+  const el = $('#devname-err');
+  el.textContent = err;
+  el.classList.toggle('hidden', !err);
+};
+
+$('#devname-save').onclick = () => act($('#devname-save'), async () => {
+  const v = $('#devname').value.trim();
+  const err = devNameError(v);
+  if (err) { toast(err, true); return; }
+  const j = await jpost('/api/system/device_name', { name: v });
+  if (j && j.device_name) {
+    setDeviceTitle(j.device_name, !!v);
+    renderDevNameUses(j.device_name, j.ap_ssid);
+  }
+  toast(v ? 'Device name: ' + v : 'Device name cleared');
+  refreshSystem();
+});
+
 async function refreshSystem() {
   try {
     const s = await jget('/api/status');
@@ -579,6 +1027,12 @@ async function refreshSystem() {
       kv('IP', s.wifi.ip || '-') +
       kv('RSSI', (s.wifi.rssi || '-') + ' dBm');
     if (s.system.boot_screen) $('#bootscr').value = s.system.boot_screen;
+    // Empty when no name is stored: the placeholder then shows the default
+    // rather than pre-filling a name the user never chose.
+    $('#devname').value = s.system.device_name_stored || '';
+    $('#devname-err').classList.add('hidden');
+    renderDevNameUses(s.system.device_name || 'led-display',
+                      s.wifi.ap_ssid || '');
     $('#foot').textContent = 'led-display v' + s.system.fw;
   } catch (e) {
     toast('Error: ' + e.message, true);
@@ -812,24 +1266,73 @@ $('#cfg-import').onclick = () => act($('#cfg-import'), async () => {
   init();  // re-pull status/colours so the UI reflects the imported config
 });
 
-// ---- init ------------------------------------------------------------------
+// ---- header + init -----------------------------------------------------------
+
+// Human-readable connection state in the header. `s` is the /api/status
+// payload, or null when the device did not answer.
+function renderHeader(s) {
+  const dot = $('#hdrdot'), net = $('#hdrnet'), ip = $('#hdrip');
+  if (!s) {
+    dot.className = 'dot bad';
+    net.textContent = 'Unreachable';
+    ip.textContent = '';
+    $('#hdrconn').title = 'No response from the device - check power and network';
+    return;
+  }
+  $('#hdrfw').textContent = 'v' + s.system.fw;
+  const w = s.wifi;
+  if (w.mode === 'ap') {
+    dot.className = 'dot ap';
+    net.textContent = 'Setup AP' + (w.ssid ? ' "' + w.ssid + '"' : '');
+    ip.textContent = w.ip || '';
+    $('#hdrconn').title = 'The device runs its own setup network - configure WiFi in the Network tab';
+  } else if (w.connected) {
+    dot.className = 'dot ok';
+    net.textContent = w.ssid || 'WiFi';
+    ip.textContent = w.ip || '';
+    $('#hdrconn').title = 'Connected to ' + (w.ssid || 'WiFi')
+      + (w.rssi ? ' (' + w.rssi + ' dBm)' : '');
+  } else {
+    dot.className = 'dot bad';
+    net.textContent = 'Not connected';
+    ip.textContent = '';
+    $('#hdrconn').title = 'The device is up but has no WiFi link';
+  }
+}
 
 function applyStatus(s) {
   lastStatus = s;
-  $('#hdrstatus').textContent = s.wifi.mode + ' / ' + (s.wifi.ip || '-');
+  renderHeader(s);
+  setDeviceTitle(s.system.device_name, !!s.system.device_name_stored);
+  setBrightnessAuto(sensorDriven(s));
   $('#foot').textContent = 'led-display v' + s.system.fw;
   const cap = s.system.brightness_cap || 255;
   const br = $('#brightness');
   br.max = Math.max(1, cap);
+  capSchedDim(cap);
+  if (s.display && s.display.scale) {
+    wantSize = (s.display.font || '5x7') + ':' + s.display.scale;
+  }
+  buildSizeOptions((s.layout && s.layout.height) || 16);
   if (s.display) {
     if (s.display.text) $('#text').value = s.display.text;
     if (s.display.color) $('#color').value = rgb2hex(s.display.color);
-    br.value = Math.min(s.display.brightness, cap);
+    // The slider is an input bound to the STORED level, not to whatever the
+    // arbiter currently applies (0 or the dim level in a scheduled off-window,
+    // halved by the staleness guard) - Apply posts it straight back. Only while
+    // the sensor drives the brightness is it a readout, and then Apply skips it.
+    const seed = (!sensorDriven(s) && typeof s.display.brightness_stored === 'number')
+      ? s.display.brightness_stored : s.display.brightness;
+    br.value = Math.min(seed, cap);
     $('#brval').textContent = br.value;
-    $('#scroll').checked = !!s.display.scroll;
+    // Older payloads only carry the scroll bool; map it like the firmware.
+    const mode = s.display.scroll_mode || (s.display.scroll ? 'restart' : 'off');
+    $('#scrollmode').value = mode;
+    setScrollUi();
     $('#speed').value = s.display.speed;
     $('#spval').textContent = s.display.speed;
-    if (s.display.scale) $('#scale').value = String(s.display.scale);
+    if (wantSize) $('#size').value = wantSize;
+    if (s.display.spacing) $('#spacing').value = s.display.spacing;
   }
   $('#brcap').value = cap;
   updateCurl();
@@ -839,7 +1342,7 @@ async function init() {
   try {
     applyStatus(await jget('/api/status'));
   } catch (e) {
-    $('#hdrstatus').textContent = 'offline';
+    renderHeader(null);
   }
   loadColors();
 }
@@ -847,15 +1350,30 @@ async function init() {
 setAdvanced(localStorage.getItem('advanced') === '1');
 init();
 
-// Light background refresh: header line, plus the WireGuard status line when
-// the Network tab is open. Failures are expected during reboots - stay quiet.
+// Light background refresh: header state, plus the WireGuard status line when
+// the Network tab is open. Failures are expected during reboots.
 setInterval(async () => {
   try {
     const s = await jget('/api/status');
     lastStatus = s;
-    $('#hdrstatus').textContent = s.wifi.mode + ' / ' + (s.wifi.ip || '-');
+    renderHeader(s);
+    setDeviceTitle(s.system.device_name, !!s.system.device_name_stored);
+    if (s.display && s.display.scale) {
+      wantSize = (s.display.font || '5x7') + ':' + s.display.scale;
+    }
+    buildSizeOptions((s.layout && s.layout.height) || 16);
+    // While the sensor drives the brightness the slider is a readout, so keep
+    // it in step with the level the device actually settled on.
+    const auto = sensorDriven(s);
+    setBrightnessAuto(auto);
+    if (auto && s.display && typeof s.display.brightness === 'number') {
+      $('#brightness').value = s.display.brightness;
+      $('#brval').textContent = s.display.brightness;
+    }
     if (!$('#tab-network').classList.contains('hidden')) {
       renderWgStatus(s.wireguard);
     }
-  } catch (e) { /* transient */ }
+  } catch (e) {
+    renderHeader(null);
+  }
 }, 15000);

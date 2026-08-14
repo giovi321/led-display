@@ -17,8 +17,19 @@ The reference build is four flexible WS2812B 32x8 panels in a 2x2 grid (64x16 pi
 | Series resistor | 330 ohm | Damps reflections on the data run between board and first panel |
 | Power input | USB-C breakout, CC1 and CC2 each pulled to GND through 5.1 kohm | Advertises a plain 5 V / 3 A sink, no PD chip needed |
 | Connectors | JST-SM on the panels, JST-XH on the PCB | Same 2.5 mm pitch, not cross-compatible: use short pigtail adapters |
+| Light sensor | Optional: an LDR plus a 10 kOhm to 100 kOhm resistor, or an analog lux module | Divider output to an ADC1 pin (GPIO1 to GPIO10) lets the room set the brightness, see the [light sensor guide](../../admin-guide/light-sensor/) |
 
-The `PCB/` directory holds the Fritzing source and Gerbers for the controller board (revision v3); `3D/` has the frame panel outlines as DXF (under `8x32/`, for a build from 32x8 panels) plus printable spacers, a controller box, and a USB-C connector flange as STL.
+The `PCB/` directory holds the Fritzing source and Gerbers for the controller board (revision v3). `3D/` holds the enclosure parts:
+
+| File | Format | Part |
+|------|--------|------|
+| `3D/8x32/Front and back panels.dxf` | DXF, laser-cut | The front and back sheets of the panel sandwich, cut twice from smoked grey plexiglass |
+| `3D/8x32/Display modules support panel.dxf` | DXF, cut | The aluminium middle panel the LED panels are glued to, with square holes where each panel's wires exit |
+| `3D/8x32/Spacers.stl` | STL, printed | Spacers in two lengths: thin between front panel and support panel, long between support panel and back panel |
+| `3D/Box for PCB_v2.stl` | STL, printed | Case for the controller board, with openings for the JST connectors |
+| `3D/USB type c connector flange.stl` | STL, printed | Mount for the panel-mount USB-C power socket |
+
+Only these exports are tracked; the SketchUp sources the parts were modelled in are not. The [assembly guide](../assembly/) puts the stack together step by step.
 
 ## Why the level shifter
 
@@ -45,5 +56,7 @@ Two consequences:
 
 - Keep the brightness cap set (Hardware tab). It clamps the slider and every API request, so no automation can push the panel past what the supply survives
 - If you want full-brightness white on a large grid, plan a 5 V / 5 A supply negotiated by a PD trigger (CH224K or IP2721) instead of the 5.1 kohm resistor trick
+
+An [ambient light sensor](../../admin-guide/light-sensor/) helps here as well: with the upper end of its brightness range set inside the budget, the display only draws its peak in a room bright enough to need it.
 
 The refresh rate also scales with size: WS2812B needs about 30 microseconds per LED, so 1024 pixels refresh at about 33 Hz and the 8192-pixel maximum at about 4 Hz. Fine for a static readout, visible on fast scrolling.

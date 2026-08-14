@@ -1,19 +1,19 @@
 ---
 title: Display
-description: Text, colour, brightness, scrolling, and font size from the Display tab
+description: Text, colour, brightness, scrolling, fonts, size, and spacing from the Display tab
 sidebar:
   order: 1
 ---
 
-The Display tab is the first tab of the web UI and controls what the display shows: the text, its colour, the brightness, whether it scrolls, and how big the font is. Everything you apply here is saved to flash and comes back after a power cycle.
+The Display tab is the first tab of the web UI and controls what the display shows: the text, its colour, the brightness, whether it scrolls, and which font it uses at which size. Everything you apply here is saved to flash and comes back after a power cycle.
 
-Press Apply to send the current text, colour, scroll setting, speed, font size, and brightness to the device in one go. Clear display blanks the display and erases the stored text; all other settings stay.
+Press Apply to send the current text, colour, text size, spacing, scroll mode, speed, and brightness to the device in one go. Clear display blanks the display and erases the stored text; all other settings stay.
 
 ## Text
 
-Type the text and press Apply. The input accepts up to 120 characters (the API accepts up to 127, see the [API reference](../../api-reference/)). The font covers printable ASCII (characters 32 to 126); anything outside that range renders as `?`.
+Type the text and press Apply. The input accepts up to 120 characters (the API accepts up to 127, see the [API reference](../../api-reference/)). Every font covers printable ASCII (characters 32 to 126); anything outside that range renders as `?`.
 
-Static text is centered horizontally. If the text is wider than the display, enable scrolling, otherwise the right-hand part is cut off.
+Static text is centered horizontally. If the text is wider than the display, pick a scroll mode, otherwise the right-hand part is cut off.
 
 ## Colour
 
@@ -33,23 +33,49 @@ The slider runs from 0 to 255 and takes effect when you press Apply. 0 is dark, 
 
 The slider's maximum can be lower than 255: the brightness cap, set on the Hardware tab in advanced mode, limits how bright the display may go to protect the power supply. The slider never goes above the cap, and API requests asking for more are silently clamped to it rather than rejected. See the [admin guide](../../admin-guide/) for the cap itself.
 
-The display can also dim or go dark on its own: the [schedule](../schedule/) turns it off outside the configured hours, and the [staleness guard](../value-updates/#the-staleness-guard) can halve the brightness when a value stops updating.
+The display can also dim or go dark on its own: the [schedule](../schedule/) turns it off or holds it at a dimmed level outside the configured hours, the [staleness guard](../value-updates/#the-staleness-guard) can halve the brightness when a value stops updating, and the [light sensor](../../admin-guide/light-sensor/) can set the brightness from the room.
+
+Once the light sensor is switched on and has produced a level, the slider shows that level and stops being an input; a note under it says so. It stays an input until then, and also while the device runs its own [setup network](../../getting-started/wifi-setup/), where the sensor is bypassed. Your saved level is kept untouched and comes back the moment you switch the sensor off.
 
 ## Scrolling
 
-Tick Scroll to make the text run across the display. Scrolling text enters from the right edge and moves left; when it has fully left the display it re-enters from the right.
+Scrolling has three modes:
 
-The speed slider runs from 0 to 255. It maps to the time each one-pixel step takes: about 200 ms per step at 0 and about 15 ms per step at 255. The slider only matters while scrolling is enabled.
+| Mode | What the text does |
+|------|--------------------|
+| Off | stays put, centered horizontally |
+| Restart | enters from the right edge, moves left, and re-enters from the right once it has fully left the display |
+| Continuous | repeats as a marquee: the next copy follows the tail after a gap of two character cells, so the display is never empty |
 
-## Font size
+The speed slider runs from 0 to 255. It maps to the time each one-pixel step takes: about 200 ms per step at 0 and about 15 ms per step at 255. The slider is disabled while scrolling is off.
 
-The font is a 5x7 pixel font that the firmware enlarges by an integer factor: Small is the raw 5x7, Medium doubles it to 10x14, Large triples it to 15x21. Glyphs are centered vertically.
+The IP address or setup banner the device shows at boot always scrolls continuously, whatever this setting is, so an address you are trying to read comes back around.
 
-The size is clamped to what fits the display height, so a factor is never applied that would clip the top and bottom rows. A 7-pixel-tall glyph at factor N needs N x 7 rows: a 16-pixel-tall layout fits at most Medium, an 8-pixel-tall single panel only Small. Choosing Large on a display that cannot fit it silently falls back to the largest size that fits. The API accepts factors 1 to 8 under the same clamp.
+## Font, size, and spacing
 
-The default after a reset depends on the layout height: Large on displays 21 pixels or taller, Medium at 14 or taller, Small below that.
+Three pixel fonts are built into the firmware:
+
+| Font | Cell | Notes |
+|------|------|-------|
+| 5x7 | 5 x 7 px | the default, a plain readout font |
+| 3x5 | 3 x 5 px | tiny, for short panels; lowercase letters use the uppercase shapes, because no readable lowercase exists at this height |
+| 7x12 | 7 x 12 px | tall, with real lowercase including descenders |
+
+Text size combines a font with an integer magnification: a glyph at factor N is N times as tall and wide. The Text size list offers the combinations that fit the active display height, labelled by their pixel height, so on a 16-pixel-tall display you get 3x5 up to three times over, 5x7 up to twice, and 7x12 once. Glyphs are centered vertically.
+
+One extra entry appears when the stored size no longer fits, which happens after shrinking the layout: the old size stays in the list marked "taller than this display", so it is still what the box shows and Apply keeps working on everything else. Pick a size that fits to stop the fallback rendering.
+
+The clamp is enforced on the device too: the API accepts factors 1 to 8, clamps them to what fits, and falls back to the tallest font that fits if the stored font is too tall for the current layout. Your choice is remembered and comes back when a tall enough layout does. The default after a reset is the largest whole multiple of the font height that fits, up to three.
+
+Spacing decides how the glyphs advance:
+
+- Proportional (the default) trims the blank columns on both sides of narrow letters, so words look evenly spaced
+- Monospace gives every character the full cell width, which lines text up in columns
+
+Digits are fixed-width in both modes. A ticking value therefore keeps a stable width instead of jittering as the digits change.
 
 ## Related pages
 
-- [Schedule](../schedule/): turn the display off at night
+- [Schedule](../schedule/): turn the display off or dim it at night
 - [Value updates](../value-updates/): let another system set the text
+- [Light sensor](../../admin-guide/light-sensor/): set the brightness from the room

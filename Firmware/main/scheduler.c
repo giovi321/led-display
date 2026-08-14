@@ -13,8 +13,10 @@
 #include "display.h"
 #include "integrations.h"
 #include "led_driver.h"
+#include "light_sensor.h"
 #include "settings.h"
 #include "webhooks.h"
+#include "wifi_manager.h"
 
 static const char *TAG = "sched";
 static const char *NS  = "sched";
@@ -26,15 +28,22 @@ static const char *NS  = "sched";
 #define K_OFF_MIN    "off_m"
 #define K_DAYS       "days"
 #define K_UTC_OFF    "utc"
+#define K_OFF_ACT    "oact"
+#define K_OFF_BRI    "obri"
 
 static schedule_t s_sched;
-static bool       s_display_off;
+static bool       s_display_off;   // the off-window is holding the brightness
 static SemaphoreHandle_t s_lock;
+// Serialises the whole arbiter (compute + publish) and guards the two flags it
+// reads: any task can re-apply, and target_brightness() blocks on an NVS read
+// in between, so an unserialised pass could publish a level derived from a
+// flag another task has already changed.
+static SemaphoreHandle_t s_apply;
 
-// Value-staleness guard state (DESIGN.md section 5). Only ever touched from
-// the scheduler task, so no locking needed.
+// Value-staleness guard state (DESIGN.md section 5). Written only by the
+// scheduler task, read by every caller of the arbiter under s_apply.
 static bool s_stale;          // currently past the stale threshold
-static bool s_stale_dimmed;   // the stale edge halved the brightness
+static bool s_stale_dimmed;   // a stale value is halving the brightness
 
 static void apply_defaults(schedule_t *s)
 {
@@ -46,6 +55,10 @@ static void apply_defaults(schedule_t *s)
     s->off_min    = 0;
     s->days       = SCHED_DAYS_ALL;
     s->utc_offset = 0;
+    // Absent NVS keys (a device updating from an older build) land here, so
+    // the off-window keeps blanking the panel exactly as before.
+    s->off_action     = SCHED_OFF_ACT_OFF;
+    s->off_brightness = SCHED_OFF_BRI_DEFAULT;
 }
 
 static esp_err_t load_from_nvs(schedule_t *out)
@@ -66,6 +79,11 @@ static esp_err_t load_from_nvs(schedule_t *out)
     int16_t utc;
     if (nvs_get_i16(h, K_UTC_OFF, &utc) == ESP_OK) out->utc_offset = utc;
 
+    if (nvs_get_u8(h, K_OFF_ACT, &v) == ESP_OK && v <= SCHED_OFF_ACT_DIM) {
+        out->off_action = v;
+    }
+    if (nvs_get_u8(h, K_OFF_BRI, &v) == ESP_OK && v > 0) out->off_brightness = v;
+
     nvs_close(h);
     return ESP_OK;
 }
@@ -76,15 +94,25 @@ static esp_err_t save_to_nvs(const schedule_t *in)
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
 
-    nvs_set_u8(h, K_ENABLED,  in->enabled ? 1 : 0);
-    nvs_set_u8(h, K_ON_HOUR,  in->on_hour);
-    nvs_set_u8(h, K_ON_MIN,   in->on_min);
-    nvs_set_u8(h, K_OFF_HOUR, in->off_hour);
-    nvs_set_u8(h, K_OFF_MIN,  in->off_min);
-    nvs_set_u8(h, K_DAYS,     in->days);
-    nvs_set_i16(h, K_UTC_OFF, in->utc_offset);
+    // First failure wins and is reported: a full or worn partition fails the
+    // sets, not the commit, so discarding these would swallow the only error
+    // the caller could act on.
+    const struct { const char *key; uint8_t val; } u8s[] = {
+        {K_ENABLED,  in->enabled ? 1 : 0},
+        {K_ON_HOUR,  in->on_hour},
+        {K_ON_MIN,   in->on_min},
+        {K_OFF_HOUR, in->off_hour},
+        {K_OFF_MIN,  in->off_min},
+        {K_DAYS,     in->days},
+        {K_OFF_ACT,  in->off_action},
+        {K_OFF_BRI,  in->off_brightness},
+    };
+    for (unsigned i = 0; i < sizeof(u8s) / sizeof(u8s[0]) && err == ESP_OK; i++) {
+        err = nvs_set_u8(h, u8s[i].key, u8s[i].val);
+    }
+    if (err == ESP_OK) err = nvs_set_i16(h, K_UTC_OFF, in->utc_offset);
 
-    err = nvs_commit(h);
+    if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
 }
@@ -126,63 +154,135 @@ static bool in_on_window(const schedule_t *sc, int hour, int min, int day_bit)
     return now >= on || now < off;
 }
 
-static void turn_display_off(void)
+// Single place that decides how bright the panel runs. The schedule sets the
+// level (the in-window level, 0 or off_brightness outside it), that level is
+// clamped to the brightness cap, and a stale value halves the result - so the
+// staleness dim stays visible in a dim off-window and under a power-budget cap,
+// and stays a no-op while the panel is blanked.
+//
+// The in-window level is the stored user brightness, or the ambient sensor's
+// level when the sensor is enabled and has read something. Setup-AP mode is
+// the one exception: there the panel carries the only copy of the AP name and
+// address, so a dark room must not be able to dim it away - the stored
+// brightness wins until the device is back on a network.
+static uint8_t target_brightness(void)
 {
-    if (s_display_off) return;
-    s_display_off = true;
-    led_driver_set_brightness(0);
+    schedule_t sc;
+    scheduler_get(&sc);
+
+    uint8_t bri;
+    if (s_display_off) {
+        bri = (sc.off_action == SCHED_OFF_ACT_DIM) ? sc.off_brightness : 0;
+    } else {
+        settings_t cfg;
+        settings_load(&cfg);
+        bri = cfg.brightness;
+
+        wifi_mgr_status_t w;
+        wifi_manager_get_status(&w);
+        uint8_t sensed;
+        if (w.mode != WIFI_MGR_MODE_AP && light_sensor_level(&sensed)) {
+            bri = sensed;
+        }
+    }
+    // Clamp before the relative dim, so the halving is relative to the level
+    // the panel actually shows. Without this a binding cap swallows the stale
+    // dim whole: at twice the cap or more, dimmed and undimmed both clamp to
+    // the cap and nothing changes.
+    uint8_t cap = led_driver_get_brightness_cap();
+    if (bri > cap) bri = cap;
+    if (s_stale_dimmed) bri /= 2;
+    return bri;
+}
+
+static void apply_locked(void)   // caller holds s_apply
+{
+    led_driver_set_brightness(target_brightness());
     led_driver_lock();
     led_driver_refresh();
     led_driver_unlock();
-    ESP_LOGI(TAG, "schedule: display OFF");
+}
+
+static void apply_brightness(void)
+{
+    xSemaphoreTake(s_apply, portMAX_DELAY);
+    apply_locked();
+    xSemaphoreGive(s_apply);
+}
+
+// Flip one of the arbiter's flags and publish the result in the same critical
+// section. Returns whether the flag actually moved, so the callers below only
+// log and fire webhooks on a real transition.
+static bool set_flag_and_apply(bool *flag, bool value)
+{
+    xSemaphoreTake(s_apply, portMAX_DELAY);
+    bool changed = (*flag != value);
+    if (changed) {
+        *flag = value;
+        apply_locked();
+    }
+    xSemaphoreGive(s_apply);
+    return changed;
+}
+
+// The off-window transitions fire their webhooks whichever action is
+// configured: consumers care about the window, not the brightness.
+static void enter_off_window(void)
+{
+    if (!set_flag_and_apply(&s_display_off, true)) return;
+    ESP_LOGI(TAG, "schedule: off window (brightness=%u)",
+             led_driver_get_brightness());
     webhooks_fire(WEBHOOK_EVT_SCHEDULE_OFF, NULL);
 }
 
-static void turn_display_on(void)
+static void leave_off_window(void)
 {
-    if (!s_display_off) return;
-    s_display_off = false;
-    settings_t cfg;
-    settings_load(&cfg);
-    // If the value went stale (dim action) while the schedule had us off,
-    // come back at the dimmed level, not full brightness.
-    uint8_t bri = s_stale_dimmed ? cfg.brightness / 2 : cfg.brightness;
-    led_driver_set_brightness(bri);
-    led_driver_lock();
-    led_driver_refresh();
-    led_driver_unlock();
-    ESP_LOGI(TAG, "schedule: display ON (brightness=%u)", bri);
+    if (!set_flag_and_apply(&s_display_off, false)) return;
+    ESP_LOGI(TAG, "schedule: on window (brightness=%u)",
+             led_driver_get_brightness());
     webhooks_fire(WEBHOOK_EVT_SCHEDULE_ON, NULL);
 }
 
 // ---- value staleness (DESIGN.md section 5) ---------------------------------
 //
-// Runs on the same 30 s tick as the schedule. The dim/text actions and the
-// webhook fire once on the fresh->stale edge; the corner marker is re-poked
-// every tick because any re-render wipes it (and static text is NOT
-// re-rendered, so between renders the poked pixel survives in the frame
-// buffer). Un-staling happens via /api/value: the POST re-renders the text
-// (clearing marker/stale text) and drops the age, so all this side has to
-// do is put the brightness back.
+// Runs on the same 30 s tick as the schedule. The text action and the webhook
+// fire once on the fresh->stale edge; the dim is derived from the live config
+// every tick, so switching the action while a value is already stale is picked
+// up either way round; the corner marker is re-poked every tick because any
+// re-render wipes it (and static text is NOT re-rendered, so between renders
+// the poked pixel survives in the frame buffer). Un-staling happens via
+// /api/value: the POST re-renders the text (clearing marker/stale text) and
+// drops the age, so all this side has to do is put the brightness back.
 
 static void staleness_tick(void)
 {
-    if (s_display_off) return;   // schedule turned the display off: don't fight it
+    // Setup-AP mode owns the panel: the banner must stay readable and must not
+    // be overwritten by stale text or a marker pixel. The flags reset so the
+    // guard re-evaluates (and re-fires its webhook, now deliverable) once the
+    // device is back on a network.
+    wifi_mgr_status_t w;
+    wifi_manager_get_status(&w);
+    if (w.mode == WIFI_MGR_MODE_AP) {
+        s_stale = false;
+        set_flag_and_apply(&s_stale_dimmed, false);
+        return;
+    }
+
+    // A blanked off-window has nothing to dim, mark or write to, so the guard
+    // idles until the on-window returns. A dimmed off-window is a visible
+    // display, so it keeps running.
+    if (s_display_off) {
+        schedule_t sc;
+        scheduler_get(&sc);
+        if (sc.off_action != SCHED_OFF_ACT_DIM) return;
+    }
 
     value_cfg_t vc;
     integrations_get_value_cfg(&vc);
 
     if (vc.stale_hours == 0) {
         // Guard switched off while stale: forget the state, undo the dim.
-        if (s_stale_dimmed) {
-            settings_t cfg;
-            settings_load(&cfg);
-            led_driver_set_brightness(cfg.brightness);
-            led_driver_lock();
-            led_driver_refresh();
-            led_driver_unlock();
-            s_stale_dimmed = false;
-        }
+        set_flag_and_apply(&s_stale_dimmed, false);
         s_stale = false;
         return;
     }
@@ -193,26 +293,12 @@ static void staleness_tick(void)
 
     if (stale && !s_stale) {
         s_stale = true;
-        switch (vc.stale_action) {
-        case STALE_ACT_DIM: {
-            settings_t cfg;
-            settings_load(&cfg);
-            led_driver_set_brightness(cfg.brightness / 2);
-            led_driver_lock();
-            led_driver_refresh();
-            led_driver_unlock();
-            s_stale_dimmed = true;
-            break;
-        }
-        case STALE_ACT_TEXT: {
+        if (vc.stale_action == STALE_ACT_TEXT) {
             display_color_t col;
             display_get_state(NULL, 0, &col, NULL, NULL, NULL);
             display_show_text_static(vc.stale_text, col);
-            break;
         }
-        default:
-            break;   // none: webhook only; marker: handled below every tick
-        }
+        // none: webhook only. dim: derived below. marker: re-poked below.
         char data[48];
         snprintf(data, sizeof(data), "{\"age_s\":%lld}", (long long)age);
         webhooks_fire(WEBHOOK_EVT_VALUE_STALE, data);
@@ -220,17 +306,13 @@ static void staleness_tick(void)
                  (long long)age, (int)vc.stale_action);
     } else if (!stale && s_stale) {
         s_stale = false;
-        if (s_stale_dimmed) {
-            settings_t cfg;
-            settings_load(&cfg);
-            led_driver_set_brightness(cfg.brightness);
-            led_driver_lock();
-            led_driver_refresh();
-            led_driver_unlock();
-            s_stale_dimmed = false;
-        }
         ESP_LOGI(TAG, "value fresh again");
     }
+
+    // Derived from the live config, not latched on the edge: the action can be
+    // changed while a value is already stale, in either direction.
+    set_flag_and_apply(&s_stale_dimmed,
+                       s_stale && vc.stale_action == STALE_ACT_DIM);
 
     if (s_stale && vc.stale_action == STALE_ACT_MARKER) {
         led_driver_lock();
@@ -243,8 +325,24 @@ static void staleness_tick(void)
 static void scheduler_task(void *arg)
 {
     (void)arg;
+    wifi_mgr_mode_t last_mode = WIFI_MGR_MODE_BOOT;
+
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(30000)); // check every 30 s
+
+        // In setup-AP mode the panel is the only place the AP name and address
+        // are readable, so the schedule must not blank it - a device that lost
+        // its network at 3 am has to stay findable.
+        wifi_mgr_status_t w;
+        wifi_manager_get_status(&w);
+
+        // Entering or leaving setup-AP mode moves the arbiter's AP exception in
+        // or out of play. main.c re-applies on the state callback; this is the
+        // backstop for a mode change that never produced one.
+        if (w.mode != last_mode) {
+            last_mode = w.mode;
+            apply_brightness();
+        }
 
         // Staleness needs no wall-clock time (it works off uptime), so it
         // runs even before SNTP sync.
@@ -257,8 +355,8 @@ static void scheduler_task(void *arg)
         schedule_t sc = s_sched;
         xSemaphoreGive(s_lock);
 
-        if (!sc.enabled) {
-            turn_display_on();
+        if (!sc.enabled || w.mode == WIFI_MGR_MODE_AP) {
+            leave_off_window();
         } else {
             time_t now;
             time(&now);
@@ -270,9 +368,9 @@ static void scheduler_task(void *arg)
             bool should_be_on = in_on_window(&sc, t.tm_hour, t.tm_min, day_bit);
 
             if (should_be_on) {
-                turn_display_on();
+                leave_off_window();
             } else {
-                turn_display_off();
+                enter_off_window();
             }
         }
 
@@ -282,8 +380,9 @@ static void scheduler_task(void *arg)
 
 esp_err_t scheduler_init(void)
 {
-    s_lock = xSemaphoreCreateMutex();
-    if (!s_lock) return ESP_ERR_NO_MEM;
+    s_lock  = xSemaphoreCreateMutex();
+    s_apply = xSemaphoreCreateMutex();
+    if (!s_lock || !s_apply) return ESP_ERR_NO_MEM;
 
     load_from_nvs(&s_sched);
     s_display_off = false;
@@ -293,10 +392,11 @@ esp_err_t scheduler_init(void)
     // 4 KB: the staleness path stacks a settings_t + value_cfg_t on top of
     // what the schedule check already used at 3 KB.
     xTaskCreate(scheduler_task, "scheduler", 4096, NULL, 2, NULL);
-    ESP_LOGI(TAG, "scheduler init (enabled=%d on=%02u:%02u off=%02u:%02u days=0x%02x utc=%+d)",
+    ESP_LOGI(TAG, "scheduler init (enabled=%d on=%02u:%02u off=%02u:%02u days=0x%02x utc=%+d "
+                  "off_action=%u off_bri=%u)",
              s_sched.enabled, s_sched.on_hour, s_sched.on_min,
              s_sched.off_hour, s_sched.off_min, s_sched.days,
-             s_sched.utc_offset);
+             s_sched.utc_offset, s_sched.off_action, s_sched.off_brightness);
     return ESP_OK;
 }
 
@@ -312,10 +412,23 @@ esp_err_t scheduler_set(const schedule_t *in)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     s_sched = *in;
     xSemaphoreGive(s_lock);
-    return save_to_nvs(in);
+    esp_err_t err = save_to_nvs(in);
+    // A changed off-window action or level has to show up now, not at the
+    // next 30 s tick. Outside the off-window this is a no-op re-apply.
+    apply_brightness();
+    return err;
 }
 
 bool scheduler_display_is_off(void)
 {
     return s_display_off;
+}
+
+void scheduler_reapply_brightness(void)
+{
+    // The light sensor can produce a level before scheduler_init() has run
+    // (nothing guarantees the boot order for a caller), and the arbiter needs
+    // both mutexes.
+    if (!s_lock || !s_apply) return;
+    apply_brightness();
 }

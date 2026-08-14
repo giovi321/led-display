@@ -38,3 +38,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # Logging defaults to INFO
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# WireGuard client compiled in (runtime-disabled until configured). Pinned
+# here because a persisted sdkconfig from a build where the port was broken
+# would otherwise keep it off forever.
+CONFIG_LEDDISP_WIREGUARD=y

@@ -7,10 +7,10 @@ sidebar:
 
 The firmware exposes a plain HTTP JSON API on port 80. Everything the web UI does goes through these endpoints, so anything you can click you can also script. This page covers the rules shared by all endpoints; the per-endpoint pages are:
 
-- [Display control](display/): text, brightness, test patterns, identify
+- [Display control](display/): text, fonts, brightness, the light sensor, test patterns, identify
 - [Layout](layout/): the panel arrangement config
 - [Value and colors](value-and-colors/): the generic value endpoint, its formatting config, saved colors
-- [System](system/): status, reboot, schedule, WiFi, OTA, config export/import
+- [System](system/): status, reboot, device name, schedule, WiFi, OTA, config export/import
 - [Integrations](integrations/): API key, outbound webhooks, WireGuard
 
 ## Base URL
@@ -66,7 +66,8 @@ What the key gates:
 | All POST endpoints | yes |
 | `GET /api/config/export` | yes (the export contains the API key and the WireGuard private key) |
 | All other GET endpoints | no |
-| `/api/wifi/*` while the device is in AP setup mode | no (you could not have entered a key on the setup sheet yet) |
+| `/api/wifi/*` on the setup AP of a device with no saved network | no (first-time provisioning: no key could have been set yet) |
+| `/api/wifi/*` on the fallback setup AP of a provisioned device | yes (that AP is open, so the exception would hand it to anyone in range) |
 
 A missing or wrong key returns:
 
@@ -77,11 +78,29 @@ HTTP/1.1 401 Error
 
 The key is compared in constant time, is at most 64 characters, and setting it to an empty string disables auth again. GET endpoints that touch secrets never echo them: they report `api_key_set` / `private_key_set` booleans instead.
 
+## Where the request claims to be going
+
+Every request that goes through the auth check (all POSTs, plus `GET /api/config/export`) is also checked against the address it was sent to. The `Host` header, and the `Origin` header when the client sends one, must name:
+
+- the device's WiFi IP address
+- its WireGuard address, when a tunnel is configured
+- its device name, optionally followed by one DNS suffix label (`led-display.local`, `office-panel.lan`)
+
+A port after the name or address is fine. Anything else returns:
+
+```
+HTTP/1.1 403 Error
+{"ok": false, "error": "cross-origin request rejected"}
+```
+
+This is a DNS-rebinding and CSRF guard, which matters because the default configuration has no key at all: without it, any page a browser on your LAN loads could post to the display. Scripts and `curl` are unaffected as long as they address the device by IP or by name. The check is skipped while the device runs its own setup AP, where the captive portal answers under whatever hostname the client probed.
+
 ## Partial updates
 
 Config-style POST endpoints overlay the fields you send onto the current state; anything you omit keeps its value. This applies to:
 
-- `POST /api/display/text` (omitted text/color/scroll/speed/scale are preserved)
+- `POST /api/display/text` (omitted text/color/scroll_mode/speed/font/spacing/scale are preserved)
+- `POST /api/display/light_sensor`
 - `POST /api/schedule`
 - `POST /api/value/config`
 - `POST /api/integrations`
@@ -91,4 +110,4 @@ Two endpoints replace the whole resource instead, so the client never has to dif
 
 ## Firmware version
 
-This reference matches firmware 2.0.0, reported in `GET /api/status` under `system.fw`. The v1 map-mode API survives as a compatibility shim at [`POST /api/display/map`](display/#post-apidisplaymap).
+This reference matches firmware 2.2.0, reported in `GET /api/status` under `system.fw`. Fields added in 2.2.0 are optional everywhere: a client that only knows the earlier shapes keeps working, and the legacy `scroll` bool is still accepted alongside `scroll_mode`. The v1 map-mode API survives as a compatibility shim at [`POST /api/display/map`](display/#post-apidisplaymap).

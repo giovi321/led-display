@@ -35,7 +35,7 @@ The logical display size follows from the layout: width is cols times w, height 
 
 ## The workflow
 
-1. Turn on advanced mode and open the Hardware tab. The editor loads the active layout from the device and draws it to scale: each panel as a rounded rectangle with its chain index in a badge, a wiring glyph (a dot on the first-LED corner, arrows for the walk direction), and a polyline snaking from chain 0 to the last panel so the cable path is visible at a glance
+1. Turn on advanced mode and open the Hardware tab. The editor loads the active layout from the device and draws it to scale: each panel as a rounded rectangle with its chain index in a badge, a dot on the corner where its first LED sits, a chip showing how the panel is mounted (0, 90, 180 or 270 degrees), and a line running from chain 0 to the last panel so the cable path is visible at a glance
 2. Press **Identify**. Every physical panel lights up in a colour keyed to its chain index: chain 0 red, 1 green, 2 blue, 3 yellow, 4 magenta, 5 cyan, 6 orange, 7 white. Chains 8 to 15 repeat the same hues at half brightness, 16 and up at quarter brightness. The editor paints the drawn panels in the same colours
 3. Compare the drawing with the wall. Where the colours disagree, drag a drawn panel onto another cell to swap the two. Where a panel is mounted upside down, tap it to rotate (rectangular panels toggle 0 and 180; square panels cycle 0, 90, 180, 270). Repeat until the drawing matches reality
 4. Press **Apply**. The firmware validates the layout (bounds, chain permutation, rotation legality), rebuilds the lookup table live, saves the layout to flash, re-renders the stored text, and runs the border test pattern so you get immediate visual confirmation of the new edges
@@ -48,6 +48,8 @@ Identify mode ends when you leave the Hardware tab, and any test pattern also sw
 The Grid steppers change rows and cols. Shrinking the grid drops the removed cells and compacts the surviving chain indices to 0..n-1 in their existing order; growing assigns the next free chain indices to the new cells. Either way the layout stays a valid permutation, so you can resize freely and fix the order afterwards with Identify and drag.
 
 The Panel row has preset buttons for 8x8, 16x16, and 8x32, the sizes WS2812B matrices are actually sold in, plus custom width and height fields for anything else from 1x1 to 64x64. Switching to a non-square panel size snaps any 90/270 rotation to the nearest legal value.
+
+The Wiring row describes one panel rather than the arrangement, in the words you would use looking at the panel itself: First LED (the corner the strip enters, the four buttons draw the dot where it would sit), Strip runs (in rows or in columns), and Zigzag (the strip reverses on every row or column instead of jumping back to the same side, which is how almost every off-the-shelf matrix is built). Each label carries a `?` that explains the setting, and a small preview beside them draws the strip path through one panel for the current selection.
 
 Limits, enforced by the firmware and mirrored by the editor's disabled buttons:
 
