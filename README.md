@@ -44,7 +44,7 @@ The reference build this firmware runs on:
 | Data pin    | GPIO 16 (through SN74HCT125N level shifter to 5 V)  |
 | PCB         | See `PCB/` (Fritzing v3 source + Gerbers)           |
 
-Nothing about that grid is hardcoded anymore. The firmware takes any identical-panel grid: panel sizes 1..64 in each dimension, up to 8 rows by 16 columns, capped at 32 panels and 8192 pixels total. Hardware notes (power budget, level shifter, connectors) live in [docs.md](docs.md).
+Nothing about that grid is hardcoded anymore. The firmware takes any identical-panel grid: panel sizes 1..64 in each dimension, up to 8 rows by 16 columns, capped at 32 panels and 8192 pixels total. Hardware notes (parts, level shifter wiring, connectors) are in the [hardware guide](https://giovi321.github.io/led-display/getting-started/hardware/), and the measured power figures in the [power budget](https://giovi321.github.io/led-display/architecture/power/).
 
 ## Quick start
 
@@ -86,7 +86,6 @@ This is a LAN device speaking plain HTTP. Treat it that way.
 ```
 .
 ├── DESIGN.md                firmware v2 design document
-├── docs.md                  hardware notes (power budget, level shifter, connectors)
 ├── docs/                    documentation site (Astro Starlight, deployed to GitHub Pages)
 ├── Firmware/                ESP-IDF 6 application, target esp32s3
 │   ├── partitions.csv       OTA partition table (two 6 MB app slots)
@@ -111,7 +110,10 @@ This is a LAN device speaking plain HTTP. Treat it that way.
 │   ├── test/host/           host unit tests (plain gcc + assert)
 │   └── tools/wsl_build.sh   build helper for a WSL-hosted toolchain
 ├── PCB/                     Fritzing source + Gerbers (v3 board)
-└── 3D/                      SketchUp/STL/DXF for the frame, PCB box and spacers
+└── 3D/                      printable and cuttable parts
+    ├── 8x32/                frame panels (DXF) and spacers (STL) for 32x8 panels
+    ├── Box for PCB_v2.stl   enclosure for the controller board
+    └── USB type c connector flange.stl
 ```
 
 ## Development

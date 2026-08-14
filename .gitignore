@@ -15,11 +15,14 @@ dependencies.lock
 *.fz.bak
 *.bak
 
-# SketchUp backup files and scratch dirs (the .skp source itself is tracked).
+# SketchUp working files and scratch dirs. The .skp sources stay on the
+# modeller's machine; the repo ships the STL and DXF exports.
+*.skp
 *.skb
 _old/
 
 # Editor / OS / agent dotfiles.
+.impeccable/
 .playwright-mcp/
 .cache/
 .vscode/

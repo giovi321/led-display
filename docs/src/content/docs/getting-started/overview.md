@@ -19,7 +19,7 @@ A photo of the reference build (four 32x8 panels in a 2x2 grid, 64x16 pixels) go
 |-----------|---------|
 | `Firmware/` | ESP-IDF v6 application: C sources, the embedded web UI, the vendored WireGuard component, host-side unit tests, and a WSL build helper |
 | `PCB/` | Fritzing source and exported Gerbers for the controller board (current revision v3) |
-| `3D/` | Printable enclosure parts as SketchUp sources and STL exports: panel frames, spacers, PCB box, USB-C connector flange |
+| `3D/` | Enclosure parts: DXF outlines for the frame panels of a 32x8 build, STL exports for the spacers, the controller box and the USB-C connector flange |
 | `docs/` | This documentation site (Astro Starlight) |
 
 ## What the firmware does

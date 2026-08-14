@@ -17,7 +17,7 @@ Short and factual: what you need to know before touching the code.
 | `Firmware/test/host/` | host unit tests for the pure C modules |
 | `Firmware/tools/` | `gzip_asset.py` (asset pipeline), `wsl_build.sh` (WSL build helper) |
 | `PCB/` | Fritzing source and exported Gerbers |
-| `3D/` | CAD and print files for the enclosure |
+| `3D/` | enclosure parts: DXF outlines for cutting, STL for printing |
 | `docs/` | this documentation site (Astro Starlight) |
 | `DESIGN.md` | the v2 design document; JSON shapes and API contracts reference it |
 

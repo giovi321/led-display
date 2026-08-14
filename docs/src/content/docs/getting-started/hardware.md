@@ -18,7 +18,7 @@ The reference build is four flexible WS2812B 32x8 panels in a 2x2 grid (64x16 pi
 | Power input | USB-C breakout, CC1 and CC2 each pulled to GND through 5.1 kohm | Advertises a plain 5 V / 3 A sink, no PD chip needed |
 | Connectors | JST-SM on the panels, JST-XH on the PCB | Same 2.5 mm pitch, not cross-compatible: use short pigtail adapters |
 
-The `PCB/` directory holds the Fritzing source and Gerbers for the controller board (revision v3); `3D/` has printable frames, spacers, a PCB box, and a USB-C connector flange.
+The `PCB/` directory holds the Fritzing source and Gerbers for the controller board (revision v3); `3D/` has the frame panel outlines as DXF (under `8x32/`, for a build from 32x8 panels) plus printable spacers, a controller box, and a USB-C connector flange as STL.
 
 ## Why the level shifter
 
