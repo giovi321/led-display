@@ -48,6 +48,8 @@ idf_component_register(
         "main.c"
         "mapping.c"
         "valuefmt.c"
+        "tz.c"
+        "tzdata.c"
         "fonts.c"
         "devname.c"
         "light_curve.c"

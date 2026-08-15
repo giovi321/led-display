@@ -19,9 +19,10 @@ Days you leave unticked keep the display off for the whole day.
 
 The Timezone selector decides which wall clock the on/off times follow:
 
-- **Browser timezone (auto)**, the default, sends the browser's UTC offset in minutes when you save, and the device applies that fixed offset to the UTC time it gets via NTP. The times mean what your wall clock says, as long as you save from a device in the display's timezone. The offset is fixed: after a daylight-saving change the schedule drifts by one hour until you press Save again, and saving from a browser in another timezone stores that browser's offset
-- **A named zone** (Central Europe, US Eastern, ...) stores that zone's rule - daylight-saving transitions included - on the device. The schedule then stays right all year without re-saving
-- **Custom POSIX TZ** accepts a raw [POSIX TZ string](https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html) such as `CET-1CEST,M3.5.0,M10.5.0/3` for zones not in the list
+- **A zone name** such as `Europe/Zurich` or `America/New_York` - the [IANA](https://www.iana.org/time-zones) names every operating system uses. The device stores that zone's daylight-saving rule and applies it itself, so the schedule stays right across clock changes with nothing to re-save. The list comes from your browser, and the zone your browser is in is marked, so picking the right one is usually one click
+- **Fixed offset from this browser**, the fallback, copies the browser's current UTC offset when you press Save and applies it to the NTP time. It does not follow daylight saving: after a clock change the schedule drifts by an hour until you save again, and saving from a browser in another timezone stores that browser's offset
+
+The device carries a compact table mapping each zone name to its rule, because it has no room for the full timezone database. If you set a zone name the device does not recognise - through the API, or from a browser newer than the firmware - `GET /api/schedule` reports `tz_known: false`, the UI says so, and the schedule falls back to UTC until you pick a zone it knows. A raw [POSIX TZ string](https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html) such as `CET-1CEST,M3.5.0,M10.5.0/3` is also accepted and used as-is, which is the escape hatch for a zone whose rule changed after your firmware was built.
 
 Time itself comes from NTP (`pool.ntp.org`) over the network; the sync starts at boot. Until the first successful sync the schedule does nothing and the display stays in whatever state it is in. No internet access means no schedule.
 

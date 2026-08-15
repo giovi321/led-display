@@ -474,14 +474,69 @@ $$('#sched-offact input[type=radio]').forEach(r => { r.onchange = setSchedOffUi;
 $('#sched-dim').oninput = e => { $('#sched-dimval').textContent = e.target.value; };
 setSchedOffUi();
 
-// Timezone override: "auto" re-sends the browser's UTC offset on every save
-// (the historical behaviour); a picked zone stores a POSIX TZ rule with DST
-// on the device; "custom" exposes the raw string.
-function setSchedTzUi() {
-  $('#sched-tzcustom').classList.toggle('hidden', $('#sched-tz').value !== 'custom');
+// Timezone: the zone list comes from the browser's own tzdata, so the device
+// never ships a name list and the picker is always current. The device holds
+// only the IANA-name-to-rule table it needs to apply the choice.
+const TZ_FALLBACK = [
+  'UTC', 'Europe/London', 'Europe/Zurich', 'Europe/Berlin', 'Europe/Madrid',
+  'Europe/Rome', 'Europe/Athens', 'America/New_York', 'America/Chicago',
+  'America/Denver', 'America/Los_Angeles', 'Asia/Tokyo', 'Asia/Kolkata',
+  'Asia/Singapore', 'Australia/Sydney',
+];
+
+function browserZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch (e) { return ''; }
 }
-$('#sched-tz').onchange = setSchedTzUi;
-setSchedTzUi();
+
+function buildTzOptions(current) {
+  const sel = $('#sched-tz');
+  let zones = [];
+  try {
+    if (typeof Intl.supportedValuesOf === 'function') {
+      zones = Intl.supportedValuesOf('timeZone');
+    }
+  } catch (e) { /* older browser */ }
+  if (!zones.length) zones = TZ_FALLBACK.slice();
+  // A zone the device already holds but this browser doesn't know about
+  // must still be selectable, or saving would silently change it.
+  if (current && zones.indexOf(current) < 0) zones = zones.concat([current]);
+
+  const here = browserZone();
+  sel.innerHTML = '';
+  const fixed = document.createElement('option');
+  fixed.value = '';
+  fixed.textContent = 'Fixed offset from this browser';
+  sel.appendChild(fixed);
+  zones.forEach(z => {
+    const o = document.createElement('option');
+    o.value = z;
+    o.textContent = z.replace(/_/g, ' ') + (z === here ? '  (this browser)' : '');
+    sel.appendChild(o);
+  });
+  sel.value = current || '';
+}
+
+function setSchedTzUi(known) {
+  const v = $('#sched-tz').value;
+  const note = $('#sched-tznote');
+  if (!v) {
+    note.textContent = 'The offset your browser is on when you press Save is '
+      + 'copied to the device. It will not follow daylight-saving changes by '
+      + 'itself - re-save after a clock change, or pick a zone instead.';
+    note.classList.remove('warn');
+  } else if (known === false) {
+    note.textContent = 'This device does not recognise "' + v + '" and will '
+      + 'run on UTC. Pick another zone.';
+    note.classList.add('warn');
+  } else {
+    note.textContent = 'Daylight-saving changes for ' + v.replace(/_/g, ' ')
+      + ' are applied by the device itself.';
+    note.classList.remove('warn');
+  }
+}
+$('#sched-tz').onchange = () => setSchedTzUi();
 
 async function refreshSchedule() {
   try {
@@ -501,17 +556,8 @@ async function refreshSchedule() {
     dim.value = Math.min(s.off_brightness || 8, cap);
     $('#sched-dimval').textContent = dim.value;
     setSchedOffUi();
-    const tz = s.tz || '';
-    const sel = $('#sched-tz');
-    if (!tz) {
-      sel.value = '';
-    } else if (Array.from(sel.options).some(o => o.value === tz)) {
-      sel.value = tz;
-    } else {
-      sel.value = 'custom';
-      $('#sched-tzcustom').value = tz;
-    }
-    setSchedTzUi();
+    buildTzOptions(s.tz || '');
+    setSchedTzUi(s.tz ? !!s.tz_known : undefined);
   } catch (e) { /* first load can race the device; keep defaults */ }
 }
 
@@ -520,8 +566,7 @@ $('#sched-save').onclick = () => act($('#sched-save'), async () => {
   const off = $('#sched-off').value.split(':');
   let days = 0;
   $$('#sched-days input').forEach(cb => { if (cb.checked) days |= (1 << +cb.dataset.day); });
-  let tz = $('#sched-tz').value;
-  if (tz === 'custom') tz = $('#sched-tzcustom').value.trim();
+  const tz = $('#sched-tz').value;
   await jpost('/api/schedule', {
     enabled: $('#sched-en').checked,
     on_hour: +on[0], on_min: +on[1],
@@ -529,7 +574,7 @@ $('#sched-save').onclick = () => act($('#sched-save'), async () => {
     days: days,
     off_action: schedOffAction(),
     off_brightness: +$('#sched-dim').value || 1,
-    // The POSIX TZ override; "" falls back to the fixed offset below.
+    // IANA zone name; "" falls back to the fixed offset below.
     tz: tz,
     // Minutes east of UTC, taken from the browser so the device's schedule
     // matches the wall clock the user is looking at.
@@ -798,6 +843,7 @@ async function refreshNetwork() {
       $('#wg-addr').value = c.address || '';
       $('#wg-allowed').value = c.allowed_ips || '';
       $('#wg-keep').value = (c.keepalive_s === undefined ? 25 : c.keepalive_s);
+      setWgFullTunnelUi();
     } catch (e) { /* endpoint not up yet; leave the form editable */ }
   }
 }
@@ -885,6 +931,15 @@ $('#wreset').onclick = () => act($('#wreset'), async () => {
   await jpost('/api/wifi/reset');
   toast('Forgetting all networks...');
 });
+
+// A full-tunnel route takes the local reply path with it; warn before saving
+// rather than after losing the connection.
+function setWgFullTunnelUi() {
+  const v = $('#wg-allowed').value;
+  const full = /(^|[,\s])0\.0\.0\.0\/0([,\s]|$)/.test(v);
+  $('#wg-fulltunnel').classList.toggle('hidden', !full);
+}
+$('#wg-allowed').oninput = setWgFullTunnelUi;
 
 $('#wg-reveal').onclick = () => {
   const f = $('#wg-priv');

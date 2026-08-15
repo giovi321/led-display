@@ -23,6 +23,7 @@
 #include "ota_update.h"
 #include "scheduler.h"
 #include "settings.h"
+#include "tz.h"
 #include "web_common.h"
 #include "wg_client.h"
 #include "wifi_manager.h"
@@ -154,6 +155,14 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddBoolToObject(wgj, "up", wg.up);
     cJSON_AddBoolToObject(wgj, "held", wg.held);
     cJSON_AddNumberToObject(wgj, "last_handshake", (double)wg.last_handshake);
+    // Bring-up diagnostics: which step the last crash reboot died in, and how
+    // close the lwIP thread (where the tunnel's crypto runs) came to
+    // overflowing its stack.
+    cJSON_AddNumberToObject(wgj, "last_crash_stage", wg.last_crash_stage);
+    cJSON_AddNumberToObject(wgj, "last_crash_tcpip_free",
+                            (double)wg.last_crash_tcpip_free);
+    cJSON_AddNumberToObject(wgj, "tcpip_stack_free_min",
+                            (double)wg.tcpip_stack_free_min);
 
     mqtt_link_status_t mq;
     mqtt_link_get_status(&mq);
@@ -307,6 +316,11 @@ static esp_err_t schedule_get(httpd_req_t *req)
     cJSON_AddNumberToObject(r, "days", sc.days);
     cJSON_AddNumberToObject(r, "utc_offset", sc.utc_offset);
     cJSON_AddStringToObject(r, "tz", sc.tz);
+    // What the zone name actually resolved to, so a client can tell a
+    // recognised zone from a typo that silently behaves like UTC.
+    const char *posix = tz_posix_for_zone(sc.tz);
+    cJSON_AddBoolToObject(r, "tz_known", posix != NULL);
+    cJSON_AddStringToObject(r, "tz_posix", posix ? posix : "");
     cJSON_AddStringToObject(r, "off_action",
                             sc.off_action == SCHED_OFF_ACT_DIM ? "dim" : "off");
     cJSON_AddNumberToObject(r, "off_brightness", sc.off_brightness);
@@ -361,9 +375,9 @@ static esp_err_t schedule_post(httpd_req_t *req)
     }
     if (cJSON_IsNumber(ob)) sc.off_brightness = (uint8_t)ob->valueint;
 
-    // POSIX TZ override; "" clears it (back to the fixed utc_offset). Only a
-    // length and charset check here - a rule that parses to nonsense simply
-    // behaves like UTC, which the user notices and fixes.
+    // IANA zone name; "" clears it (back to the fixed utc_offset). A raw
+    // POSIX rule is still accepted for anything the table does not carry, so
+    // the check here is only length and charset.
     if (cJSON_IsString(tz)) {
         if (strlen(tz->valuestring) > SCHED_TZ_MAX) {
             cJSON_Delete(json);
@@ -372,7 +386,9 @@ static esp_err_t schedule_post(httpd_req_t *req)
         for (const char *p = tz->valuestring; *p; p++) {
             if (*p < 0x20 || *p > 0x7E) {
                 cJSON_Delete(json);
-                return web_send_err(req, "tz must be a printable POSIX TZ string", 400);
+                return web_send_err(req,
+                                    "tz must be a printable IANA zone name, "
+                                    "e.g. Europe/Zurich", 400);
             }
         }
         snprintf(sc.tz, sizeof(sc.tz), "%s", tz->valuestring);

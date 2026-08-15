@@ -7,10 +7,8 @@ sidebar:
 
 The firmware includes an optional WireGuard client. Its purpose is remote access done right: the device dials out to a WireGuard peer you control (a VPS, a home router, an existing VPN server) and becomes reachable through the encrypted tunnel. The alternative, port-forwarding the device's plain-HTTP port 80 to the internet, would expose an unauthenticated or at best [shared-key](../api-key/) HTTP API to the whole world. Do not do that.
 
-The client is marked experimental until it has been proven against a live peer on hardware; the code builds and runs, but treat it as a feature to verify in your own setup rather than rely on sight unseen.
-
-:::caution[Firmware 2.2.0]
-2.2.0 shipped with the lwIP task stack too small for the tunnel's crypto: enabling WireGuard on that build crashes the device into a reboot loop about 90 seconds after every boot. If you are stuck in it, power-cycle and disable the tunnel from the Network tab within that window, then update. 2.3.0 fixes the stack size and adds the crash-loop guard described below, so a future fault of this kind can no longer lock you out.
+:::caution[Update to 2.3.1 or later]
+On 2.2.0 and 2.3.0, enabling the tunnel panics the device the moment it is switched on, and it reboots until you disable it again. The cause and the fix are described in [why the tunnel used to crash](#why-the-tunnel-used-to-crash) below. If you are stuck on an affected build, power-cycle and disable the tunnel from the Network tab before it reconnects, then update.
 :::
 
 ## The vendored component
@@ -50,6 +48,18 @@ The private key is stored in the device's flash and is included in the [config e
 ```
 
 `up` means the peer currently answers handshakes; `last_handshake` is a Unix timestamp of the most recent completed handshake, 0 if none yet. The Network tab renders this as a one-line summary ("Tunnel up - last handshake 2 min ago").
+
+## Why the tunnel used to crash
+
+Worth writing down, because the symptom pointed everywhere except the cause.
+
+ESP-IDF's networking layer, `esp_netif`, keeps its own handle for each interface in the lwIP `netif`'s `state` field, and the global callback it registers for interface events casts that field back to an `esp_netif` handle without checking. WireGuard does not go through `esp_netif`: it adds a raw lwIP interface whose `state` points at the component's own device structure. The first address event fired while that interface was being created therefore handed ESP-IDF a pointer to something that was never an `esp_netif`, it dereferenced it, and the device panicked - before a single line of WireGuard's own setup had run.
+
+ESP-IDF documents the rule in `lwipopts.h`: interfaces that use `state` for themselves need the `esp_netif` handle kept in lwIP's per-interface client data instead. It only turns that on automatically for the two such interfaces it ships (the bridge and PPP), and a third-party interface like WireGuard is not on the list. The fix is to turn it on explicitly, which the firmware now does (`CONFIG_ESP_NETIF_BRIDGE_EN`, `CONFIG_LWIP_NUM_NETIF_CLIENT_DATA=1`); the callback then resolves to nothing for interfaces `esp_netif` did not create, and returns instead of following a wild pointer.
+
+Two things this was mistaken for along the way, both wrong: the lwIP task's stack (the tunnel's crypto does run there, but measurement showed under 1.5 KB of a 8 KB stack in use) and the timing of NTP (the 90-second delay before the crash was just the tunnel waiting for the clock; once the network allowed NTP, the crash moved to immediately after switching the tunnel on). `/api/status` now reports `wireguard.tcpip_stack_free_min` so the stack question can be answered with a number rather than a guess.
+
+A crash during bring-up also used to be able to roll back a firmware update: the tunnel started connecting before the new image had been marked valid, so the bootloader reverted a perfectly good update and the old version reappeared by itself. The tunnel and the MQTT client now start only after that point.
 
 ## The crash-loop guard
 

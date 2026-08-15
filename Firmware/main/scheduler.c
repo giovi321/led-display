@@ -16,6 +16,7 @@
 #include "led_driver.h"
 #include "light_sensor.h"
 #include "settings.h"
+#include "tz.h"
 #include "webhooks.h"
 #include "wifi_manager.h"
 
@@ -94,12 +95,15 @@ static esp_err_t load_from_nvs(schedule_t *out)
 }
 
 // Hand the override to libc so localtime_r() applies it, DST rules included.
-// With no override the TZ variable is cleared: localtime then equals gmtime
-// and the fixed utc_offset does the shifting, as it always has.
+// The stored value is an IANA zone name ("Europe/Zurich"), which tz_resolve()
+// turns into the POSIX rule newlib actually understands. With no override the
+// TZ variable is cleared: localtime then equals gmtime and the fixed
+// utc_offset does the shifting, as it always has.
 static void apply_tz(const schedule_t *sc)
 {
-    if (sc->tz[0] != '\0') {
-        setenv("TZ", sc->tz, 1);
+    const char *posix = tz_resolve(sc->tz);
+    if (posix) {
+        setenv("TZ", posix, 1);
     } else {
         unsetenv("TZ");
     }

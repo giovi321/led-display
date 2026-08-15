@@ -59,6 +59,8 @@
 #define WG_ADDRSTRLEN  INET_ADDRSTRLEN
 #endif
 
+esp_wireguard_trace_fn_t esp_wireguard_trace = NULL;
+
 static struct netif wg_netif_struct = {0};
 static struct netif *wg_netif = NULL;
 static struct wireguardif_peer peer = {0};
@@ -233,6 +235,7 @@ esp_err_t esp_wireguard_connect(wireguard_ctx_t *ctx)
         err = ESP_ERR_INVALID_ARG;
         goto fail;
     }
+    ESP_WG_TRACE(ESP_WG_STEP_CONNECT_ENTER);
 
     if (ctx->netif == NULL) {
         err = esp_wireguard_netif_create(ctx->config);
@@ -247,6 +250,7 @@ esp_err_t esp_wireguard_connect(wireguard_ctx_t *ctx)
         ctx->netif = wg_netif;
         ctx->netif_default = netif_default;
     }
+    ESP_WG_TRACE(ESP_WG_STEP_CONNECT_NETIF);
 
     /* start another async hostname resolution in case the first was executed too early */
     lwip_err = dns_gethostbyname(
@@ -276,6 +280,7 @@ esp_err_t esp_wireguard_connect(wireguard_ctx_t *ctx)
             goto fail;
     }
 
+        ESP_WG_TRACE(ESP_WG_STEP_CONNECT_DNS);
         /* Initialize the first WireGuard peer structure */
         err = esp_wireguard_peer_init(ctx->config, &peer);
         if (err != ESP_OK) {
@@ -287,6 +292,7 @@ esp_err_t esp_wireguard_connect(wireguard_ctx_t *ctx)
             goto fail;
         }
 
+        ESP_WG_TRACE(ESP_WG_STEP_CONNECT_PEERINIT);
         /* Register the new WireGuard peer with the network interface */
         lwip_err = wireguardif_add_peer(ctx->netif, &peer, &wireguard_peer_index);
         if (lwip_err != ERR_OK || wireguard_peer_index == WIREGUARDIF_INVALID_INDEX) {
@@ -299,6 +305,7 @@ esp_err_t esp_wireguard_connect(wireguard_ctx_t *ctx)
             goto fail;
         }
 
+    ESP_WG_TRACE(ESP_WG_STEP_CONNECT_ADDPEER);
     ESP_LOGI(TAG, "connecting to %s (%s), port %i", ctx->config->endpoint, ipaddr_ntoa(&(peer.endpoint_ip)), peer.endport_port);
     lwip_err = wireguardif_connect(ctx->netif, wireguard_peer_index);
     if (lwip_err != ERR_OK) {
@@ -306,6 +313,7 @@ esp_err_t esp_wireguard_connect(wireguard_ctx_t *ctx)
         err = ESP_FAIL;
         goto fail;
     }
+    ESP_WG_TRACE(ESP_WG_STEP_CONNECT_DONE);
     err = ESP_OK;
 fail:
     return err;

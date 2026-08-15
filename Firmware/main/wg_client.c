@@ -21,6 +21,7 @@
 #include <time.h>
 
 #include "cJSON.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_system.h"
@@ -185,6 +186,58 @@ static bool boot_was_crash(void)
     }
 }
 
+// ---- bring-up diagnostics -------------------------------------------------
+//
+// Everything the component does at bring-up runs on the shared lwIP thread
+// (esp_netif_tcpip_exec below), and its rekey timer runs there too, so a
+// stack overflow in the tunnel's crypto reboots the whole device leaving no
+// trace in any API. Two breadcrumbs make that visible from /api/status:
+//
+//   - the smallest free lwIP stack ever measured, sampled ON that thread
+//     right after each component call, so an overflow shows up as a number
+//     approaching zero instead of a mystery reboot
+//   - the bring-up step that was in flight when the last crash hit, kept in
+//     RTC memory: it survives a panic reset (which is exactly the case we
+//     need it for) and costs no flash writes on a device that may be
+//     retrying every few seconds
+//
+// RTC_NOINIT_ATTR is deliberately not zero-initialised, hence the magic.
+
+#define WG_RTC_MAGIC  0x57474254u   /* "WGBT" */
+
+RTC_NOINIT_ATTR static uint32_t s_rtc_magic;
+RTC_NOINIT_ATTR static uint32_t s_rtc_stage;
+RTC_NOINIT_ATTR static uint32_t s_rtc_tcpip_free_min;   // bytes, 0 = unsampled
+
+static uint8_t  s_last_crash_stage;
+static uint32_t s_last_crash_tcpip_free;   // carried over from the crashed run
+
+static void stage_set(wg_stage_t stage)
+{
+    s_rtc_magic = WG_RTC_MAGIC;
+    s_rtc_stage = (uint32_t)stage;
+}
+
+// Called from the lwIP thread only. ESP-IDF reports the high-water mark in
+// bytes (its StackType_t is a byte), so no word scaling here.
+static void note_tcpip_stack(void)
+{
+    uint32_t freeb = (uint32_t)uxTaskGetStackHighWaterMark(NULL);
+    if (s_rtc_tcpip_free_min == 0 || freeb < s_rtc_tcpip_free_min) {
+        s_rtc_tcpip_free_min = freeb;
+    }
+}
+
+// Finer-grained steps from inside the component (esp_wireguard.h). Recorded
+// the same way, so a crash between two of our own stages still says exactly
+// which component call it died in.
+static void wg_trace(int step)
+{
+    s_rtc_magic = WG_RTC_MAGIC;
+    s_rtc_stage = (uint32_t)step;
+    note_tcpip_stack();
+}
+
 // ---- CIDR helpers ------------------------------------------------------------
 
 // "10.6.0.12/32" -> ip "10.6.0.12", prefix 32. No suffix means /32: safest
@@ -219,13 +272,17 @@ static void prefix_to_netmask(int prefix, char *out, size_t outsz)
 static esp_err_t tcpip_wg_init(void *arg)
 {
     (void)arg;
-    return esp_wireguard_init(&s_wg_cfg, &s_wg_ctx);
+    esp_err_t err = esp_wireguard_init(&s_wg_cfg, &s_wg_ctx);
+    note_tcpip_stack();
+    return err;
 }
 
 static esp_err_t tcpip_wg_connect(void *arg)
 {
     (void)arg;
-    return esp_wireguard_connect(&s_wg_ctx);
+    esp_err_t err = esp_wireguard_connect(&s_wg_ctx);
+    note_tcpip_stack();
+    return err;
 }
 
 static esp_err_t tcpip_wg_disconnect(void *arg)
@@ -253,7 +310,9 @@ typedef struct {
 static esp_err_t tcpip_wg_allow(void *arg)
 {
     const allowed_ip_arg_t *a = (const allowed_ip_arg_t *)arg;
-    return esp_wireguard_add_allowed_ip(&s_wg_ctx, a->ip, a->mask);
+    esp_err_t err = esp_wireguard_add_allowed_ip(&s_wg_ctx, a->ip, a->mask);
+    note_tcpip_stack();
+    return err;
 }
 
 static esp_err_t tcpip_wg_set_default(void *arg)
@@ -294,13 +353,19 @@ static esp_err_t tunnel_start(void)
     cfg.persistent_keepalive = s_active.keepalive_s;
     s_wg_cfg = cfg;
 
+    stage_set(WG_STAGE_INIT);
     esp_err_t err = esp_netif_tcpip_exec(tcpip_wg_init, NULL);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        stage_set(WG_STAGE_IDLE);
+        return err;
+    }
 
+    stage_set(WG_STAGE_CONNECT);
     err = esp_netif_tcpip_exec(tcpip_wg_connect, NULL);
     // Once init/connect ran, a netif may exist even on failure; remember so
     // the next attempt starts from a teardown.
     s_tunnel_up_attempted = true;
+    if (err != ESP_OK) stage_set(WG_STAGE_IDLE);
     return err;
 }
 
@@ -381,9 +446,11 @@ static void wg_task(void *arg)
             continue;
         }
 
+        stage_set(WG_STAGE_ALLOWED);
         lock();
         tunnel_apply_allowed_ips();
         unlock();
+        stage_set(WG_STAGE_MONITOR);
         backoff_ms = WG_BACKOFF_MIN_MS;
 
         // Monitor: the component's own timers handle rekeying and handshake
@@ -420,6 +487,7 @@ static void wg_task(void *arg)
     lock();
     tunnel_teardown();
     unlock();
+    stage_set(WG_STAGE_IDLE);
     s_task = NULL;
     vTaskDelete(NULL);
 }
@@ -460,6 +528,18 @@ esp_err_t wg_client_init(void)
         if (!s_lock) return ESP_ERR_NO_MEM;
     }
 
+    // Read the breadcrumb before anything overwrites it. RTC memory survives
+    // a panic reset but holds garbage after a power-on, hence the magic.
+    bool was_crash = boot_was_crash();
+    if (s_rtc_magic == WG_RTC_MAGIC && was_crash) {
+        s_last_crash_stage      = (uint8_t)s_rtc_stage;
+        s_last_crash_tcpip_free = s_rtc_tcpip_free_min;
+    }
+    stage_set(WG_STAGE_IDLE);
+    s_rtc_tcpip_free_min = 0;   // start this run's measurement clean
+
+    esp_wireguard_trace = wg_trace;
+
     wg_config_t cfg;
     load_cfg(&cfg);
 
@@ -477,11 +557,12 @@ esp_err_t wg_client_init(void)
 
     if (cfg.enabled) {
         uint8_t crashes = crash_count_load();
-        if (boot_was_crash()) {
+        if (was_crash) {
             if (crashes < 0xFF) crashes++;
             crash_count_store(crashes);
-            ESP_LOGW(TAG, "crash reboot with tunnel enabled (%u consecutive)",
-                     (unsigned)crashes);
+            ESP_LOGW(TAG, "crash reboot with tunnel enabled (%u consecutive, "
+                          "stage %u)",
+                     (unsigned)crashes, (unsigned)s_last_crash_stage);
         } else if (crashes != 0) {
             crashes = 0;
             crash_count_store(0);
@@ -561,6 +642,10 @@ void wg_client_get_status(wg_status_t *out)
     if (!out) return;
     memset(out, 0, sizeof(*out));
     out->compiled_in = true;
+
+    out->last_crash_stage      = s_last_crash_stage;
+    out->last_crash_tcpip_free = s_last_crash_tcpip_free;
+    out->tcpip_stack_free_min  = s_rtc_tcpip_free_min;
 
     lock();
     out->enabled = s_cfg.enabled;

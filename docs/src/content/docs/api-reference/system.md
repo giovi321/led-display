@@ -205,7 +205,9 @@ curl http://192.168.1.50/api/schedule
   "off_hour": 22, "off_min": 30,
   "days": 31,
   "utc_offset": 60,
-  "tz": "",
+  "tz": "Europe/Zurich",
+  "tz_known": true,
+  "tz_posix": "<+01>-1<+02>-2,M3.5.0,M10.5.0/3",
   "off_action": "off",
   "off_brightness": 16
 }
@@ -215,7 +217,9 @@ curl http://192.168.1.50/api/schedule
 |---|---|
 | `days` | Bitmask, bit 0 = Monday through bit 6 = Sunday; 127 = every day, 31 = weekdays |
 | `utc_offset` | Minutes from UTC, for example 60 for CET. Used only while `tz` is empty |
-| `tz` | POSIX TZ override, e.g. `CET-1CEST,M3.5.0,M10.5.0/3`. When set, the schedule follows this rule (daylight-saving transitions included) and `utc_offset` is ignored. Empty = fixed offset |
+| `tz` | IANA zone name, e.g. `Europe/Zurich`. When set, the schedule follows that zone's rule (daylight-saving transitions included) and `utc_offset` is ignored. Empty = fixed offset |
+| `tz_known` | Whether the device recognises `tz`. False means it is running on UTC instead - a typo, or a zone newer than the firmware's table |
+| `tz_posix` | The POSIX rule `tz` resolved to, empty when unknown. Diagnostic only |
 | `on_hour`/`on_min`, `off_hour`/`off_min` | Local switch-on and switch-off times; a window that wraps midnight (on 22:00, off 06:00) works |
 | `off_action` | What the off window does: `off` blanks the panel (the default), `dim` holds it at `off_brightness` |
 | `off_brightness` | The level the `dim` action holds, 1..255. Still subject to the brightness cap |
@@ -231,7 +235,7 @@ curl -X POST http://192.168.1.50/api/schedule \
        "off_action":"dim","off_brightness":16}'
 ```
 
-Out-of-range values are rejected rather than wrapped: hours must be 0..23, minutes 0..59, `utc_offset` -840..840 and `off_brightness` 1..255. `days` is masked to its seven bits. `tz` accepts up to 48 printable ASCII characters; an empty string clears the override. The string is not parsed for validity - a rule that means nothing to libc behaves like UTC.
+Out-of-range values are rejected rather than wrapped: hours must be 0..23, minutes 0..59, `utc_offset` -840..840 and `off_brightness` 1..255. `days` is masked to its seven bits. `tz` accepts up to 48 printable ASCII characters; an empty string clears the override. A name the device's table does not carry is stored and passed to libc as-is, which is what makes a raw POSIX TZ string work too; check `tz_known` on the GET to tell the two apart.
 
 Response: `{"ok": true}`. A changed action or level is applied at once, not at the next 30 second tick. Schedule transitions fire the `schedule_on` / `schedule_off` [webhooks](../integrations/#outbound-webhook-payloads) whichever action is configured.
 

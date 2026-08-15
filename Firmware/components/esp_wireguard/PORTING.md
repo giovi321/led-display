@@ -11,6 +11,27 @@ carries the fixes for ESP-IDF 6.0+ and mbedtls 4.0+ (upstream commit
 Copied: `LICENSE`, `include/`, `src/`. The upstream `.git`, ESPHome-focused
 `README.md`, `library.json` and `TODO.md` were not carried over.
 
+## Required project configuration
+
+`CONFIG_ESP_NETIF_BRIDGE_EN=y` and `CONFIG_LWIP_NUM_NETIF_CLIENT_DATA=1`
+(both in `sdkconfig.defaults`). Without them the tunnel panics the device the
+moment it is enabled, inside `netif_add()`, before any of this component's
+own code runs.
+
+`esp_netif` stores its handle in the lwIP netif's `state` field and its global
+`netif_ext_callback` casts `state` back to an `esp_netif_t *` unconditionally
+(`lwip_get_esp_netif()` in `esp_netif_lwip.c`). This component adds a raw lwIP
+netif whose `state` is its own `wireguardif_init_data` / `wireguard_device`,
+so the first address event during `netif_add()` hands that callback a pointer
+to the wrong type and it faults.
+
+IDF's `lwipopts.h` states the rule - interfaces that use `state` themselves
+"(like bridge, ppp)" must have the esp_netif pointer in netif client data -
+but only enables `LWIP_ESP_NETIF_DATA` when the bridge or PPP is built in.
+Enabling the bridge is the cheapest way to flip it; the callback then resolves
+to NULL for netifs esp_netif did not create and returns instead of following
+a wild pointer.
+
 ## Local changes
 
 - `CMakeLists.txt`, `Kconfig`: written for this project. The droscy fork
@@ -29,6 +50,13 @@ Copied: `LICENSE`, `include/`, `src/`. The upstream `.git`, ESPHome-focused
   `const fe` to `const limb_t *`. Callers pass shorter arrays (the 1-limb
   `a24` constant) with `nb` bounding the reads; GCC 15 (ESP-IDF v6.0.1
   toolchain) flags the array-parameter bound as `-Werror=stringop-overread`.
+- `include/esp_wireguard.h`, `src/esp_wireguard.c`, `src/wireguardif.c`: added
+  the optional `esp_wireguard_trace` hook and `ESP_WG_TRACE()` calls through
+  `esp_wireguard_connect()` and `wireguardif_init()`. The tunnel is brought up
+  on the lwIP thread, so a fault in there takes the device down with nothing
+  in any API to show for it; the hook lets the caller record how far it got in
+  storage that survives a panic reset. Unset it is a NULL check and nothing
+  more. This is what located the `netif->state` fault above.
 - Line endings normalized to LF (upstream commits CRLF); no content changes
   beyond the ones listed above.
 
@@ -46,13 +74,14 @@ runtime-verified on hardware.
   `udp_*`). With `CONFIG_LWIP_TCPIP_CORE_LOCKING` off (the IDF default),
   these are only thread-safe from the tcpip thread, so `wg_client.c`
   marshals every component call through `esp_netif_tcpip_exec()`.
-- The tcpip task stack MUST be enlarged
-  (`CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=8192` in `sdkconfig.defaults`).
-  `psa_crypto_init()` (mbedtls entropy setup) runs there via the marshalled
-  init, and the component's `sys_timeout` rekey timer runs the
-  x25519/blake2s handshake crypto there unconditionally. The 3072-byte IDF
-  default overflows: stack canary panic and a reboot loop on every connect
-  (observed on hardware with fw 2.2.0).
+- The tcpip task stack is enlarged to 8192
+  (`CONFIG_LWIP_TCPIP_TASK_STACK_SIZE` in `sdkconfig.defaults`), because
+  `psa_crypto_init()` runs there via the marshalled init and the component's
+  `sys_timeout` rekey timer runs the x25519/blake2s handshake crypto there
+  unconditionally. Measured headroom on hardware is comfortable - about
+  1.3 KB of the 8 KB used at the deepest point, reported live as
+  `wireguard.tcpip_stack_free_min` - so this is precaution, not a fix for
+  anything observed.
 - Single tunnel instance: the component keeps its state in file-scope
   statics (`wg_netif_struct`, `peer`, ...). One tunnel, one peer.
 - Handshake timestamps (tai64n) need sane wall time or the peer rejects the

@@ -46,6 +46,7 @@
 #include "lwip/sys.h"
 #include "lwip/timeouts.h"
 
+#include "esp_wireguard.h"      /* local addition: ESP_WG_TRACE, see PORTING.md */
 #include "esp_wireguard_log.h"
 #include "esp_wireguard_err.h"
 
@@ -954,6 +955,8 @@ err_t wireguardif_init(struct netif *netif) {
 
 	struct netif* underlying_netif = NULL;
 
+	ESP_WG_TRACE(ESP_WG_STEP_IFINIT_ENTER);
+
 #if (!defined(ESP8266) || defined(IDF_VER)) && !defined(LIBRETINY)
 	char lwip_netif_name[8] = {0,};
 
@@ -994,11 +997,14 @@ err_t wireguardif_init(struct netif *netif) {
 
 	ESP_LOGV(TAG, "underlying_netif = %p", underlying_netif);
 
+	ESP_WG_TRACE(ESP_WG_STEP_IFINIT_UNDERLYING);
+
 	LWIP_ASSERT("netif != NULL", (netif != NULL));
 	LWIP_ASSERT("state != NULL", (netif->state != NULL));
 
 	// We need to initialise the wireguard module
 	wireguard_init();
+	ESP_WG_TRACE(ESP_WG_STEP_IFINIT_WGINIT);
 
 	if (netif && netif->state) {
 
@@ -1016,6 +1022,7 @@ err_t wireguardif_init(struct netif *netif) {
 			if (udp) {
 				result = udp_bind(udp, IP_ADDR_ANY, init_data->listen_port); // Note this listens on all interfaces! Really just want the passed netif
 				if (result == ERR_OK) {
+					ESP_WG_TRACE(ESP_WG_STEP_IFINIT_UDP);
 					device = (struct wireguard_device *)mem_calloc(1, sizeof(struct wireguard_device));
 					if (device) {
 						device->netif = netif;
@@ -1023,9 +1030,11 @@ err_t wireguardif_init(struct netif *netif) {
 						udp_bind_netif(udp, underlying_netif);
 
 						device->udp_pcb = udp;
+						ESP_WG_TRACE(ESP_WG_STEP_IFINIT_DEVICE);
 						// Per-wireguard netif/device setup
 						uint32_t t1 = wireguard_sys_now();
 						if (wireguard_device_init(device, private_key)) {
+							ESP_WG_TRACE(ESP_WG_STEP_IFINIT_KEYS);
 							uint32_t t2 = wireguard_sys_now();
 							ESP_LOGV(TAG, "device init took %" PRIi32 "ms", (t2-t1));
 
@@ -1048,6 +1057,7 @@ err_t wireguardif_init(struct netif *netif) {
 							// Start a periodic timer for this wireguard device
 							sys_timeout(WIREGUARDIF_TIMER_MSECS, wireguardif_tmr, device);
 
+							ESP_WG_TRACE(ESP_WG_STEP_IFINIT_DONE);
 							result = ERR_OK;
 						} else {
 							mem_free(device);

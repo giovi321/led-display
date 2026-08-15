@@ -36,9 +36,29 @@ CONFIG_LWIP_MAX_SOCKETS=10
 # lwIP tcpip task stack. The WireGuard client marshals every component call
 # into this thread (esp_netif_tcpip_exec) and the component's own sys_timeout
 # rekey timer runs there too, so psa_crypto_init() plus the x25519/blake2s
-# handshake crypto all execute on this stack. The 3072-byte IDF default
-# overflows -> stack canary panic -> reboot loop whenever a tunnel connects.
+# handshake crypto all execute on this stack rather than the caller's. The
+# 3072-byte IDF default is not enough headroom for that; measured free space
+# at the deepest point is reported as wireguard.tcpip_stack_free_min.
 CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=8192
+
+# REQUIRED by the WireGuard client, and the reason a tunnel used to panic the
+# device the moment it was enabled.
+#
+# esp_netif normally stores its own handle in the lwIP netif's `state` field
+# and its global netif callback casts `state` back to an esp_netif_t
+# unconditionally. WireGuard adds a raw lwIP netif whose `state` is the
+# component's own device struct, so that cast produced a wild pointer and the
+# first address event during netif_add dereferenced it: an instant
+# LoadProhibited panic, before a single line of WireGuard's own init ran.
+#
+# IDF's own lwipopts.h spells the rule out - interfaces that use `state`
+# themselves (it names bridge and ppp) need the esp_netif pointer kept in
+# lwIP client data instead - but it only switches that on for bridge or PPP
+# builds. Enabling the bridge is the cheapest way to set LWIP_ESP_NETIF_DATA,
+# which moves the pointer and makes the callback resolve to NULL (and return)
+# for netifs esp_netif did not create.
+CONFIG_ESP_NETIF_BRIDGE_EN=y
+CONFIG_LWIP_NUM_NETIF_CLIENT_DATA=1
 
 # Main task stack a bit larger to comfortably hold the boot sequence
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

@@ -4,6 +4,20 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-08-15
+
+### Fixed
+
+- **WireGuard no longer panics the device when the tunnel is enabled.** ESP-IDF keeps its own per-interface handle in the lwIP netif's `state` field and its global interface-event callback casts that field back to an `esp_netif` handle unconditionally. WireGuard adds a raw lwIP interface whose `state` is the component's own device structure, so the first address event during interface creation dereferenced a pointer to the wrong type and the device rebooted - before any of WireGuard's own setup had run. ESP-IDF documents the rule in `lwipopts.h` (interfaces that use `state` themselves need the handle in netif client data) but only applies it for the bridge and PPP; the firmware now enables it explicitly with `CONFIG_ESP_NETIF_BRIDGE_EN` and `CONFIG_LWIP_NUM_NETIF_CLIENT_DATA=1`. Verified on hardware: enabling the tunnel, and rebooting with it enabled, no longer reboots the device
+- A crash while bringing the tunnel up could roll back a firmware update: the tunnel and MQTT client started connecting before the new image had been marked valid, so the bootloader reverted a good update and the previous version silently reappeared. Both now start after that point
+- The lwIP task stack increase shipped in 2.3.0 was not the fix it was believed to be. Measurement shows about 1.3 KB of the 8 KB stack in use at the deepest point, so it stays as headroom for the rekey path rather than as a remedy
+
+### Added
+
+- Timezones are now IANA zone names (`Europe/Zurich`, `America/New_York`) instead of raw POSIX rules. The picker is built from the browser's own timezone data and marks the browser's zone, and the device carries a generated name-to-rule table (418 zones, `Firmware/tools/gen_tz.js` regenerates it) so it applies daylight-saving changes itself. `GET /api/schedule` reports `tz_known` and the resolved `tz_posix`; a raw POSIX string is still accepted, so existing configurations keep working
+- WireGuard bring-up diagnostics in `/api/status`: `wireguard.last_crash_stage` names the step a crash reboot died in and `wireguard.tcpip_stack_free_min` reports measured lwIP stack headroom, so a fault on the lwIP thread can be located from the API instead of guessed at. The vendored component gained an optional trace hook for the same reason (see its `PORTING.md`)
+- The Network tab warns before saving `0.0.0.0/0` as Allowed IPs: a full-tunnel route carries the reply path to the browser with it, and cuts off access to the display from any computer on another subnet
+
 ## [2.3.0] - 2026-08-15
 
 ### Fixed

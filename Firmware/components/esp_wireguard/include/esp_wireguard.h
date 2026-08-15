@@ -36,6 +36,36 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Optional bring-up trace hook (local addition, see PORTING.md).
+ *
+ * The tunnel is brought up on the lwIP thread, so a fault inside the
+ * component takes the whole device down with nothing to show for it in any
+ * API. When set, this is called at each step of init/connect with the step
+ * number, letting the caller record how far it got in storage that survives
+ * a panic reset. NULL (the default) compiles down to nothing measurable.
+ */
+typedef void (*esp_wireguard_trace_fn_t)(int step);
+extern esp_wireguard_trace_fn_t esp_wireguard_trace;
+
+#define ESP_WG_TRACE(step_) \
+    do { if (esp_wireguard_trace) esp_wireguard_trace(step_); } while (0)
+
+/* Step numbers, kept here so caller and component agree. */
+#define ESP_WG_STEP_CONNECT_ENTER      30
+#define ESP_WG_STEP_CONNECT_NETIF      31
+#define ESP_WG_STEP_CONNECT_DNS        32
+#define ESP_WG_STEP_CONNECT_PEERINIT   33
+#define ESP_WG_STEP_CONNECT_ADDPEER    34
+#define ESP_WG_STEP_CONNECT_DONE       35
+#define ESP_WG_STEP_IFINIT_ENTER       40
+#define ESP_WG_STEP_IFINIT_UNDERLYING  41
+#define ESP_WG_STEP_IFINIT_WGINIT      42
+#define ESP_WG_STEP_IFINIT_UDP         43
+#define ESP_WG_STEP_IFINIT_DEVICE      44
+#define ESP_WG_STEP_IFINIT_KEYS        45
+#define ESP_WG_STEP_IFINIT_DONE        46
+
 #include <stdint.h>
 #include <time.h>
 #include <lwip/netif.h>

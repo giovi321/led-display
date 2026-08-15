@@ -26,12 +26,28 @@ typedef struct {
     uint16_t keepalive_s;                       // 0 = off, typical 25
 } wg_config_t;
 
+// Bring-up steps, in order. Reported after a crash reboot as the step that
+// was in flight, which is the only way to see where a tunnel that takes the
+// whole device down died.
+typedef enum {
+    WG_STAGE_IDLE    = 0,
+    WG_STAGE_INIT    = 1,   // esp_wireguard_init: DNS lookup + PSA crypto init
+    WG_STAGE_CONNECT = 2,   // esp_wireguard_connect: netif, key derivation, handshake
+    WG_STAGE_ALLOWED = 3,   // routing the allowed IPs into the tunnel
+    WG_STAGE_MONITOR = 4,   // steady state, the component's timers own it
+} wg_stage_t;
+
 typedef struct {
     bool    compiled_in;    // false when the Kconfig option is off
     bool    enabled;
     bool    up;             // handshake completed and peer reachable
     bool    held;           // enabled but suspended after repeated crash reboots
     int64_t last_handshake; // unix seconds, 0 = never
+    // Diagnostics. The tunnel runs its crypto on the shared lwIP thread, so a
+    // stack overflow there reboots the device with nothing to show for it.
+    uint8_t  last_crash_stage;      // step in flight at the last crash
+    uint32_t last_crash_tcpip_free; // free lwIP stack measured in that run
+    uint32_t tcpip_stack_free_min;  // smallest free lwIP stack seen, bytes
 } wg_status_t;
 
 // Load config from NVS; if enabled, bring the tunnel up (needs WiFi STA).

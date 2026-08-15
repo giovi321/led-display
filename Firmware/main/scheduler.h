@@ -23,7 +23,9 @@ typedef enum {
 
 #define SCHED_OFF_BRI_DEFAULT  8
 
-// POSIX TZ string, e.g. "CET-1CEST,M3.5.0,M10.5.0/3" for Europe/Zurich.
+// IANA zone name, e.g. "Europe/Zurich". Longest in the database is
+// "America/Argentina/Buenos_Aires" at 30; 48 also leaves room for a raw
+// POSIX rule, which is still accepted (tz.h).
 #define SCHED_TZ_MAX  48
 
 typedef struct {
@@ -38,7 +40,7 @@ typedef struct {
     uint8_t off_brightness; // 1..255, applied when off_action = DIM
     // Timezone override. Empty = the fixed utc_offset above (historical
     // behaviour, refreshed from the browser on every save). When set, the
-    // schedule follows this POSIX TZ rule instead - DST transitions included.
+    // schedule follows this zone's rule instead - DST transitions included.
     char    tz[SCHED_TZ_MAX + 1];
 } schedule_t;
 

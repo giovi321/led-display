@@ -5,6 +5,7 @@ Firmware/test/host/test_fonts
 Firmware/test/host/test_wifi_pick
 Firmware/test/host/test_devname
 Firmware/test/host/test_light_curve
+Firmware/test/host/test_tz
 
 # Firmware build artefacts (ESP-IDF). Patterns are unanchored so they catch
 # Firmware/build/ etc. without listing the prefix explicitly.

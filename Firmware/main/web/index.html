@@ -164,27 +164,12 @@
              aria-label="Brightness outside the on-window">
     </div>
     <div class="flab">Timezone<button type="button" class="hlp"
-      data-help="Auto uses your browser's timezone at the moment you save (a fixed offset - it will not follow daylight-saving changes on its own). Picking a zone stores its daylight-saving rule on the device, so the schedule stays right all year."
+      data-help="Pick the zone the display lives in and its daylight-saving rule is stored on the device, so the schedule stays right all year. The fixed-offset option instead copies your browser's current offset when you save, and does not follow daylight-saving changes on its own."
       aria-expanded="false" aria-label="Explain the timezone setting">?</button></div>
     <select id="sched-tz">
-      <option value="">Browser timezone (auto)</option>
-      <option value="UTC0">UTC</option>
-      <option value="GMT0BST,M3.5.0/1,M10.5.0">UK / Ireland (London, Dublin)</option>
-      <option value="WET0WEST,M3.5.0/1,M10.5.0">Portugal (Lisbon)</option>
-      <option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe (Zurich, Berlin, Rome)</option>
-      <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Eastern Europe (Athens, Helsinki)</option>
-      <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option>
-      <option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
-      <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option>
-      <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
-      <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australia East (Sydney)</option>
-      <option value="JST-9">Japan (Tokyo)</option>
-      <option value="IST-5:30">India</option>
-      <option value="custom">Custom POSIX TZ...</option>
+      <option value="">Fixed offset from this browser</option>
     </select>
-    <input id="sched-tzcustom" class="hidden" type="text" maxlength="48"
-           placeholder="e.g. CET-1CEST,M3.5.0,M10.5.0/3"
-           autocomplete="off" autocapitalize="off" spellcheck="false">
+    <p id="sched-tznote" class="note"></p>
     <p class="note">The device syncs time via NTP.</p>
     <div class="row"><button class="act" id="sched-save">Save schedule</button></div>
   </div>
@@ -331,6 +316,12 @@
       <input id="wg-addr" type="text" placeholder="10.6.0.12/32" autocomplete="off" spellcheck="false">
       <label for="wg-allowed">Allowed IPs</label>
       <input id="wg-allowed" type="text" placeholder="10.6.0.0/24" autocomplete="off" spellcheck="false">
+      <p id="wg-fulltunnel" class="note warn hidden">0.0.0.0/0 sends every
+        packet through the tunnel, including the replies to whoever is reading
+        this page. If your computer is not on the same subnet as the display,
+        you will lose access to it until you power-cycle and switch this off.
+        For reaching the display remotely, the tunnel's own subnet is
+        enough.</p>
       <label for="wg-keep">Persistent keepalive (seconds, 0 = off)</label>
       <input id="wg-keep" type="number" min="0" max="3600" value="25" class="num">
       <div class="row"><button class="act" id="wg-save">Save WireGuard</button></div>

@@ -200,26 +200,29 @@ void app_main(void)
         ESP_LOGW(TAG, "light_sensor_init failed; brightness stays manual");
     }
 
-    // 10. WireGuard (best effort by design: runtime-disabled until
-    //     configured, no-op stub when compiled out - never blocks boot).
-    if (wg_client_init() != ESP_OK) {
-        ESP_LOGW(TAG, "wg_client_init failed; tunnel unavailable");
-    }
-
-    // 10b. MQTT (same best-effort contract as WireGuard; esp-mqtt reconnects
-    //      on its own once WiFi is up).
-    if (mqtt_link_init() != ESP_OK) {
-        ESP_LOGW(TAG, "mqtt_link_init failed; MQTT unavailable");
-    }
-
-    // 11. HTTP last so endpoints only become reachable once the display
-    //     state is settled.
+    // 10. HTTP so endpoints become reachable once the display state is
+    //     settled.
     ESP_ERROR_CHECK(web_server_start());
 
-    // 12. The web server answering is our "provably up" bar: cancel OTA
+    // 11. The web server answering is our "provably up" bar: cancel OTA
     //     rollback so this image sticks. A crash before this point reverts
     //     to the previous slot on the next boot.
     ota_mark_valid();
+
+    // 12. The optional outbound clients start only now, after the image has
+    //     been committed. They dial out to networks and peers this firmware
+    //     has never met, so they are the most likely thing in the boot to
+    //     fault - and before this point a fault would roll back a perfectly
+    //     good update, hiding the real problem behind a version that
+    //     silently reappears. Both are best effort by design: runtime
+    //     disabled until configured, no-op stubs when compiled out, and
+    //     neither blocks the boot.
+    if (wg_client_init() != ESP_OK) {
+        ESP_LOGW(TAG, "wg_client_init failed; tunnel unavailable");
+    }
+    if (mqtt_link_init() != ESP_OK) {
+        ESP_LOGW(TAG, "mqtt_link_init failed; MQTT unavailable");
+    }
 
     // 13. Announce the boot to whatever is listening.
     webhooks_fire(WEBHOOK_EVT_BOOT, NULL);
