@@ -95,4 +95,5 @@ Digits are fixed-width in both modes. A ticking value therefore keeps a stable w
 
 - [Schedule](../schedule/): turn the display off or dim it at night
 - [Value updates](../value-updates/): let another system set the text
+- [Screens](../screens/): what the panel shows at power-on and when the WiFi link drops
 - [Light sensor](../../admin-guide/light-sensor/): set the brightness from the room

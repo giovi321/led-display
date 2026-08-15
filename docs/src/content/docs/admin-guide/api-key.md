@@ -93,10 +93,10 @@ Enabling it without a stored password is refused with `400 {"ok":false,"error":"
 
 It covers every URI the device serves: the pages, the assets, and all of the API including the open GETs. A login that left `GET /api/status` readable would not be one.
 
-It is **HTTP Basic over plain HTTP**. The credentials are base64, not encrypted, and they go out with every single request. This keeps casual visitors on your network out of the interface. It is no defence against anyone who can watch the traffic — for that, reach the device through the [WireGuard tunnel](../wireguard/) rather than exposing it.
+It is **HTTP Basic over plain HTTP**. The credentials are base64, not encrypted, and they go out with every single request. This keeps casual visitors on your network out of the interface. It is no defence against anyone who can watch the traffic - for that, reach the device through the [WireGuard tunnel](../wireguard/) rather than exposing it.
 
 It is **not applied on the setup AP**. In that mode the panel carries the only copy of the setup address, and the captive-portal probes have to answer normally rather than with a 401. So a device that has fallen back to its setup network is reachable without the login.
 
-That last point is the recovery path, and it cuts both ways. There is no reset button on the board, so if you lose the password the way back is to stop the device reaching its network — turn the access point off, change its password, or carry the display out of range. After 30 minutes offline it raises its own setup AP alongside the retries, and that AP is not gated. Slow, but it beats a USB reflash, which is what a lost API key costs you.
+That last point is the recovery path, and it cuts both ways. There is no reset button on the board, so if you lose the password the way back is to stop the device reaching its network - turn the access point off, change its password, or carry the display out of range. After 30 minutes offline it raises its own setup AP alongside the retries, and that AP is not gated. Slow, but it beats a USB reflash, which is what a lost API key costs you.
 
 The same door is open to anyone within radio range who can take your WiFi down, so treat the login as a lock on the front door of a trusted network, not as a boundary against a hostile one.

@@ -168,7 +168,7 @@ Errors: 400 `"unknown mode"`, 500 `"saving boot screen failed"` when the write t
 
 ## POST /api/system/screens
 
-The startup splash and what a lost WiFi link puts on the panel. Partial update: absent fields keep their stored value.
+The startup splash and what a lost WiFi link puts on the panel. Partial update: absent fields keep their stored value. The [Screens guide](../../user-guide/screens/) covers what each choice looks like in use.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -279,7 +279,7 @@ curl -X POST http://192.168.1.50/api/schedule \
        "off_action":"dim","off_brightness":16}'
 ```
 
-`days` and `other_days` decide the shape of the week between them. A day in `days` runs the on/off window. A day outside it is governed entirely by `other_days` — the on/off times never come into it — and is either one long off-window (`off`) or no schedule at all (`run`). So `{"days":31,"other_days":"off"}` lights the panel on weekday mornings and keeps it dark all weekend, while `{"days":31,"other_days":"run"}` governs weekdays and leaves the weekend at normal brightness around the clock. `other_days` defaults to `off`, which is how every build before 2.8.0 behaved.
+`days` and `other_days` decide the shape of the week between them. A day in `days` runs the on/off window. A day outside it is governed entirely by `other_days` - the on/off times never come into it - and is either one long off-window (`off`) or no schedule at all (`run`). So `{"days":31,"other_days":"off"}` lights the panel on weekday mornings and keeps it dark all weekend, while `{"days":31,"other_days":"run"}` governs weekdays and leaves the weekend at normal brightness around the clock. `other_days` defaults to `off`, which is how every build before 2.8.0 behaved.
 
 A window whose off time is at or before its on time wraps midnight, but it does not carry into the next day unless that day is in `days` too: `{"days":1,"on_hour":22,"off_hour":6}` lights Monday 22:00–24:00 and Monday 00:00–06:00, not Tuesday morning.
 
