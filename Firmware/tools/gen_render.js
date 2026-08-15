@@ -77,7 +77,7 @@ const MARGIN = (SHEET_W - COLS * PITCH) / 2;          // 15 mm all round
 // Fixing holes, centred on the sheet, straight from the DXF. Twelve M5
 // clearance holes, all the same size - the corner ones included.
 const HOLE_R = 2.5;                                   // 5 mm dia, from the DXF
-const HEAD_R = 5;                                     // DIN 7991 M5 head, 10 mm dia
+const HEAD_R = 4.4;                                   // M5 wafer head, dk 8.8 mm
 const SOCKET_AF = 3;                                  // 3 mm hex key across flats
 const HOLES = [
   ...[-327, 327].flatMap(x => [-87, 0, 87].map(y => ({ x, y }))),
@@ -104,9 +104,11 @@ for (let j = 0; j < ROWS; j++) {
   leds += '\n      ';
 }
 
-// Screws, face on: the countersunk head fills a 10 mm circle whatever the
-// 5 mm hole under it measures, and a socket screw shows a hex recess rather
-// than a slot. All twelve are the same M5x40, so all twelve draw identically.
+// Screws, face on: the wafer head covers an 8.8 mm circle over the 5 mm hole,
+// and a socket screw shows a hex recess rather than a slot. The inner circle
+// is the edge radius that rings the flat face, not a countersink cone: this
+// head sits on the surface rather than in it. All twelve are the same M5x40,
+// so all twelve draw identically.
 const hexPath = (x, y, af) => {
   const rc = af / Math.sqrt(3);                       // across flats -> corners
   return Array.from({ length: 6 }, (_, i) => {
@@ -116,7 +118,7 @@ const hexPath = (x, y, af) => {
 };
 const screw = (x, y) =>
   `<g class="screw"><circle cx="${x}" cy="${y}" r="${HEAD_R}" class="shead"/>` +
-  `<circle cx="${x}" cy="${y}" r="${(HEAD_R * 0.82).toFixed(2)}" class="scone"/>` +
+  `<circle cx="${x}" cy="${y}" r="${(HEAD_R - 0.5).toFixed(2)}" class="sface"/>` +
   `<polygon points="${hexPath(x, y, SOCKET_AF)}" class="ssocket"/></g>`;
 
 const screwsFront = HOLES.map(h => screw(hx(h), hy(h))).join('');
@@ -131,9 +133,10 @@ const SY = 312;            // front face of the front panel
 const VS = 3;              // mm -> px, vertical only
 const SPACER_OD = 10;      // printed spacer outside diameter
 const SHANK_D = 5;         // M5
-const HEAD_H = 2.8;        // DIN 7991 head height, buried in the front panel
-const NUT_AF = 8, NUT_HEX_H = 5, NUT_DOME_R = 4;   // DIN 1587 M5 dome nut
-const SCREW_L = 40;        // M5x40, measured over the countersunk head
+const HEAD_H = 1.4;        // wafer head k, standing proud of the front panel
+const NUT_AF = 8, NUT_HEX_H = 4, NUT_DOME_R = 6;   // DIN 1587 M5 dome nut: s 8, h 4, m 10
+const NUT_THREAD = 4;      // il, the nut's threaded depth
+const SCREW_L = 40;        // M5x40, measured under the head
 
 const layers = [
   { t: 3,  cls: 'plexi', label: 'Front panel, 3 mm smoked grey plexiglass' },
@@ -181,22 +184,29 @@ for (const x of CUTOUT_X) {
   cuts += `<rect x="${OX + SHEET_W / 2 + x}" y="${aluY}" width="20" height="${2 * VS}" class="cut"/>`;
 }
 
-// The screw itself: head countersunk flush into the front panel, shank down
-// through the stack, and the dome nut closed on whatever thread comes out of
-// the back. 40 mm over a 36 mm stack leaves 4 mm for the nut.
+// The screw itself: a wafer head sitting on the front panel rather than sunk
+// into it, shank down through the stack, and the dome nut closed on the thread
+// that comes out of the back. The head is only 1.4 mm thick, which is the
+// reason for the type: the laser cuts a plain 5 mm bore and there is no
+// chamfer for a countersunk head to seat in. Length is measured under the
+// head, so 40 mm over a 36 mm stack leaves 4 mm, exactly the nut's thread.
 const tipY = SY + SCREW_L * VS;
 let screwsSide = '';
 for (const x of COLS_X) {
   const c = sx(x);
-  const hw = HEAD_R, sw = SHANK_D / 2, nw = NUT_AF / 2;
+  const hw = HEAD_R, sw = SHANK_D / 2, nw = NUT_AF / 2, kw = SOCKET_AF / 2;
   screwsSide +=
     `<g class="screw">` +
-    // countersunk head: 10 mm at the surface tapering to the 5 mm shank
-    `<polygon points="${c - hw},${SY} ${c + hw},${SY} ${c + sw},${SY + HEAD_H * VS} ` +
-    `${c - sw},${SY + HEAD_H * VS}" class="shead"/>` +
-    `<rect x="${c - sw}" y="${SY + HEAD_H * VS}" width="${SHANK_D}" ` +
-    `height="${(tipY - SY - HEAD_H * VS).toFixed(2)}" class="shank"/>` +
-    // dome nut, seated on the back face
+    `<rect x="${c - sw}" y="${SY}" width="${SHANK_D}" ` +
+    `height="${(tipY - SY).toFixed(2)}" class="shank"/>` +
+    // wafer head: 8.8 mm across, 1.4 mm proud of the surface, hex recess
+    `<rect x="${(c - hw).toFixed(2)}" y="${(SY - HEAD_H * VS).toFixed(2)}" ` +
+    `width="${(HEAD_R * 2).toFixed(2)}" height="${(HEAD_H * VS).toFixed(2)}" ` +
+    `rx="0.7" class="shead"/>` +
+    `<rect x="${c - kw}" y="${(SY - HEAD_H * VS).toFixed(2)}" width="${SOCKET_AF}" ` +
+    `height="${(HEAD_H * VS).toFixed(2)}" class="ssocket"/>` +
+    // dome nut, seated on the back face, its 4 mm thread filled by the 4 mm
+    // of shank that clears the stack
     `<rect x="${c - nw}" y="${stackBot}" width="${NUT_AF}" ` +
     `height="${NUT_HEX_H * VS}" class="nut"/>` +
     `<path d="M ${c - nw} ${stackBot + NUT_HEX_H * VS} ` +
@@ -220,7 +230,7 @@ layers.forEach((l, i) => {
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 490" width="1050" height="490" role="img" aria-label="Render of the assembled 64 by 16 LED display: four WS2812B 32x8 panels behind a smoked grey plexiglass front showing 1234, with a section through the layer stack">
   <title>led-display, reference build</title>
-  <desc>Face-on view of the assembled display and a section through its layers, to the cut sizes in 3D/8x32: a 670 by 190 mm sheet with twelve M5 perimeter fixings, carrying a 64 by 16 pixel matrix on a 10 mm pitch. The section shows the five layers at their real thicknesses - 3 mm front panel, 6 mm short spacers, 2 mm aluminium support panel, 22 mm long spacers, 3 mm back panel - with a countersunk screw entering from the front and a dome nut closed on the back.</desc>
+  <desc>Face-on view of the assembled display and a section through its layers, to the cut sizes in 3D/8x32: a 670 by 190 mm sheet with twelve M5 perimeter fixings, carrying a 64 by 16 pixel matrix on a 10 mm pitch. The section shows the five layers at their real thicknesses - 3 mm front panel, 6 mm short spacers, 2 mm aluminium support panel, 22 mm long spacers, 3 mm back panel - with a wafer head screw sitting on the front surface and a dome nut closed on the back.</desc>
   <defs>
     <linearGradient id="plexiFill" x1="0" y1="0" x2="0.35" y2="1">
       <stop offset="0" stop-color="#3a3f45"/>
@@ -245,7 +255,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 490" widt
       .ledpanel { fill: #14161a; stroke: #2e3238; stroke-width: 0.5; }
       .cut   { fill: #23262b; }
       .shead { fill: #9aa1aa; stroke: #5f656d; stroke-width: 0.5; }
-      .scone { fill: #848b94; }
+      .sface { fill: #a8afb8; }
       .ssocket { fill: #3f444b; }
       .shank { fill: #8a9099; stroke: #5f656d; stroke-width: 0.4; }
       .nut   { fill: #9aa1aa; stroke: #5f656d; stroke-width: 0.5; }
@@ -285,7 +295,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 490" widt
   <g>${screwsSide}</g>
   <g>${legend}</g>
 
-  <text x="${OX}" y="${(stackBot + NUT_HEX_H * VS + NUT_DOME_R * VS + 22).toFixed(2)}" class="dimt">M5&#215;40 countersunk socket screw from the front, M5 dome nut at the back &#183; 36 mm stack leaves 4 mm of thread for the nut</text>
+  <text x="${OX}" y="${(stackBot + NUT_HEX_H * VS + NUT_DOME_R * VS + 22).toFixed(2)}" class="dimt">M5&#215;40 ultra-thin wafer head socket screw from the front, M5 dome nut at the back &#183; 36 mm stack leaves 4 mm of thread, the nut's full depth</text>
 </svg>
 `;
 

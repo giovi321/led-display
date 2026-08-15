@@ -20,18 +20,16 @@ The window between the on time and the off time is when the display is lit. Wind
 - **Apply the off-action all day** (the default) treats the day as one long off-window. This is how you keep a display dark over a weekend: untick Saturday and Sunday and they behave as if the on-time never arrived
 - **Run normally, ignore the schedule** hands those days back. The panel stays at its usual brightness around the clock and only the ticked days follow the on and off times
 
-The difference bites hardest with a single day ticked. With the first setting, ticking only Monday leaves the display dark for six days out of seven - correct if that is what you meant, surprising if you meant "the schedule only governs Mondays". With the second, the other six days are simply untouched.
-
-The default is the first, and it is what every build before 2.8.0 did, so updating never changes what a display already does.
+The difference bites hardest with a single day ticked. With the first setting, ticking only Monday leaves the display dark for six days out of seven, which is correct if that is what you meant, surprising if you meant "the schedule only governs Mondays". With the second, the other six days are simply untouched.
 
 ## Timezone handling
 
 The Timezone selector decides which wall clock the on/off times follow:
 
-- **A zone name** such as `Europe/Zurich` or `America/New_York` - the [IANA](https://www.iana.org/time-zones) names every operating system uses. The device stores that zone's daylight-saving rule and applies it itself, so the schedule stays right across clock changes with nothing to re-save. The list comes from your browser, and the zone your browser is in is marked, so picking the right one is usually one click
+- **A zone name** such as `Europe/Zurich` or `America/New_York`, the [IANA](https://www.iana.org/time-zones) names every operating system uses. The device stores that zone's daylight-saving rule and applies it itself, so the schedule stays right across clock changes with nothing to re-save. The list comes from your browser, and the zone your browser is in is marked, so picking the right one is usually one click
 - **Fixed offset from this browser**, the fallback, copies the browser's current UTC offset when you press Save and applies it to the NTP time. It does not follow daylight saving: after a clock change the schedule drifts by an hour until you save again, and saving from a browser in another timezone stores that browser's offset
 
-The device carries a compact table mapping each zone name to its rule, because it has no room for the full timezone database. If you set a zone name the device does not recognise - through the API, or from a browser newer than the firmware - `GET /api/schedule` reports `tz_known: false`, the UI says so, and the schedule falls back to UTC until you pick a zone it knows. A raw [POSIX TZ string](https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html) such as `CET-1CEST,M3.5.0,M10.5.0/3` is also accepted and used as-is, which is the escape hatch for a zone whose rule changed after your firmware was built.
+The device carries a compact table mapping each zone name to its rule, because it has no room for the full timezone database. If you set a zone name the device does not recognise, whether through the API or from a browser newer than the firmware, `GET /api/schedule` reports `tz_known: false`, the UI says so, and the schedule falls back to UTC until you pick a zone it knows. A raw [POSIX TZ string](https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html) such as `CET-1CEST,M3.5.0,M10.5.0/3` is also accepted and used as-is, which is the escape hatch for a zone whose rule changed after your firmware was built.
 
 Time itself comes from NTP (`pool.ntp.org`) over the network; the sync starts at boot. Until the first successful sync the schedule does nothing and the display stays in whatever state it is in. No internet access means no schedule.
 

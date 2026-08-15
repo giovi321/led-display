@@ -53,7 +53,7 @@ Everything on it is through-hole, so it is hand-solderable with no reflow and no
 | Components | 1 IC, 1 resistor, 6 capacitors, 7 connectors, all through-hole |
 | Ground | Not routed as traces: it is carried by copper pours on both layers |
 
-The figures above come from the files themselves rather than from a datasheet: the outline from `RGB display_v3_contour.gm1`, the hole count and diameters from `RGB display_v3_drill.txt`, the layer count and the parts from the Fritzing sketch. The contour is stroked on its centreline, which leaves the finished size ambiguous by the 0.2 mm width of the outline aperture depending on how your fab interprets it.
+The figures above come from the files themselves rather than from a datasheet: the outline from `RGB display_v4_contour.gm1`, the hole count and diameters from `RGB display_v4_drill.txt`, the layer count and the parts from the Fritzing sketch. The contour is stroked on its centreline, which leaves the finished size ambiguous by the 0.2 mm width of the outline aperture depending on how your fab interprets it.
 
 ### Bill of materials
 
@@ -116,16 +116,16 @@ The bottom layer carries the power distribution on visibly wider traces and the 
 
 Three things the parts table lists that this PCB has no footprint for, and that have to be wired to it:
 
-- **The USB-C power input.** There is no USB-C footprint and no 5.1 kohm CC resistors here. That is a separate breakout module, wired into the `5V` `GND` pads. R1 (330 ohm) is the only resistor on the board
-- **The light sensor itself.** The v4 board has the connector, not the sensor. The BH1750 is a separate module that plugs into it
-- **The ESP32 itself.** It is socketed in two 22-way female headers with their rows 25.4 mm apart, not soldered down. Check that spacing against the dev board you intend to use before ordering: some ESP32-S3 boards are 0.9 in rather than 1.0 in wide
+- The USB-C power input. There is no USB-C footprint and no 5.1 kohm CC resistors here. That is a separate breakout module, wired into the `5V` `GND` pads. R1 (330 ohm) is the only resistor on the board
+- The light sensor itself. The v4 board has the connector, not the sensor. The BH1750 is a separate module that plugs into it
+- The ESP32 itself. It is socketed in two 22-way female headers with their rows 25.4 mm apart, not soldered down. Check that spacing against the dev board you intend to use before ordering: some ESP32-S3 boards are 0.9 in rather than 1.0 in wide
 
 ### Two things the files do not tell you
 
 Worth knowing before you order a set:
 
-- **The capacitor values are not specified anywhere in the design.** C1 is a polarised radial on 2.54 mm lead pitch; C2 to C6 are non-polarised on 5 mm pitch. The Fritzing sketch leaves all six values blank, so the footprints tell you what fits but not what to fit. None are marked do-not-populate
-- **The board is silkscreened `74AHCT125`**, which is the name of the Fritzing part the footprint came from. The part to fit is the **SN74HCT125N** in the table above. Both are quad three-state buffers in the same DIP-14 pinout, so the footprint is right either way
+- The capacitor values are not specified anywhere in the design. C1 is a polarised radial on 2.54 mm lead pitch; C2 to C6 are non-polarised on 5 mm pitch. The Fritzing sketch leaves all six values blank, so the footprints tell you what fits but not what to fit. None are marked do-not-populate
+- The board is silkscreened `74AHCT125`, which is the name of the Fritzing part the footprint came from. The part to fit is the SN74HCT125N in the table above. Both are quad three-state buffers in the same DIP-14 pinout, so the footprint is right either way
 
 One cosmetic defect, if you respin it: in the exported top silkscreen the `ESP32-S3-N16R8` label and the `C2` to `C5` designators are mirrored, while the rest of the text is not. They will print backwards on a real board.
 

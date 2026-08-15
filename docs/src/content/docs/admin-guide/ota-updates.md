@@ -47,9 +47,9 @@ Releases are produced by the repository's release workflow: pushing a tag `vX.Y.
 
 ```json
 {
-  "running_version": "2.2.0",
+  "running_version": "2.10.0",
   "running_slot": "ota_0",
-  "last_result": "ok: 2.2.0 flashed to ota_1, rebooting",
+  "last_result": "ok: 2.10.0 flashed to ota_1, rebooting",
   "in_progress": false,
   "progress_pct": 100
 }

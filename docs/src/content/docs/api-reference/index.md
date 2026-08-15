@@ -110,4 +110,4 @@ Two endpoints replace the whole resource instead, so the client never has to dif
 
 ## Firmware version
 
-This reference matches firmware 2.2.0, reported in `GET /api/status` under `system.fw`. Fields added in 2.2.0 are optional everywhere: a client that only knows the earlier shapes keeps working, and the legacy `scroll` bool is still accepted alongside `scroll_mode`. The v1 map-mode API survives as a compatibility shim at [`POST /api/display/map`](display/#post-apidisplaymap).
+This reference matches firmware 2.10.0, reported in `GET /api/status` under `system.fw`. Fields are added as optional everywhere, so a client written against an earlier shape keeps working: the `scroll` bool is still accepted alongside `scroll_mode`, and the older map-mode API survives as a compatibility shim at [`POST /api/display/map`](display/#post-apidisplaymap).

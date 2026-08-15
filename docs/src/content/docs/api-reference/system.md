@@ -62,7 +62,7 @@ curl http://192.168.1.50/api/status
     "color": {"r": 80, "g": 32, "b": 0}
   },
   "system": {
-    "fw": "2.2.0",
+    "fw": "2.10.0",
     "chip": "ESP32-S3",
     "cores": 2,
     "rev": 3,
@@ -100,7 +100,7 @@ curl http://192.168.1.50/api/status
   },
   "ota": {
     "slot": "ota_0",
-    "version": "2.2.0",
+    "version": "2.10.0",
     "in_progress": false
   },
   "light_sensor": {
@@ -119,10 +119,10 @@ curl http://192.168.1.50/api/status
 | `wifi.rssi` | Signal strength in dBm |
 | `wifi.ap_ssid` | The SSID the setup network appears under, reported in every mode |
 | `display.*` | Current text state; `scroll_mode`, `font`, `spacing`, `speed` and `scale` as documented under [display control](../display/#post-apidisplaytext) |
-| `display.scroll` | The legacy bool, true for both scrolling modes |
+| `display.scroll` | The plain bool, true for both scrolling modes |
 | `display.brightness` | The level the panel is actually running at: 0 in a blanked off-window, the light sensor's level while it drives, halved when the value is stale, never above the cap |
 | `display.brightness_stored` | The brightness you set and the device persisted. It is what the display returns to when the schedule, the sensor or the staleness guard stops overriding it |
-| `display.text_stored` | The persisted static text, distinct from `display.text` (whatever is on screen - the pushed value in integration mode) |
+| `display.text_stored` | The persisted static text, distinct from `display.text` (whatever is on screen, which in integration mode is the pushed value) |
 | `display.source` | `static` or `integration`, see [`POST /api/display/source`](../display/#post-apidisplaysource) |
 | `system.heap` | Free heap in bytes |
 | `system.uptime` | Seconds since boot |
@@ -153,7 +153,7 @@ curl -X POST http://192.168.1.50/api/system/reboot -H "X-Api-Key: mysecret"
 
 ## POST /api/system/boot_screen
 
-Chooses what settles on the display once the network is up. The two screens either side of this one - the startup splash and the WiFi-lost screen - are set through `/api/system/screens` below.
+Chooses what settles on the display once the network is up. The two screens either side of this one, the startup splash and the WiFi-lost screen, are set through `/api/system/screens` below.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -262,7 +262,7 @@ curl http://192.168.1.50/api/schedule
 | `other_days` | What a day outside `days` does: `off` applies the off-action all day (the default), `run` ignores the schedule entirely on that day |
 | `utc_offset` | Minutes from UTC, for example 60 for CET. Used only while `tz` is empty |
 | `tz` | IANA zone name, e.g. `Europe/Zurich`. When set, the schedule follows that zone's rule (daylight-saving transitions included) and `utc_offset` is ignored. Empty = fixed offset |
-| `tz_known` | Whether the device recognises `tz`. False means it is running on UTC instead - a typo, or a zone newer than the firmware's table |
+| `tz_known` | Whether the device recognises `tz`. False means it is running on UTC instead: a typo, or a zone newer than the firmware's table |
 | `tz_posix` | The POSIX rule `tz` resolved to, empty when unknown. Diagnostic only |
 | `on_hour`/`on_min`, `off_hour`/`off_min` | Local switch-on and switch-off times; a window that wraps midnight (on 22:00, off 06:00) works |
 | `off_action` | What the off window does: `off` blanks the panel (the default), `dim` holds it at `off_brightness` |
@@ -279,9 +279,9 @@ curl -X POST http://192.168.1.50/api/schedule \
        "off_action":"dim","off_brightness":16}'
 ```
 
-`days` and `other_days` decide the shape of the week between them. A day in `days` runs the on/off window. A day outside it is governed entirely by `other_days` - the on/off times never come into it - and is either one long off-window (`off`) or no schedule at all (`run`). So `{"days":31,"other_days":"off"}` lights the panel on weekday mornings and keeps it dark all weekend, while `{"days":31,"other_days":"run"}` governs weekdays and leaves the weekend at normal brightness around the clock. `other_days` defaults to `off`, which is how every build before 2.8.0 behaved.
+`days` and `other_days` decide the shape of the week between them. A day in `days` runs the on/off window. A day outside it is governed entirely by `other_days` (the on/off times never come into it) and is either one long off-window (`off`) or no schedule at all (`run`). So `{"days":31,"other_days":"off"}` lights the panel on weekday mornings and keeps it dark all weekend, while `{"days":31,"other_days":"run"}` governs weekdays and leaves the weekend at normal brightness around the clock. `other_days` defaults to `off`.
 
-A window whose off time is at or before its on time wraps midnight, but it does not carry into the next day unless that day is in `days` too: `{"days":1,"on_hour":22,"off_hour":6}` lights Monday 22:00–24:00 and Monday 00:00–06:00, not Tuesday morning.
+A window whose off time is at or before its on time wraps midnight, but it does not carry into the next day unless that day is in `days` too: `{"days":1,"on_hour":22,"off_hour":6}` lights Monday 22:00 to 24:00 and Monday 00:00 to 06:00, not Tuesday morning.
 
 Out-of-range values are rejected rather than wrapped: hours must be 0..23, minutes 0..59, `utc_offset` -840..840 and `off_brightness` 1..255. `days` is masked to its seven bits. `tz` accepts up to 48 printable ASCII characters; an empty string clears the override. A name the device's table does not carry is stored and passed to libc as-is, which is what makes a raw POSIX TZ string work too; check `tz_known` on the GET to tell the two apart.
 
@@ -435,9 +435,9 @@ Open. Queries the latest GitHub release of the repository configured at build ti
 {
   "ok": true,
   "current": "2.1.0",
-  "latest": "2.2.0",
+  "latest": "2.10.0",
   "update_available": true,
-  "asset_url": "https://github.com/giovi321/led-display/releases/download/v2.2.0/led_display.bin"
+  "asset_url": "https://github.com/giovi321/led-display/releases/download/v2.10.0/led_display.bin"
 }
 ```
 
@@ -453,9 +453,9 @@ curl http://192.168.1.50/api/ota/status
 
 ```json
 {
-  "running_version": "2.2.0",
+  "running_version": "2.10.0",
   "running_slot": "ota_0",
-  "last_result": "ok: 2.2.0 flashed to ota_1",
+  "last_result": "ok: 2.10.0 flashed to ota_1",
   "in_progress": false,
   "progress_pct": 100
 }
@@ -477,7 +477,7 @@ Top-level shape:
 ```json
 {
   "v": 1,
-  "fw": "2.3.0",
+  "fw": "2.10.0",
   "note": "wifi credentials not included",
   "display": {"text": "...", "color": {"r":80,"g":32,"b":0}, "brightness": 60,
               "brightness_cap": 128, "scroll": false, "scroll_mode": "off",
@@ -499,7 +499,7 @@ Top-level shape:
                "off_min": 0, "days": 127, "other_days": "off",
                "utc_offset": 0, "tz": "",
                "off_action": "off", "off_brightness": 16},
-  "light_sensor": {"v":1, "enabled": false, "gpio": 0, "dark_raw": 200,
+  "light_sensor": {"v":3, "enabled": false, "sda": 8, "scl": 9, "dark_raw": 200,
                    "bright_raw": 2800, "min_brightness": 8,
                    "max_brightness": 128, "gamma_x10": 10}
 }
@@ -507,7 +507,7 @@ Top-level shape:
 
 Two fields use the storage dialect rather than the API dialect: `display.boot_screen` is numeric (0 text, 1 ip, 2 none) and `integrations.webhook_events` is the numeric bitmask, not the name array used by [`/api/integrations`](../integrations/#post-apiintegrations).
 
-The `light_sensor` section describes the configuration only; the live reading is not part of a backup. A file written by an older build simply lacks the sections and fields added since (2.2.0: `light_sensor`, `scroll_mode`, `font`, `spacing`, `off_action`, `off_brightness`; 2.3.0: `mqtt`, `display.source`, `value_config.default_text`, `schedule.tz`); it still imports, and the missing settings keep their current values.
+The `light_sensor` section describes the configuration only; the live reading is not part of a backup. A file written by an older build simply lacks the sections and fields added since. It still imports, and the settings it does not mention keep their current values.
 
 ## POST /api/config/import
 

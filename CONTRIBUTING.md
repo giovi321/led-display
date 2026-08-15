@@ -21,14 +21,14 @@ TESTS=1 bash Firmware/tools/wsl_build.sh  # build + host tests
 
 ## Host tests
 
-The pure modules (`mapping.c`, `valuefmt.c`) have host-side unit tests that need nothing but gcc:
+The pure modules (`mapping.c`, `valuefmt.c`, `fonts.c`, `wifi_pick.c`, `devname.c`, `light_curve.c`) have host-side unit tests that need nothing but gcc:
 
 ```sh
 cd Firmware/test/host
 ./run_tests.sh
 ```
 
-They must pass before any PR. If you change `mapping.c` or `valuefmt.c`, extend the tests to cover the change.
+They must pass before any PR. If you change one of those modules, extend the tests to cover the change.
 
 ## Module style
 

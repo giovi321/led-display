@@ -7,10 +7,6 @@ sidebar:
 
 The firmware includes an optional WireGuard client. Its purpose is remote access done right: the device dials out to a WireGuard peer you control (a VPS, a home router, an existing VPN server) and becomes reachable through the encrypted tunnel. The alternative, port-forwarding the device's plain-HTTP port 80 to the internet, would expose an unauthenticated or at best [shared-key](../api-key/) HTTP API to the whole world. Do not do that.
 
-:::caution[Update to 2.3.1 or later]
-On 2.2.0 and 2.3.0, enabling the tunnel panics the device the moment it is switched on, and it reboots until you disable it again. The cause and the fix are described in [why the tunnel used to crash](#why-the-tunnel-used-to-crash) below. If you are stuck on an affected build, power-cycle and disable the tunnel from the Network tab before it reconnects, then update.
-:::
-
 ## The vendored component
 
 The WireGuard implementation is a vendored copy of the `esp_wireguard` component, taken from the droscy fork (release 0.4.5) of the original trombik project, chosen because it already carried fixes for ESP-IDF 6 and mbedtls 4. It was then ported for this firmware; the full list of local changes, validation notes, and runtime caveats lives in `Firmware/components/esp_wireguard/PORTING.md` in the repository.
@@ -41,11 +37,11 @@ wg genkey | tee device.key | wg pubkey > device.pub
 
 On the peer side, add the device as a `[Peer]` with `AllowedIPs` set to the device's tunnel address as a /32.
 
-Most people never do that by hand. A server that generates the client configuration for you - UniFi, and most router and VPN provider interfaces - creates the keypair at its end, keeps the public half itself, and hands you a config containing the **private** key. Paste that private key into the display and the two sides already agree; there is nothing to copy back. The display's own public key is shown under Connection details for the case where you are writing the server's peer entry yourself, or want to confirm which key the device is presenting, and in `GET /api/wireguard` as `status.public_key`. The public half is not a secret; the private key never leaves the device except through the [config export](../backup-restore/).
+Most people never do that by hand. A server that generates the client configuration for you (UniFi, and most router and VPN provider interfaces) creates the keypair at its end, keeps the public half itself, and hands you a config containing the **private** key. Paste that private key into the display and the two sides already agree; there is nothing to copy back. The display's own public key is shown under Connection details for the case where you are writing the server's peer entry yourself, or want to confirm which key the device is presenting, and in `GET /api/wireguard` as `status.public_key`. The public half is not a secret; the private key never leaves the device except through the [config export](../backup-restore/).
 
 ## Tunnel address and what it can reach
 
-The tunnel address is normally written as a /32, the way `wg-quick` configurations do it, and the firmware accepts that. But a /32 needs a caveat here, because this device has no routing table: lwIP chooses an interface by matching the destination against each interface's own subnet and otherwise falls back to the default interface. Taken literally, a /32 tunnel matches nothing at all - not even the peer at the other end - so replies to anything inside the tunnel would leave over WiFi and disappear. A tunnel that completes a handshake but cannot be pinged is exactly this.
+The tunnel address is normally written as a /32, the way `wg-quick` configurations do it, and the firmware accepts that. But a /32 needs a caveat here, because this device has no routing table: lwIP chooses an interface by matching the destination against each interface's own subnet and otherwise falls back to the default interface. Taken literally, a /32 tunnel matches nothing at all, not even the peer at the other end, so replies to anything inside the tunnel would leave over WiFi and disappear. A tunnel that completes a handshake but cannot be pinged is exactly this.
 
 The firmware therefore gives the tunnel interface the widest Allowed IPs range that contains its own address: with address `10.6.0.2/32` and allowed IPs `10.6.0.0/24`, the interface comes up as `10.6.0.2/24` and the whole tunnel subnet is reachable in both directions. Allowed IPs is already the list of what belongs to the tunnel, so this needs no extra setting. `0.0.0.0/0` is excluded from that rule, because full-tunnel is handled by making WireGuard the default interface instead.
 
@@ -80,29 +76,27 @@ A resolved `endpoint_ip`, `stage` 4 and `last_handshake` 0 together mean the dev
 
 A **fresh handshake with `rx_accepted` stuck at 0** is the next case along, and the one that looks most like a device fault while being nothing of the kind: the tunnel is established, the interface is up, and not one packet has ever come down it. Nothing is being sent to the device. Three things to check, in order:
 
-1. The server's `[Peer]` entry for the display needs `AllowedIPs` covering the display's tunnel address, typically `10.6.0.2/32`. WireGuard identifies a peer by its key during the handshake, so the handshake succeeds even when this is missing or wrong - but the server then has no route back down the tunnel and never sends anything
+1. The server's `[Peer]` entry for the display needs `AllowedIPs` covering the display's tunnel address, typically `10.6.0.2/32`. WireGuard identifies a peer by its key during the handshake, so the handshake succeeds even when this is missing or wrong, but the server then has no route back down the tunnel and never sends anything
 2. Whatever you are pinging *from* has to route the display's address into the VPN. On another WireGuard client that means its own `AllowedIPs` must include the tunnel subnet, not just the server
 3. If you are reaching the display from a client rather than from the server itself, the server has to forward between peers: `net.ipv4.ip_forward=1` and no firewall rule in the way
 
-If `rx_accepted` climbs while pings still fail, the packets are arriving and the problem is on the display side after all - `rx_dropped` climbing alongside it means they are being refused by the allowed-IPs check.
+If `rx_accepted` climbs while pings still fail, the packets are arriving and the problem is on the display side after all: `rx_dropped` climbing alongside it means they are being refused by the allowed-IPs check.
 
-## Why the tunnel used to crash
+## Two build settings the tunnel depends on
 
-Worth writing down, because the symptom pointed everywhere except the cause.
+`CONFIG_ESP_NETIF_BRIDGE_EN` and `CONFIG_LWIP_NUM_NETIF_CLIENT_DATA=1` are set in `sdkconfig.defaults` for this component's sake. Do not strip them from a custom build: without them, enabling the tunnel panics the device on the spot.
 
-ESP-IDF's networking layer, `esp_netif`, keeps its own handle for each interface in the lwIP `netif`'s `state` field, and the global callback it registers for interface events casts that field back to an `esp_netif` handle without checking. WireGuard does not go through `esp_netif`: it adds a raw lwIP interface whose `state` points at the component's own device structure. The first address event fired while that interface was being created therefore handed ESP-IDF a pointer to something that was never an `esp_netif`, it dereferenced it, and the device panicked - before a single line of WireGuard's own setup had run.
+ESP-IDF's networking layer, `esp_netif`, keeps its own handle for each interface in the lwIP `netif`'s `state` field, and the global callback it registers for interface events casts that field back to an `esp_netif` handle without checking. WireGuard does not go through `esp_netif`: it adds a raw lwIP interface whose `state` points at the component's own device structure. An address event fired while that interface is being created would hand ESP-IDF a pointer to something that was never an `esp_netif`.
 
-ESP-IDF documents the rule in `lwipopts.h`: interfaces that use `state` for themselves need the `esp_netif` handle kept in lwIP's per-interface client data instead. It only turns that on automatically for the two such interfaces it ships (the bridge and PPP), and a third-party interface like WireGuard is not on the list. The fix is to turn it on explicitly, which the firmware now does (`CONFIG_ESP_NETIF_BRIDGE_EN`, `CONFIG_LWIP_NUM_NETIF_CLIENT_DATA=1`); the callback then resolves to nothing for interfaces `esp_netif` did not create, and returns instead of following a wild pointer.
+ESP-IDF documents the rule in `lwipopts.h`: interfaces that use `state` for themselves need the `esp_netif` handle kept in lwIP's per-interface client data instead. It turns that on automatically only for the two such interfaces it ships (the bridge and PPP), and a third-party interface like WireGuard is not on the list. With the option on, the callback resolves to nothing for interfaces `esp_netif` did not create and returns instead of following a wild pointer.
 
-Two things this was mistaken for along the way, both wrong: the lwIP task's stack (the tunnel's crypto does run there, but measurement showed under 1.5 KB of a 8 KB stack in use) and the timing of NTP (the 90-second delay before the crash was just the tunnel waiting for the clock; once the network allowed NTP, the crash moved to immediately after switching the tunnel on). `/api/status` now reports `wireguard.tcpip_stack_free_min` so the stack question can be answered with a number rather than a guess.
-
-A crash during bring-up also used to be able to roll back a firmware update: the tunnel started connecting before the new image had been marked valid, so the bootloader reverted a perfectly good update and the old version reappeared by itself. The tunnel and the MQTT client now start only after that point.
+The tunnel and the MQTT client also start only after the running image has been marked valid, so a fault during bring-up cannot make the bootloader roll back an otherwise good update. `/api/status` reports `wireguard.tcpip_stack_free_min`, because the tunnel's crypto runs on the lwIP task and that number answers the stack question with a measurement rather than a guess.
 
 ## The crash-loop guard
 
 A tunnel bug must never brick the device out of its own web UI. The firmware counts consecutive crash reboots (panic or watchdog resets) that happen while the tunnel is enabled; after three in a row it holds the tunnel down at boot instead of starting it. The device then boots normally, the web UI stays reachable, and the status reports `held: true` ("Tunnel suspended after repeated reboots").
 
-The counter resets on any clean boot (power cycle, reboot button, OTA restart) and on the first completed handshake. Re-saving the WireGuard config lifts the hold and retries immediately - that is the deliberate "I fixed it, try again" signal.
+The counter resets on any clean boot (power cycle, reboot button, OTA restart) and on the first completed handshake. Re-saving the WireGuard config lifts the hold and retries immediately, which is the deliberate "I fixed it, try again" signal.
 
 ## How it behaves at runtime
 
@@ -116,7 +110,7 @@ WireGuard handshake timestamps require sane wall time, or the peer rejects the i
 - allowed IPs are IPv4 only
 - needs NTP time before the handshake, as above; a network that blocks NTP delays or breaks the tunnel
 - the endpoint hostname is resolved when the tunnel is built, not per packet; a moved endpoint is picked up by the 180 second stall recovery
-- experimental until proven on hardware, per the note at the top
+- treat it as experimental: it has not yet been verified against a peer on real hardware over a long run
 
 ## Disabling at build time
 

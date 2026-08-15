@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-Firmware v2 (current version 2.2.0, `fw_version.h`) is a single ESP-IDF application targeting the ESP32-S3, built with ESP-IDF v6.0.1. All application code lives in `Firmware/main/`; the only extra component is the vendored WireGuard client in `Firmware/components/esp_wireguard/`. Modules with pure logic (pixel mapping, value formatting, the fonts, the saved-network ordering, the device-name rules, the light-sensor curve) contain no ESP-IDF calls so they compile and run on the host, see [building](../../development/building/).
+Firmware v2 (current version 2.10.0, `fw_version.h`) is a single ESP-IDF application targeting the ESP32-S3, built with ESP-IDF v6.0.1. All application code lives in `Firmware/main/`; the only extra component is the vendored WireGuard client in `Firmware/components/esp_wireguard/`. Modules with pure logic (pixel mapping, value formatting, the fonts, the saved-network ordering, the device-name rules, the light-sensor curve) contain no ESP-IDF calls so they compile and run on the host, see [building](../../development/building/).
 
 ![Firmware module map](/led-display/assets/diagrams/firmware-modules.svg)
 
@@ -23,9 +23,10 @@ Firmware v2 (current version 2.2.0, `fw_version.h`) is a single ESP-IDF applicat
 8. Show the configured boot screen: stored text, the IP banner, or blank (first boot with no stored text falls back to the IP banner). In AP mode the scrolling setup banner overrides the choice, and a `wifi_manager` state callback re-shows it if the AP is raised later
 9. Start the scheduler: SNTP sync, on/off schedule, value staleness ticks
 10. Initialize the ambient light sensor, after the scheduler on purpose: a first reading re-applies the brightness through the scheduler's arbiter, which needs its mutex to exist
-11. Initialize the WireGuard client, best effort: runtime-disabled until configured, a no-op stub when compiled out
-12. Start the HTTP server, last, so endpoints become reachable only once display state is settled
-13. Call `ota_mark_valid` (the web server answering is the "provably up" bar; a crash before this point rolls back to the previous OTA slot on the next boot), then fire the boot webhook
+11. Start the HTTP server, so endpoints become reachable only once display state is settled
+12. Call `ota_mark_valid`. The web server answering is the "provably up" bar; a crash before this point rolls back to the previous OTA slot on the next boot
+13. Start the optional outbound clients, WireGuard and MQTT, both best effort: runtime-disabled until configured, no-op stubs when compiled out. They come last because they dial out to networks this image has never met, and a fault here before step 12 would roll back an otherwise good update
+14. Fire the boot webhook
 
 ## Module map
 
@@ -39,19 +40,20 @@ Firmware v2 (current version 2.2.0, `fw_version.h`) is a single ESP-IDF applicat
 
 `fonts.c` holds the glyph data and the spacing rules, pure C: three column-major ASCII fonts (`5x7`, `3x5`, `7x12`), proportional advance with tabular digits, monospace as the alternative, and `font_fit`, which substitutes the tallest font that fits when the stored one is too tall for the active layout.
 
-`light_sensor.c` reads a BH1750 lux meter over I2C at address 0x23 once a second and hands the level to the scheduler's brightness arbiter; `light_curve.c` is its pure half (reading to brightness, smoothing, hysteresis, pin rules). Lux is clamped onto a 0..4095 scale, inherited from the ADC the sensor used to be and kept because it is already brighter than any readable room. Sampling runs whenever the sensor answers, so the UI can calibrate against a live reading before it is switched on, and a sensor that stops answering is reported rather than frozen.
+`light_sensor.c` reads a BH1750 lux meter over I2C at address 0x23 once a second and hands the level to the scheduler's brightness arbiter; `light_curve.c` is its pure half (reading to brightness, smoothing, hysteresis, pin rules). Lux is clamped onto a 0..4095 scale, which is already brighter than any readable room. Sampling runs whenever the sensor answers, so the UI can calibrate against a live reading before it is switched on, and a sensor that stops answering is reported rather than frozen.
 
 ### Settings and NVS
 
-`settings.c` persists everything under the NVS namespace `cfg`. Scalar values (text, color, brightness, brightness cap, scroll mode, speed, font, spacing, font scale, boot screen, device name) have individual keys with read-modify-write helpers per field, so HTTP handlers never need the full schema. The legacy `scrl` on/off bool is kept in sync with the `scm` scroll mode so a rollback to an older image still finds a value it understands. Structured config is stored as JSON blobs (up to 2048 bytes each) in the same namespace:
+`settings.c` persists everything under the NVS namespace `cfg`. Scalar values (text, color, brightness, brightness cap, scroll mode, speed, font, spacing, font scale, boot screen, device name) have individual keys with read-modify-write helpers per field, so HTTP handlers never need the full schema. The `scrl` on/off bool is kept in sync with the `scm` scroll mode so a rollback to an older image still finds a value it understands. Structured config is stored as JSON blobs (up to 2048 bytes each) in the same namespace:
 
 | Blob key | Content |
 | --- | --- |
 | `layout` | panel type, grid size, per-cell chain index and rotation |
 | `colors` | saved color presets |
 | `valuecfg` | value endpoint formatting and staleness config |
-| `integr` | API key, outbound webhook config, and the legacy device-name copy the `dname` key superseded |
+| `integr` | API key, outbound webhook config, and the device-name copy the `dname` key superseded |
 | `wg` | WireGuard client config |
+| `mqtt` | MQTT broker URI, credentials, base topic, Home Assistant discovery |
 | `lsen` | light sensor I2C pins, calibration readings, brightness range, curve |
 
 The legacy v1 `map` key (integer mapping mode 0..6) is read once and migrated to a `layout` blob at boot.
@@ -71,7 +73,7 @@ Two namespaces sit outside `cfg`: `sched` for the schedule scalars plus its off-
 | `api_system.c` | `/api/status`, `/api/system/{reboot,boot_screen,device_name,factory_reset}`, `/api/schedule` |
 | `api_config.c` | `/api/config/{export,import}` |
 | `api_ota.c` | `/api/ota/{upload,url,status}` |
-| `api_integrations.c` | `/api/integrations`, `/api/wireguard` |
+| `api_integrations.c` | `/api/integrations`, `/api/wireguard`, `/api/mqtt` |
 | `web_static.c` | `/`, gzipped assets, captive-portal probes |
 
 `web_common.c` provides the shared helpers: JSON request/response plumbing and authentication. Auth is a single `X-Api-Key` header compared in constant time against the stored key; an empty stored key disables auth. Mutating handlers call `web_require_auth` first and get a 401 JSON error sent for them on mismatch.
@@ -97,6 +99,10 @@ It also owns the one function that decides what brightness reaches the panel, so
 ### OTA
 
 `ota_update.c` feeds two paths into the same `esp_ota` machinery: the web upload streams the request body chunk by chunk, and the URL pull runs `esp_https_ota` in a worker task (HTTP allowed for LAN hosts, TLS with the IDF certificate bundle otherwise). Rollback is armed by `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`: a new image that never reaches `ota_mark_valid` reverts on the next boot.
+
+### MQTT
+
+`mqtt_link.c` wraps `esp-mqtt` behind the same shape as the WireGuard client: compiled in when `CONFIG_LEDDISP_MQTT=y` (default on), no-op stubs otherwise, and down until a broker URI is configured. It subscribes the `set` topics (text, value, brightness, power, source, reboot), publishes a retained state document every 30 seconds and after each command, and registers a last will so the broker marks the device offline on an unclean drop. Values arriving on `value/set` go through the same `valuefmt` path and the same staleness bookkeeping as `POST /api/value`. Home Assistant discovery, when enabled, publishes retained config topics on every connect and clears them with empty retained payloads when switched off.
 
 ### WireGuard
 

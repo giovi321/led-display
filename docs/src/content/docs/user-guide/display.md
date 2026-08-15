@@ -16,7 +16,7 @@ The header of the web UI carries a live preview of the panel: the same text in t
 The switch at the top decides where the panel content comes from:
 
 - **Static text** shows whatever you type in the Text card below
-- **Integration** shows the last value pushed by your integration (the [value endpoint](../value-updates/) or [MQTT](../../admin-guide/mqtt/)), formatted per the Integrations tab. Until the first value arrives - right after a reboot, for instance - the panel shows the placeholder text configured with the [value settings](../value-updates/#formatting), or stays blank if none is set
+- **Integration** shows the last value pushed by your integration (the [value endpoint](../value-updates/) or [MQTT](../../admin-guide/mqtt/)), formatted per the Integrations tab. Until the first value arrives, right after a reboot for instance, the panel shows the placeholder text configured with the [value settings](../value-updates/#formatting), or stays blank if none is set
 
 Switching is immediate and persisted. Values pushed while the source is static are still accepted and remembered; switching to integration shows the latest one.
 

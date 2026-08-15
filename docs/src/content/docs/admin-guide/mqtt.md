@@ -5,7 +5,7 @@ sidebar:
   order: 8
 ---
 
-The optional MQTT client makes the display a node on your broker: other systems push values or text to it, control brightness, power and the content source, and read a retained status topic. With Home Assistant discovery enabled, the display appears in HA as a device with ready-made entities - no YAML.
+The optional MQTT client makes the display a node on your broker: other systems push values or text to it, control brightness, power and the content source, and read a retained status topic. With Home Assistant discovery enabled, the display appears in HA as a device with ready-made entities, and no YAML to write.
 
 Everything lives on the Integrations tab (advanced mode) or via `GET`/`POST /api/mqtt`. The client stays down until you enable it and set a broker URI.
 
@@ -21,9 +21,9 @@ Everything lives on the Integrations tab (advanced mode) or via `GET`/`POST /api
 
 The client reconnects on its own after broker or WiFi outages. A last-will message marks the device `offline` when the connection drops uncleanly.
 
-The client ID and, when no base topic is set, the topic prefix are taken from the device name at connect time. Renaming the device therefore moves its topics only after the MQTT config is saved again or the device reboots - which is deliberate, so a rename cannot silently orphan a broker ACL or a Home Assistant device mid-session.
+The client ID and, when no base topic is set, the topic prefix are taken from the device name at connect time. Renaming the device therefore moves its topics only after the MQTT config is saved again or the device reboots. That is deliberate, so a rename cannot silently orphan a broker ACL or a Home Assistant device mid-session.
 
-Note the security boundary: MQTT commands are **not** gated by the [API key](../api-key/) - the broker's own authentication and ACLs are what stands between the network and the display. Point the device only at a broker you trust, and scope its ACL to the base topic.
+Note the security boundary: MQTT commands are **not** gated by the [API key](../api-key/): the broker's own authentication and ACLs are what stands between the network and the display. Point the device only at a broker you trust, and scope its ACL to the base topic.
 
 ## Topics
 
@@ -44,7 +44,7 @@ The state JSON:
 
 ```json
 {"power": "ON", "brightness": 32, "text": "CHF 12'345.6", "source": "integration",
- "value_age_s": 42, "rssi": -58, "ip": "192.168.1.50", "fw": "2.3.0", "uptime_s": 86452}
+ "value_age_s": 42, "rssi": -58, "ip": "192.168.1.50", "fw": "2.10.0", "uptime_s": 86452}
 ```
 
 `power` reports whether the panel is showing anything; `brightness` is the stored user level (what the slider says, not what the schedule or light sensor currently applies); `value_age_s` is `-1` before the first value.

@@ -29,7 +29,7 @@ Shows text and persists it, so it survives a reboot. Every field is optional; om
 | `text` | string | Up to 127 characters |
 | `color` | object | `{"r":0..255,"g":0..255,"b":0..255}`; omitted channels keep their value |
 | `scroll_mode` | string | `off`, `restart` (scrolls off, then re-enters) or `continuous` (marquee, the next copy follows two character cells behind the tail) |
-| `scroll` | bool | Legacy on/off switch, kept for clients written before 2.2.0 |
+| `scroll` | bool | Plain on/off switch, still accepted; `scroll_mode` supersedes it |
 | `speed` | number | 0..255; scroll frame interval maps linearly from 200 ms (0) to 15 ms (255) |
 | `font` | string | `5x7` (default), `3x5` (compact, uppercase letterforms) or `7x12` (tall, real lowercase) |
 | `spacing` | string | `proportional` (default, blank glyph columns trimmed) or `monospace` (fixed cell); digits are fixed-width either way |
@@ -145,10 +145,7 @@ Errors, all 400:
 | `dark_raw/bright_raw must be 0-4095` | Reading out of range |
 | `min_brightness/max_brightness must be 0-255` | Brightness out of range |
 | `gamma_x10 must be 5-40 (0.5-4.0)` | Curve out of range |
-| `dark_raw and bright_raw must differ, and SDA and SCL must be different pins` | A configuration that could not produce a brightness |
-
-Before 2.10.0 this endpoint also took `type` and `gpio` for an analog sensor on an ADC pin. Both are gone, along with `valid_gpios` on the GET.
-| `dark_raw and bright_raw must differ, and enabling the sensor needs a pin` | A zero-width calibration window has no slope, and there is nothing to enable without a pin |
+| `dark_raw and bright_raw must differ, and SDA and SCL must be different pins` | A configuration that could not produce a brightness: a zero-width calibration window has no slope, and one pin cannot carry both bus lines |
 
 Plus 500 `"saving light sensor config failed"` when the write to flash fails.
 
@@ -188,7 +185,7 @@ Response: `{"ok": true}`
 
 ## POST /api/display/map
 
-Compatibility shim for the v1 map-mode API. The mode names map onto the legacy wiring presets, which are converted into equivalent runtime layouts. New clients should use [`POST /api/layout`](../layout/) instead.
+Compatibility shim for the older map-mode API. Each mode name names a wiring preset, which is converted into the equivalent runtime layout. New clients should use [`POST /api/layout`](../layout/) instead.
 
 | Field | Type | Meaning |
 |---|---|---|

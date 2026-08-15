@@ -28,7 +28,7 @@ presets in the UI, plus custom w/h).
 panels, max 8192 total pixels). Each cell holds:
 
 - `chain`: position of that panel in the physical daisy-chain (0..n-1),
-  a permutation - every chain index appears exactly once
+  a permutation, so every chain index appears exactly once
 - `rot`: rotation of the physically mounted panel: 0 or 180 always;
   90/270 only when `w == h`
 
@@ -100,7 +100,7 @@ captive-portal probes, and a registration table each module contributes to.
 NVS namespace `cfg` keeps existing scalar keys (text, colour, brightness,
 scroll, speed, scale, boot screen). New scalar keys: `scm` (scroll mode,
 section 11), `font`, `prop` (spacing, section 11), `dname` (device name;
-absent means unset and every consumer falls back to its historical default)
+absent means unset and every consumer falls back to its own default)
 and `dsrc` (display content source: 0 static text, 1 integration value;
 absent means static). Structured state is stored as JSON blobs under their
 own keys:
@@ -113,7 +113,7 @@ own keys:
 | `integr` | api_key, webhook url, webhook event mask, the web UI login (`ui_auth`, `ui_user`, `ui_pass`), plus the legacy device-name copy `dname` superseded |
 | `wg` | WireGuard enable, private key, peer public key, endpoint, port, allowed IPs, keepalive |
 | `mqtt` | MQTT enable, broker URI, username, password, base topic, HA discovery flag + prefix |
-| `lsen` | light sensor: enabled, sda, scl, dark_raw, bright_raw, min_bri, max_bri, gamma. v3 from 2.10.0; v1 and v2 described an analog sensor on an ADC pin and are discarded on load, because their calibration numbers are ADC counts and mean nothing in lux |
+| `lsen` | light sensor: enabled, sda, scl, dark_raw, bright_raw, min_bri, max_bri, gamma. Blob version 3; older versions are discarded on load rather than migrated, because their calibration numbers are not in lux |
 
 `settings.c` gains load/save helpers per blob; every blob has a version
 field for forward migration.
@@ -144,7 +144,7 @@ All existing endpoints remain. New/changed:
 | GET/POST | `/api/colors` | saved colour presets |
 | POST | `/api/value` | `{"value":"4.2"}` or `{"value":4.2}`; device formats via valuecfg template and displays |
 | GET/POST | `/api/value/config` | prefix/suffix/decimals/staleness settings |
-| GET | `/api/config/export` | full config JSON (all blobs + scalars, WiFi credentials excluded; API key and WG private key included - endpoint requires the API key when one is set) |
+| GET | `/api/config/export` | full config JSON (all blobs + scalars, WiFi credentials excluded; API key and WG private key included; the endpoint requires the API key when one is set) |
 | POST | `/api/config/import` | restore config, rebuild LUT, apply |
 | POST | `/api/ota/upload` | raw `.bin` body -> inactive OTA slot |
 | POST | `/api/ota/url` | `{"url":"https://..."}` pull update |
@@ -214,8 +214,8 @@ must not dim, mark or overwrite the user's static text.
 **Content source**: the `dsrc` scalar decides what the panel is wired to
 show. Static: the stored text. Integration: the last value pushed via
 `/api/value` or MQTT, held in RAM only (a reboot shows the `default_text`
-placeholder until the next push - a stale-looking figure must never pose as
-live data). Values pushed in static mode are still formatted, remembered and
+placeholder until the next push, because a stale-looking figure must never
+pose as live data). Values pushed in static mode are still formatted, remembered and
 counted fresh, so switching to integration shows the latest one. The switch,
 the test-stop and the MQTT power-on all re-render through one helper
 (`api_display_apply_source`).
@@ -267,7 +267,7 @@ Status (handshake age, peer) in `/api/status`. If the IDF 6 port proves
 unreasonable, the feature ships compile-time disabled and documented as
 experimental; nothing else in this design depends on it.
 
-Two hard lessons are baked in (2.3.0). First, every component call is
+Two constraints are baked in. First, every component call is
 marshalled into the lwIP tcpip thread and the component's own rekey timer
 runs there too, so `psa_crypto_init()` and the x25519/blake2s handshake
 crypto all execute on the tcpip stack:
@@ -297,7 +297,7 @@ Ordering constraints inside that sequence:
   after 30 min offline, raises the setup AP alongside the retries (AP+STA,
   every 5 min) until a reconnect tears it down again
 - the boot screen is user-selectable except in AP mode, where the scrolling
-  `Setup AP: <ssid> / <ip>` banner always wins - including when the AP is
+  `Setup AP: <ssid> / <ip>` banner always wins, including when the AP is
   raised later, at runtime, by the reconnect task
 - the light sensor starts after the scheduler: its first reading re-applies
   the brightness through the scheduler's arbiter (section 5), which needs its
@@ -322,11 +322,12 @@ the active layout falls back to the tallest one that fits (`font_fit`).
 
 Spacing is proportional by default: blank edge columns are trimmed per
 glyph, spaces advance `space_w`, and digits always advance `digit_w`
-(tabular figures - a ticking value keeps a stable width). `monospace`
+(tabular figures, so a ticking value keeps a stable width). `monospace`
 restores the fixed cell.
 
 Scrolling has three modes (`display_scroll_t`): `off`, `restart` (text
-exits fully before re-entering - the former scroll bool) and `continuous`
+exits fully before re-entering, what the plain scroll bool selects) and
+`continuous`
 (marquee: the next repetition follows the tail after a two-character gap).
 
 Wire/NVS vocabulary: `/api/display/text` accepts `scroll_mode`
@@ -352,7 +353,7 @@ its own storage and render path).
 
 `mqtt_link.c` on ESP-IDF's esp-mqtt (core component in IDF <6, the
 `espressif/mqtt` managed component from 6.0). Kconfig `LEDDISP_MQTT`,
-default y, no-op stubs when off - same contract as WireGuard. Config blob
+default y, no-op stubs when off, the same contract as WireGuard. Config blob
 in section 4; API `GET/POST /api/mqtt` with the WG secret rules (password
 never echoed, empty keeps stored).
 

@@ -19,7 +19,7 @@ sidebar:
 
 Body: `{"value": <number or string>}`. Numbers are normalized to up to 10 significant digits, so `4.2` and `"4.2"` behave the same. The raw value goes through the value config (prefix, suffix, decimals, thousands separator) and, while the display [content source](../display/#post-apidisplaysource) is `integration`, is shown in the current color, scroll mode and speed. The scroll mode is passed through rather than forced off, so a long formatted value keeps scrolling if that is how the display is set up, and posting a value never rewrites the stored mode or the stored static text. Posting also resets the staleness clock (see below).
 
-The formatted value is held in RAM only: after a reboot the panel shows the config's `default_text` placeholder until the next POST. In `static` mode the value is still formatted, remembered and counted as fresh - the response then carries `"rendered": false`.
+The formatted value is held in RAM only: after a reboot the panel shows the config's `default_text` placeholder until the next POST. In `static` mode the value is still formatted, remembered and counted as fresh, and the response then carries `"rendered": false`.
 
 ```bash
 curl -X POST http://192.168.1.50/api/value \

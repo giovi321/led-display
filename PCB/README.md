@@ -8,13 +8,12 @@ connectors and the ambient-light sensor connector. Drawn in
 The [hardware guide](https://giovi321.github.io/led-display/getting-started/hardware/#the-controller-board)
 describes the board for builders. This file covers the files themselves.
 
-## What changed from v3
+## What v4 adds over v3
 
-One addition: a 4-way `GND SDA SCL 5V` connector for a BH1750 digital lux
-sensor, which the firmware supports from 2.9.0 alongside the analog input it
-has always had. It takes the board from six connectors to seven and from 90
-drilled holes to 94. Nothing else moved: same outline, same layer count, same
-parts otherwise.
+A 4-way `GND SDA SCL 5V` connector for the BH1750 lux sensor, taking the board
+from six connectors to seven and from 90 drilled holes to 94. Nothing else
+moved: same outline, same layer count, same parts otherwise. A v3 board runs
+the same firmware and does everything except the sensor.
 
 ## Files
 
@@ -63,17 +62,16 @@ mapping; the firmware's `LED_DATA_GPIO 16` is the anchor.
 
 ## Known quirks
 
-- **Capacitor values are not in the design.** C1 is a polarised radial on
-  2.54 mm lead pitch, C2 to C6 non-polarised on 5 mm. The values are blank in
-  the sketch. Nothing is marked do-not-populate
-- **`_pnp.xy` says `SMT` for C1 to C6.** It is wrong: all six have plated
-  0.7 mm drill holes. Every part on this board is through-hole
-- **The silkscreen says `74AHCT125`.** That is the name of the Fritzing part
-  the footprint came from. The part to fit is the SN74HCT125N; same DIP-14
-  pinout
-- **Some top silkscreen text is mirrored.** The `ESP32-S3-N16R8` label and the
-  `C2` to `C5` designators come out backwards in the export while the rest of
-  the text does not. Cosmetic, but fix it before any respin
+- Capacitor values are not in the design. C1 is a polarised radial on 2.54 mm
+  lead pitch, C2 to C6 non-polarised on 5 mm. The values are blank in the
+  sketch. Nothing is marked do-not-populate
+- `_pnp.xy` says `SMT` for C1 to C6, which is wrong: all six have plated 0.7 mm
+  drill holes. Every part on this board is through-hole
+- The silkscreen says `74AHCT125`, which is the name of the Fritzing part the
+  footprint came from. The part to fit is the SN74HCT125N; same DIP-14 pinout
+- Some top silkscreen text is mirrored. The `ESP32-S3-N16R8` label and the `C2`
+  to `C5` designators come out backwards in the export while the rest of the
+  text does not. Cosmetic, but fix it before any respin
 
 ## Rendering the board
 

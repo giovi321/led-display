@@ -18,7 +18,7 @@ The name is not chosen by the workflow. It comes from `project(led_display)` in 
 1. Bump `FW_VERSION` in `Firmware/main/fw_version.h` to the new version, without the leading `v`
 
    ```c
-   #define FW_VERSION "2.2.0"
+   #define FW_VERSION "2.11.0"
    ```
 
 2. Add the matching section to `CHANGELOG.md`, following the Keep a Changelog headings already in the file
@@ -26,8 +26,8 @@ The name is not chosen by the workflow. It comes from `project(led_display)` in 
 4. Tag that commit and push the tag:
 
    ```sh
-   git tag v2.2.0
-   git push origin v2.2.0
+   git tag v2.11.0
+   git push origin v2.11.0
    ```
 
 5. Watch the Release workflow in the Actions tab. It checks out the tag, verifies the tag matches `FW_VERSION`, builds with ESP-IDF v6.0.1 for `esp32s3`, and creates (or updates) the release for that tag with generated release notes and `led_display.bin` attached
@@ -56,7 +56,7 @@ The fix in all three cases is the manual path: Actions tab, Release workflow, "R
 
 ## Prereleases
 
-A tag with a suffix, `v2.2.0-rc1`, is published as a prerelease. GitHub's `releases/latest` skips prereleases, and that is the endpoint the device queries, so a release candidate stays invisible to devices until a plain `vX.Y.Z` tag follows. Use it to test the full release path without offering the build to anything in the field.
+A tag with a suffix, `v2.11.0-rc1`, is published as a prerelease. GitHub's `releases/latest` skips prereleases, and that is the endpoint the device queries, so a release candidate stays invisible to devices until a plain `vX.Y.Z` tag follows. Use it to test the full release path without offering the build to anything in the field.
 
 ## What the workflow does not do
 

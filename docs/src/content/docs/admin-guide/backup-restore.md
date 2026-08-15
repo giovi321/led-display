@@ -30,20 +30,20 @@ No binary blob, no checksum magic. You can read it, diff two exports, or edit a 
 
 ## Restore semantics
 
-Restore applies the file section by section: `layout`, `display`, `light_sensor`, `colors`, `value_config`, `integrations`, `wireguard`, `schedule`. The layout goes first so a restored text renders onto the restored geometry. Sections absent from the file are left untouched, which means a hand-trimmed file works as a partial restore, and a file written by a build before 2.2.0 (no `light_sensor`, no font or off-window fields) restores cleanly. A section that fails validation is skipped without aborting the rest, and the response says exactly what happened:
+Restore applies the file section by section: `layout`, `display`, `light_sensor`, `colors`, `value_config`, `integrations`, `wireguard`, `schedule`. The layout goes first so a restored text renders onto the restored geometry. Sections absent from the file are left untouched, so a hand-trimmed file works as a partial restore and a file from an older build restores cleanly, leaving whatever it does not mention alone. A section that fails validation is skipped without aborting the rest, and the response says exactly what happened:
 
 ```json
 {"ok": true, "applied": ["layout", "display", "schedule"], "skipped": ["wireguard"]}
 ```
 
-The web UI shows the same applied/skipped report after a restore. Everything applies live, no reboot needed.
+The web UI shows the same applied/skipped report after a restore. Everything applies live, so no reboot is needed.
 
-Two things to be aware of when restoring:
+Four things to be aware of when restoring:
 
 - a file whose `integrations` section carries an API key turns key checking on the moment it is applied; clients (including other browsers) must present that key from then on
 - restoring a `wireguard` section with `enabled: true` starts the tunnel with the restored keys
 - a `device_name` in the `integrations` section renames the device: hostname, setup network, and the `device` field in webhooks all follow it, so two devices restored from the same file end up with the same name
-- a `light_sensor` section with `enabled: true` hands the brightness to the sensor as soon as it is applied; a section naming an I2C pin the module cannot spare, putting SDA and SCL on the same pin, or whose two calibration readings are equal, lands in `skipped` instead. Pins are validated rather than clamped, so a file from a board wired differently does not silently move the sensor to another pin. A section written before 2.10.0 describes the analog sensor that release removed, and is skipped: its readings are ADC counts, which cannot be reinterpreted as lux
+- a `light_sensor` section with `enabled: true` hands the brightness to the sensor as soon as it is applied; a section naming an I2C pin the module cannot spare, putting SDA and SCL on the same pin, or whose two calibration readings are equal, lands in `skipped` instead. Pins are validated rather than clamped, so a file from a board wired differently does not silently move the sensor to another pin
 
 ## When to export
 

@@ -7,9 +7,7 @@ sidebar:
 
 The firmware can read the brightness off the room instead of taking it from the slider: a BH1750 lux meter, two calibration points, and the display follows the room, bright enough to read in daylight and dim at night. The sensor is optional and off by default. It is configured in the Hardware tab ([advanced mode](../advanced-mode/)), or at [`GET/POST /api/display/light_sensor`](../../api-reference/display/#get-apidisplaylight_sensor).
 
-The sensor is the BH1750, a digital lux meter on I2C, usually sold as the GY-302 module. It reports real lux, so its numbers mean something outside this device, and the v4 controller board has a connector for it.
-
-Earlier firmware also read an analog sensor on an ADC pin. That option was removed in 2.10.0 and the BH1750 is now the only one. If you have an analog sensor configured, see [upgrading from an analog sensor](#upgrading-from-an-analog-sensor) below.
+The BH1750 is a digital lux meter on I2C, usually sold as the GY-302 module. It reports real lux, so its numbers mean something outside this device, and the v4 controller board has a connector for it.
 
 ## Wiring
 
@@ -24,24 +22,16 @@ The v4 board carries a 4-way connector silkscreened `GND SDA SCL 5V`. The module
 
 Two things the connector does not do for you:
 
-- **The GY-302's pin order is GND, ADDR, SDA, SCL, VCC** - five pins against the connector's four, and ADDR sits second. Wire pin to pin by name, not by position
-- **ADDR must be tied to GND** for the sensor to answer at address `0x23`, which is the only address the firmware talks to. That link is made on the module, not on the board: bridge its ADDR pin to its GND pin
+- The GY-302's pin order is GND, ADDR, SDA, SCL, VCC: five pins against the connector's four, and ADDR sits second. Wire pin to pin by name, not by position
+- ADDR must be tied to GND for the sensor to answer at address `0x23`, which is the only address the firmware talks to. That link is made on the module, not on the board: bridge its ADDR pin to its GND pin
 
 The pins are configurable if you wire it somewhere else, but GPIO8 and GPIO9 are what the board's connector reaches, so leave them alone unless you have a reason. The UI will not offer pins the module needs for its own flash and PSRAM, or the strapping pins that are read at reset.
 
 Mount it facing the room, not the panel. A sensor looking at its own display feeds itself: the panel brightens, the sensor reads more light, the panel brightens again.
 
-## Upgrading from an analog sensor
-
-2.10.0 removed the analog input. On the first boot after the update a stored analog configuration is discarded and the sensor comes up switched off, so the display returns to your saved brightness rather than to a reading it cannot take.
-
-The calibration points are not migrated, and could not be: they were ADC counts from your particular divider, and there is no honest way to reinterpret those as lux. Fit a BH1750, then run the two-point calibration below again. The brightness range and the response curve are the only things worth writing down first, since those you may want to re-enter as they were.
-
-A [backup](../backup-restore/) taken before 2.10.0 has the same problem, and its `light_sensor` section is reported as skipped on restore rather than applied.
-
 ## Calibration
 
-The whole point of the live reading in the UI is that you never have to compute anything. The device samples once a second as soon as a usable sensor is saved, even with the sensor still switched off, and the steps are the same for both kinds.
+The whole point of the live reading in the UI is that you never have to compute anything. The device samples once a second as soon as a usable sensor is saved, even with the sensor still switched off.
 
 1. Check the SDA and SCL pins and press Save light sensor. The live reading appears in lux and starts updating
 2. Cover the sensor, wait for the reading to settle, and press Use current next to Dark reading

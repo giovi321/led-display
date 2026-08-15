@@ -37,7 +37,7 @@ Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep th
 
 ### Web UI login
 
-`ui_auth` puts the whole interface behind HTTP Basic authentication - pages, assets and API alike, not only the endpoints that change something, because a login that leaves the configuration readable is not a login. It is off by default and stays off across updates.
+`ui_auth` puts the whole interface behind HTTP Basic authentication: pages, assets and API alike, not only the endpoints that change something, because a login that leaves the configuration readable is not a login. It is off by default and stays off across updates.
 
 Enabling it with no stored password is a 400 (`"ui_auth needs a ui_pass"`) rather than a silent no-op, so a client that asked for a login and got `{"ok": true}` can trust that it has one. Sending no `ui_pass` keeps whatever is stored, so the username can be changed, or the login toggled, without the password travelling back through the browser.
 
@@ -47,7 +47,7 @@ Once it is on, every request needs the `Authorization: Basic` header, including 
 curl -u admin:secret -H 'X-Api-Key: mysecret' http://<device-ip>/api/status
 ```
 
-Two deliberate limits. The credentials go over plain HTTP - this device has no TLS server - so the login keeps casual visitors on your network out and does nothing against anyone who can watch the traffic. And it is not applied in [setup-AP mode](../../getting-started/wifi-setup/), where the panel carries the only copy of the setup address and the captive-portal probes have to answer normally; that also makes "forget the WiFi" the way back in if the password is lost.
+Two deliberate limits. The credentials go over plain HTTP (this device has no TLS server), so the login keeps casual visitors on your network out and does nothing against anyone who can watch the traffic. And it is not applied in [setup-AP mode](../../getting-started/wifi-setup/), where the panel carries the only copy of the setup address and the captive-portal probes have to answer normally; that also makes "forget the WiFi" the way back in if the password is lost.
 
 The device name is no longer webhook-specific: one name is the network hostname, the setup-AP SSID and the webhook `device` field, and it is set in the System tab through [`POST /api/system/device_name`](../system/#post-apisystemdevice_name). This endpoint still accepts `device_name` and writes the same stored value, cleaning it to the hostname charset (letters, digits, hyphens, max 24) instead of rejecting it, so a script written against an earlier firmware keeps working. The GET reports the resolved name, which is `led-display` while none is set.
 
@@ -78,7 +78,7 @@ When an enabled event fires, the device POSTs JSON to `webhook_url` with `Conten
 |-------|-------|--------|
 | `boot` | once the device is fully up (HTTP reachable) | none |
 | `ip_change` | station interface got an IP | `{"ip": "192.168.10.8"}` |
-| `ota_result` | an update finished, either path | `{"result": "ok", "version": "2.2.0"}` or the error text |
+| `ota_result` | an update finished, either path | `{"result": "ok", "version": "2.10.0"}` or the error text |
 | `schedule_on` | the schedule turned the display on | none |
 | `schedule_off` | the schedule turned the display off | none |
 | `value_stale` | the staleness guard tripped (once per episode) | `{"age_s": <seconds since last value>}` |
@@ -103,7 +103,7 @@ Open. Returns the tunnel configuration and live status; the private key is repor
 }
 ```
 
-`status.public_key` is this device's own public key, derived from the stored private key - the value the peer at the other end has to list. `endpoint_ip`, `attempts` and `stage` are bring-up diagnostics, described in the [WireGuard guide](../../admin-guide/wireguard/#status).
+`status.public_key` is this device's own public key, derived from the stored private key, the value the peer at the other end has to list. `endpoint_ip`, `attempts` and `stage` are bring-up diagnostics, described in the [WireGuard guide](../../admin-guide/wireguard/#status).
 
 `last_handshake` is unix seconds, 0 until the first handshake. `compiled_in` is false when the firmware was built with `CONFIG_LEDDISP_WIREGUARD` off; every mutating call then returns 501. `held` is true when the [crash-loop guard](../../admin-guide/wireguard/#the-crash-loop-guard) is keeping an enabled tunnel down; re-saving the config lifts it.
 
