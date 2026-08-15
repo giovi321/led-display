@@ -28,24 +28,42 @@ Chain the panels in whatever order the connectors allow and mount them whichever
 
 ## What it does
 
-- Web UI with a simple mode (text, colour, brightness, schedule) and an advanced mode that adds hardware, network, integrations and system tabs; no frameworks, one page, served gzipped from flash
-- Graphical arrangement editor: describe your panel once (size, first-LED corner, row or column walk, serpentine), lay panels out on a grid up to 8x16 cells (32 panels, 8192 pixels), drag to swap, click to rotate, with identify mode to match the drawing to the physical wall
-- Three pixel fonts (5x7, a tiny 3x5, a tall 7x12 with real lowercase) at integer sizes, proportionally spaced with fixed-width digits so a ticking value never wobbles; monospace on request
-- Scrolling off, restart, or continuous as a marquee that repeats after a short gap
-- Value endpoint for any webhook-capable system: `POST /api/value` with `{"value": 4210.5}` and the device formats it (prefix, suffix, decimals, thousands separator) and displays it; a staleness guard dims the display, blinks a corner pixel or swaps in a fallback text when no update arrives for a configured number of hours
-- Content source switch: static text you typed, or the live integration value with a configurable placeholder until the first value arrives
-- Optional MQTT client: feed the display over `<base>/value/set` or `<base>/text/set`, control brightness/power/content source, reboot, read a retained JSON state topic, with optional Home Assistant auto-discovery (light, text, select, button and sensor entities)
-- Saved colours (up to 12 named presets), per-weekday schedule that turns the display off or holds it at a dim level, on an IANA timezone the device applies itself so clock changes need no re-saving; days you leave unticked either stay dark all day or ignore the schedule entirely, your choice
-- Separate screens for the boot splash, for normal running, and for a lost WiFi link, the last of which can hold the content, show a message, go dark, or keep the content and mark one pixel in a position, colour and brightness you pick
-- Two optional locks, both off by default: an API key for scripts, and a browser login over the whole interface
-- Up to 5 saved WiFi networks: the strongest one in range wins at boot, a lost link is retried with a growing backoff, and the setup AP only comes back when nothing answers
-- Optional ambient light sensor: a BH1750 lux meter on the board's I2C connector sets the brightness from the room, calibrated against the live reading in the browser
-- One device name for the network hostname, the setup AP SSID and the webhook payloads
-- OTA updates both ways: upload a `.bin` from the browser or have the device pull one from a URL, with automatic rollback if the new image fails to boot
-- Config backup and restore as one JSON file; WiFi credentials are deliberately excluded so the file can move between devices and people
-- Optional API key: when set, every POST requires the `X-Api-Key` header
-- Outbound webhooks (plain JSON POST, fire-and-forget) for boot, IP change, OTA result, schedule on/off and stale value
-- Optional WireGuard client for remote access without port forwarding
+Everything is configured from one hand-written page served gzipped from flash, in a simple mode (text, colour, brightness, schedule) or an advanced mode that adds the hardware, network, integrations and system tabs. Anything you can click, you can also script: the UI and the HTTP API cover the same ground. One device name becomes the hostname, the setup network's SSID and the `device` field in webhooks.
+
+### The wiring stops mattering once you draw the wall
+
+- Describe one panel (size, first-LED corner, row or column walk, serpentine) and lay the panels on a grid of up to 8 x 16 cells, capped at 32 panels and 8192 pixels
+- Drag a panel to swap it, click to rotate it, and press Identify to light every physical panel in its own colour until the drawing matches the wall
+- Apply rebuilds the pixel mapping live and stores it, so a panel glued in rotated or chained out of order costs nothing to correct
+
+### The readout is built for a number that changes
+
+- Three pixel fonts at integer sizes: 5x7, a tiny 3x5, and a tall 7x12 with real lowercase
+- Proportional spacing with fixed-width digits, so a ticking value never wobbles as the digits change; monospace on request
+- Scrolling off, restart, or continuous as a marquee that repeats after a two-character gap
+- Up to 12 named colour presets, stored on the device so every browser and phone sees the same list
+
+### The sender pushes a raw number and the device owns the rest
+
+- `POST /api/value` with `{"value": 4210.5}`; the device applies the prefix, suffix, decimals and thousands separator, so every feed stays a one-liner
+- An optional MQTT client takes the same values over a broker, controls brightness, power and content source, publishes a retained state topic, and announces itself to Home Assistant
+- A staleness guard reacts when nothing has arrived for a set number of hours: dim the panel, mark a corner pixel, or swap in a fallback text
+- The content source switches between the text you typed and the live value, with a placeholder covering the gap before the first push
+
+### It handles the states you are not there to see
+
+- A per-weekday schedule turns the display off or holds it at a dim level, on an IANA timezone the device applies itself, so clock changes need no re-saving; unticked days either stay dark or ignore the schedule entirely
+- An optional BH1750 lux meter on the board's I2C connector sets the brightness from the room, calibrated against a live reading in the browser
+- Separate screens cover the boot splash, normal running, and a lost WiFi link, which can hold the content, show a message, go dark, or mark one pixel at a position, colour and brightness you pick
+- Up to five saved WiFi networks: the strongest in range wins at boot, a lost link retries with a growing backoff, and the setup AP returns only when nothing answers
+
+### Every operational change is optional or reversible
+
+- OTA updates run both ways, a `.bin` uploaded from the browser or pulled from a URL, and an image that fails to boot rolls back on its own
+- The whole configuration exports and restores as one JSON file, with WiFi credentials deliberately excluded so it can move between devices and people
+- Two locks, both off by default: an API key for scripts, and a browser login over the whole interface
+- An optional WireGuard client reaches the device from outside the LAN without a port forward
+- Outbound webhooks POST boot, IP change, OTA result, schedule on and off, and stale value to one URL, fire and forget
 
 ## Hardware
 
