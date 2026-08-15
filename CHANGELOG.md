@@ -4,6 +4,12 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-08-15
+
+### Fixed
+
+- Choosing the single-pixel offline indicator saved correctly but read back as "keep showing the last content", so the web UI showed the wrong option and reverted the choice on the next save. Three range checks had been left at the old end of their enums when the options were added: `offline_screen` in the status and in the config import, and `boot_screen` when loaded from flash, which would have discarded a stored `ip_then_content` on the next boot
+
 ## [2.5.0] - 2026-08-15
 
 ### Added

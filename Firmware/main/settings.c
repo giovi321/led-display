@@ -101,7 +101,9 @@ esp_err_t settings_load(settings_t *out)
     nvs_get_u8(h, K_FONT, &out->font);
     if (nvs_get_u8(h, K_PROP, &v) == ESP_OK) out->prop = v ? true : false;
     if (nvs_get_u8(h, K_MAP_MODE, &v) == ESP_OK) out->legacy_map_mode = (int)v;
-    if (nvs_get_u8(h, K_BOOT_SCR, &v) == ESP_OK) out->boot_screen = (boot_screen_t)v;
+    if (nvs_get_u8(h, K_BOOT_SCR, &v) == ESP_OK && v <= BOOT_SHOW_IP_THEN) {
+        out->boot_screen = (boot_screen_t)v;
+    }
     if (nvs_get_u8(h, K_SOURCE, &v) == ESP_OK && v <= DISPLAY_SRC_INTEGRATION) {
         out->source = (display_source_t)v;
     }

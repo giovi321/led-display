@@ -139,7 +139,7 @@ static esp_err_t status_get(httpd_req_t *req)
                             STARTUP_NAMES[cfg.startup_screen <= STARTUP_TEXT
                                           ? cfg.startup_screen : 0]);
     cJSON_AddStringToObject(s, "offline_screen",
-                            OFFLINE_NAMES[cfg.offline_screen <= OFFLINE_BLANK
+                            OFFLINE_NAMES[cfg.offline_screen <= OFFLINE_DOT
                                           ? cfg.offline_screen : 0]);
     cJSON_AddStringToObject(s, "offline_text", cfg.offline_text);
     cJSON *oc = cJSON_AddObjectToObject(s, "offline_color");

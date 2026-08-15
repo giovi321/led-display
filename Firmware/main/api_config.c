@@ -406,7 +406,7 @@ static bool apply_display(const cJSON *sec)
         else if (strcmp(it->valuestring, "monospace") == 0)    s.prop = false;
     }
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "boot_screen"))) {
-        s.boot_screen = (boot_screen_t)clampi(it->valueint, 0, 2);
+        s.boot_screen = (boot_screen_t)clampi(it->valueint, 0, BOOT_SHOW_IP_THEN);
     }
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "source"))) {
         if      (strcmp(it->valuestring, "integration") == 0) s.source = DISPLAY_SRC_INTEGRATION;
@@ -416,7 +416,7 @@ static bool apply_display(const cJSON *sec)
         s.startup_screen = (startup_screen_t)clampi(it->valueint, 0, STARTUP_TEXT);
     }
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "offline_screen"))) {
-        s.offline_screen = (offline_screen_t)clampi(it->valueint, 0, OFFLINE_BLANK);
+        s.offline_screen = (offline_screen_t)clampi(it->valueint, 0, OFFLINE_DOT);
     }
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "offline_text"))) {
         snprintf(s.offline_text, sizeof(s.offline_text), "%s", it->valuestring);
