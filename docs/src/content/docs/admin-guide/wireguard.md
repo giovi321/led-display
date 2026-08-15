@@ -35,7 +35,9 @@ The device does not generate keys. Create the pair on any machine with WireGuard
 wg genkey | tee device.key | wg pubkey > device.pub
 ```
 
-On the peer side, add the device as a `[Peer]` with `AllowedIPs` set to the device's tunnel address as a /32. The card shows **this device's public key** once a private key is stored, with a Copy button, so the value to paste into the server comes from the device itself rather than from a file you have to keep track of. It is also in `GET /api/wireguard` as `status.public_key`. The public half is not a secret; the private key never leaves the device except through the [config export](../backup-restore/).
+On the peer side, add the device as a `[Peer]` with `AllowedIPs` set to the device's tunnel address as a /32.
+
+Most people never do that by hand. A server that generates the client configuration for you - UniFi, and most router and VPN provider interfaces - creates the keypair at its end, keeps the public half itself, and hands you a config containing the **private** key. Paste that private key into the display and the two sides already agree; there is nothing to copy back. The display's own public key is shown under Connection details for the case where you are writing the server's peer entry yourself, or want to confirm which key the device is presenting, and in `GET /api/wireguard` as `status.public_key`. The public half is not a secret; the private key never leaves the device except through the [config export](../backup-restore/).
 
 ## Tunnel address and what it can reach
 

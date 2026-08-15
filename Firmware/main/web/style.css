@@ -571,6 +571,24 @@ button.sec:not(:disabled):hover { border-color: var(--accent); }
 
 #editor-root { min-height: 40px; }
 
+/* Collapsed diagnostics: present when something is wrong, invisible when the
+ * thing simply works. */
+details {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+details > summary {
+  cursor: pointer;
+  color: var(--mut);
+  font-size: 13px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+details > summary:hover { color: var(--accent); }
+details[open] > summary { margin-bottom: 8px; }
+
 /* ---- progress bar (OTA) --------------------------------------------- */
 
 .bar {

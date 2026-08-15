@@ -308,16 +308,6 @@
     <p id="wg-missing" class="note hidden">WireGuard is not included in this build.</p>
     <div id="wg-body">
       <p id="wg-status" class="note"></p>
-      <div id="wg-pubrow" class="hidden">
-        <div class="flab">This device's public key - put this ON THE SERVER<button
-          type="button" class="hlp"
-          data-help="Two different keypairs are involved. This one belongs to the display: copy it into your VPN server as this device's [Peer] entry, with AllowedIPs set to the tunnel address below. It is derived from the private key below and is not secret. The server's own public key goes in the 'Server public key' field further down."
-          aria-expanded="false" aria-label="Explain the public key">?</button></div>
-        <div class="row">
-          <code id="wg-pub-self" class="code"></code>
-          <button class="sec" id="wg-pub-copy">Copy</button>
-        </div>
-      </div>
       <label class="check big"><input id="wg-en" type="checkbox"> Enable tunnel</label>
       <div class="flab">This device's private key<button type="button" class="hlp"
         data-help="The display's own private key, the half the public key above is derived from. It never leaves the device except in a config export. Leave blank when saving to keep the stored one."
@@ -352,6 +342,16 @@
       <label for="wg-keep">Persistent keepalive (seconds, 0 = off)</label>
       <input id="wg-keep" type="number" min="0" max="3600" value="25" class="num">
       <div class="row"><button class="act" id="wg-save">Save WireGuard</button></div>
+
+      <details id="wg-details">
+        <summary>Connection details</summary>
+        <div id="wg-detbody" class="kvs"></div>
+        <p class="note">The public key is only needed if you write the server's
+          peer entry by hand. A server that generates the client configuration
+          for you - UniFi, and most router and VPN provider interfaces - derives
+          it itself and never asks for it.</p>
+        <div class="row"><button class="sec" id="wg-pub-copy">Copy public key</button></div>
+      </details>
     </div>
   </div>
 </section>

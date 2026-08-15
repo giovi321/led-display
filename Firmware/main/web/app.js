@@ -853,11 +853,25 @@ function renderWgStatus(wg) {
   $('#wg-missing').classList.toggle('hidden', !missing);
   $('#wg-body').classList.toggle('hidden', missing);
   if (missing) return;
-  // The public key comes from /api/status too, so it is available whether or
-  // not the form below has been loaded.
-  const pub = wg.public_key || '';
-  $('#wg-pubrow').classList.toggle('hidden', !pub);
-  if (pub) $('#wg-pub-self').textContent = pub;
+  // Everything that is only interesting when something is wrong lives behind
+  // the details toggle: the key the device presents, what the endpoint
+  // resolved to, the interface as lwIP built it, and whether any traffic has
+  // actually come down the tunnel.
+  const det = $('#wg-detbody');
+  if (det) {
+    let rows = kv('Public key (this device)', wg.public_key || '-');
+    if (wg.enabled) {
+      rows += kv('Endpoint resolved to', wg.endpoint_ip || 'not resolved yet');
+      if (wg.netif_ip) {
+        rows += kv('Tunnel interface', wg.netif_ip + ' / ' + (wg.netif_netmask || '-'));
+      }
+      if (wg.rx_accepted !== undefined) {
+        rows += kv('Packets received', wg.rx_accepted
+          + (wg.rx_dropped ? ' (' + wg.rx_dropped + ' refused)' : ''));
+      }
+    }
+    det.innerHTML = rows;
+  }
 
   let line;
   if (!wg.enabled) {
@@ -958,7 +972,8 @@ function setWgFullTunnelUi() {
 $('#wg-allowed').oninput = setWgFullTunnelUi;
 
 $('#wg-pub-copy').onclick = () => act($('#wg-pub-copy'), async () => {
-  const txt = $('#wg-pub-self').textContent;
+  const txt = (lastStatus && lastStatus.wireguard && lastStatus.wireguard.public_key) || '';
+  if (!txt) { toast('No key stored yet', true); return; }
   try {
     await navigator.clipboard.writeText(txt);
   } catch (e) {

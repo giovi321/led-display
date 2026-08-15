@@ -4,6 +4,12 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-08-15
+
+### Changed
+
+- The WireGuard card no longer leads with this device's public key. Most people never need it: a server that generates the client configuration for you - UniFi, and most router and VPN provider interfaces - derives the public key itself and only ever hands you a private key, so a prominent field for it invites the question of what it is meant to pair with. It has moved into a "Connection details" section together with the endpoint address, the tunnel interface as lwIP built it, and the count of packets that have come down the tunnel: present when something needs diagnosing, out of the way when the tunnel simply works
+
 ## [2.4.0] - 2026-08-15
 
 ### Added
