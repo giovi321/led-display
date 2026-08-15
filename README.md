@@ -59,7 +59,7 @@ The reference build this firmware runs on:
 | Chain       | controller -> TL -> TR -> BR -> BL                  |
 | Mounting    | Top panels upright, bottom panels rotated 180 deg   |
 | Data pin    | GPIO 16 (through SN74HCT125N level shifter to 5 V)  |
-| PCB         | See `PCB/` (Fritzing v3 source + Gerbers)           |
+| PCB         | 2-layer, about 63.6 x 48.6 mm, all through-hole; sockets the dev board and breaks 5 V out to four panel power connectors. Fritzing v3 source + Gerbers in [`PCB/`](PCB/) |
 
 The PCB expects 5 V LED panels: the supply rail, the level shifter and the connectors are all laid out for 5 V WS2812B-class matrices. 12 V variants need a different power arrangement and are not supported by this board.
 
