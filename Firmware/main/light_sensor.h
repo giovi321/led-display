@@ -1,12 +1,17 @@
 #pragma once
 
-// Optional ambient-light sensor: an analog sensor (LDR voltage divider, analog
-// lux module) on an ADC1 pin whose reading drives the panel brightness.
+// Optional ambient-light sensor whose reading drives the panel brightness.
+// Two sources are supported and both remain valid configurations:
+//   analog  an LDR voltage divider or analog lux module on an ADC1 pin
+//   bh1750  a GY-302 digital lux meter on I2C, which the v4 board has a
+//           connector for
 //
-// Only the raw-sample source is hardware-specific here. The curve
+// Only the raw-sample source is hardware-specific. The curve
 // (light_curve.[hc]) and the scheduler's brightness arbiter both take a plain
-// 0..LIGHT_RAW_MAX number, so a digital (I2C) lux meter would only have to
-// feed this module samples - nothing downstream knows where they came from.
+// 0..LIGHT_RAW_MAX number, so the BH1750 path just feeds lux in on the same
+// scale - nothing downstream knows or cares where a sample came from, and the
+// calibration flow (capture a dark reading, capture a bright one) is identical
+// for both.
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -15,17 +20,30 @@
 
 #include "light_curve.h"
 
+// Stored in the config blob as a name, not an index: see light_sensor.c.
+typedef enum {
+    LIGHT_SRC_ANALOG = 0,   // ADC1 pin, the only source before 2.9.0
+    LIGHT_SRC_BH1750 = 1,   // I2C lux meter at 0x23
+} light_source_t;
+
 typedef struct {
-    bool          enabled;   // drive the panel brightness from the reading
-    uint8_t       gpio;      // ADC1 pin (LIGHT_GPIO_MIN..MAX), 0 = none set
-    light_curve_t curve;
+    bool           enabled;   // drive the panel brightness from the reading
+    light_source_t type;
+    uint8_t        gpio;      // analog: ADC1 pin (LIGHT_GPIO_MIN..MAX), 0 = unset
+    uint8_t        sda;       // bh1750: I2C pins, 0 = unset
+    uint8_t        scl;
+    light_curve_t  curve;
 } light_sensor_cfg_t;
 
 typedef struct {
-    bool enabled;
-    bool sampling;   // a usable pin is configured and being read
-    int  raw;        // smoothed reading, -1 = nothing sampled yet
-    int  level;      // brightness the curve currently asks for, -1 = none yet
+    bool           enabled;
+    light_source_t type;
+    // A usable source is configured AND answering. A BH1750 that stops
+    // replying (unplugged, wrong pins) drops this to false, so the UI can say
+    // so instead of showing a frozen reading.
+    bool           sampling;
+    int            raw;    // smoothed reading, -1 = nothing sampled yet
+    int            level;  // brightness the curve currently asks for, -1 = none yet
 } light_sensor_status_t;
 
 // Loads the stored config and, when a usable pin is set, starts the sampling
@@ -35,9 +53,10 @@ esp_err_t light_sensor_init(void);
 
 void light_sensor_get(light_sensor_cfg_t *out);
 
-// Validate, persist, re-arm the ADC and re-apply the brightness. Returns
-// ESP_ERR_INVALID_ARG on a pin outside ADC1 or a curve that fails
-// light_curve_valid().
+// Validate, persist, re-arm the hardware and re-apply the brightness. Returns
+// ESP_ERR_INVALID_ARG on a curve that fails light_curve_valid(), an analog pin
+// outside ADC1, an I2C pin light_curve_valid_i2c_gpio() refuses, SDA and SCL
+// on the same pin, or "enabled" with nothing configured to read.
 esp_err_t light_sensor_set(const light_sensor_cfg_t *in);
 
 void light_sensor_get_status(light_sensor_status_t *out);

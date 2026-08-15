@@ -94,6 +94,7 @@ idf_component_register(
         mbedtls
         esp_timer
         esp_adc
+        esp_driver_i2c
         ${_cjson_dep}
         lwip
         driver

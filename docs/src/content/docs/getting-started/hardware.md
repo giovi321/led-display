@@ -20,10 +20,10 @@ The PCB expects **5 V LED panels**: the power rail, the level shifter reference 
 | Level shifter | SN74HCT125N | 3.3 V logic to the 5 V data level the panels want |
 | Series resistor | 330 ohm | Damps reflections on the data run between board and first panel |
 | Power input | USB-C breakout, CC1 and CC2 each pulled to GND through 5.1 kohm | Advertises a plain 5 V / 3 A sink, no PD chip needed |
-| Connectors | JST-SM on the panels, 2.54 mm headers on the PCB | The board's pads are plain 0.1 in through-hole headers; 2- and 3-pin JST-XH sockets fit them, and JST-SM to JST-XH pigtails bridge to the panels |
-| Light sensor | Optional: an LDR plus a 10 kOhm to 100 kOhm resistor, or an analog lux module | Divider output to an ADC1 pin (GPIO1 to GPIO10) lets the room set the brightness, see the [light sensor guide](../../admin-guide/light-sensor/) |
+| Connectors | JST-SM on the panels, JST-XH 2.54 mm on the PCB | The board's pads are plain 0.1 in through-hole headers, and JST-XH 2.54 mm connectors go in all seven positions. JST-SM to JST-XH pigtails bridge to the panels |
+| Light sensor | Optional: BH1750 module (GY-302), or an LDR plus a 10 kOhm to 100 kOhm resistor | The v4 board has a connector for the BH1750; the analog option wires to an ADC1 pin. See the [light sensor guide](../../admin-guide/light-sensor/) |
 
-The `PCB/` directory holds the Fritzing source and Gerbers for the controller board (revision v3), described in [the controller board](#the-controller-board) below. `3D/` holds the enclosure parts:
+The `PCB/` directory holds the Fritzing source and Gerbers for the controller board (revision v4), described in [the controller board](#the-controller-board) below. `3D/` holds the enclosure parts:
 
 | File | Format | Part |
 |------|--------|------|
@@ -39,17 +39,18 @@ Only these exports are tracked; the SketchUp sources the parts were modelled in 
 
 ![Top of the controller board: two 22-way sockets for the ESP32 module, the DIP-14 level shifter, six capacitors, the series resistor, and the connector row along the bottom edge](../../../assets/pcb/pcb-top.png)
 
-The board is a carrier, not a complete design. It sockets an off-the-shelf ESP32-S3 dev board and adds the four things the dev board cannot do on its own: shift the data line to 5 V, damp it with a series resistor, decouple the supply, and split incoming 5 V across enough connectors that panel current never travels through the signal daisy-chain.
+The board is a carrier, not a complete design. It sockets an off-the-shelf ESP32-S3 dev board and adds the things the dev board cannot do on its own: shift the data line to 5 V, damp it with a series resistor, decouple the supply, split incoming 5 V across enough connectors that panel current never travels through the signal daisy-chain, and break out an I2C pair for the ambient-light sensor.
 
 Everything on it is through-hole, so it is hand-solderable with no reflow and no fine-pitch work.
 
 | | |
 |---|---|
+| Revision | v4. The v3 board is the same in every respect except that it has no sensor connector |
 | Size | About 63.6 by 48.6 mm |
 | Layers | 2, both with routing and a ground pour, stitched by a single via |
-| Holes | 90 drilled: 86 plated, plus 4 unplated 2.2 mm mounting holes, one near each corner |
+| Holes | 94 drilled: 90 plated, plus 4 unplated 2.2 mm mounting holes, one near each corner |
 | Mounting | The 2.2 mm holes clear an M2 screw |
-| Components | 1 IC, 1 resistor, 6 capacitors, 6 connectors, all through-hole |
+| Components | 1 IC, 1 resistor, 6 capacitors, 7 connectors, all through-hole |
 | Ground | Not routed as traces: it is carried by copper pours on both layers |
 
 The figures above come from the files themselves rather than from a datasheet: the outline from `RGB display_v3_contour.gm1`, the hole count and diameters from `RGB display_v3_drill.txt`, the layer count and the parts from the Fritzing sketch. The contour is stroked on its centreline, which leaves the finished size ambiguous by the 0.2 mm width of the outline aperture depending on how your fab interprets it.
@@ -65,9 +66,10 @@ Everything that goes on the board. Quantities are for one board, and every part 
 | `C1` | 1 | Polarised electrolytic, **value not specified** | Radial, 2.54 mm lead pitch | Bulk decoupling across the 5 V rail |
 | `C2` to `C6` | 5 | Non-polarised, **value not specified** | Radial, 5 mm lead pitch | Decoupling across the 5 V rail |
 | (unlabelled, two rows) | 2 | 22-way female header, 2.54 mm | THT, rows 25.4 mm apart | Socket the ESP32 dev board |
-| `PWR1` to `PWR4` | 4 | 2-way female header, 2.54 mm | THT | 5 V and GND out to each panel |
-| `5V` `GND` | 1 | 2-way header, 2.54 mm | THT | 5 V and GND in |
-| `GND` `D` `5V` | 1 | 3-way female header, 2.54 mm | THT | Data and power to the first panel |
+| `PWR1` to `PWR4` | 4 | 2-way JST-XH, 2.54 mm | THT | 5 V and GND out to each panel |
+| `5V` `GND` | 1 | 2-way JST-XH, 2.54 mm | THT | 5 V and GND in |
+| `GND` `D` `5V` | 1 | 3-way JST-XH, 2.54 mm | THT | Data and power to the first panel |
+| `GND` `SDA` `SCL` `5V` | 1 | 4-way JST-XH, 2.54 mm | THT | The BH1750 light sensor (v4 only) |
 | Mounting holes | 4 | none | 2.2 mm, unplated | M2 clearance |
 
 The IC carries no reference designator in the design: what looks like one on the silkscreen is the part name. Note the mismatch with the table above, covered under [what the files do not tell you](#two-things-the-files-do-not-tell-you).
@@ -80,6 +82,7 @@ The whole circuit, read back out of the Fritzing sketch:
 
 - **5 V** reaches the `5V` `GND` input, all four `PWR` connectors, pin 3 of the data connector, the ESP32 socket, the buffer's pin 14 (VCC), and one leg of each of C1 to C6
 - **Data** leaves the ESP32 on GPIO 16, enters the buffer at pin 2 (1A), leaves at pin 3 (1Y), passes through R1, and arrives at `D` on the 3-pin connector
+- **I2C** runs from GPIO 8 (SDA) and GPIO 9 (SCL) straight to the sensor connector, unbuffered. The sockets are generic parts in the design, so those GPIO numbers come from reading the sketch's header positions against the [DevKitC-1 J1 pinout](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html) with the dev board's USB ports facing right
 - **Ground** is not routed as traces at all. It is carried by the copper pours on both layers, which tie together the connector grounds, the buffer's pins 1 and 7, the other leg of every capacitor, and the ESP32's ground pins
 - Buffer channel 1 is permanently enabled because pin 1 (1OE) sits in the ground pour. Channels 2, 3 and 4 have their enables tied to 5 V, which disables them, and their inputs and outputs are left unconnected
 
@@ -87,7 +90,7 @@ That matches the [wiring table](#why-the-level-shifter) below pin for pin, which
 
 ### Connectors
 
-Six connectors along the bottom edge, all through-hole on 0.1 in (2.54 mm) pitch:
+Seven connectors, all through-hole on 0.1 in (2.54 mm) pitch and all fitted with JST-XH 2.54 mm parts:
 
 | Silkscreen | Positions | What it is for |
 |---|---|---|
@@ -97,6 +100,7 @@ Six connectors along the bottom edge, all through-hole on 0.1 in (2.54 mm) pitch
 | `PWR3` | 2 | 5 V and GND out to a panel |
 | `PWR4` | 2 | 5 V and GND out to a panel |
 | `GND` `D` `5V` | 3 | Data out to the first panel in the chain, through the level shifter and the 330 ohm resistor |
+| `GND` `SDA` `SCL` `5V` | 4 | The BH1750 ambient-light sensor. SDA reaches GPIO8 and SCL GPIO9. Added in v4 |
 
 The four `PWR` connectors are the point of the board. The [data chain](#data-chain) section below says to feed each panel's power directly from the supply rather than through the daisy-chained signal wires; these are what you feed it from. One per panel in the reference 2x2 build, wired in parallel from the same input, with the wider traces on the bottom layer carrying the current between them.
 
@@ -113,7 +117,7 @@ The bottom layer carries the power distribution on visibly wider traces and the 
 Three things the parts table lists that this PCB has no footprint for, and that have to be wired to it:
 
 - **The USB-C power input.** There is no USB-C footprint and no 5.1 kohm CC resistors here. That is a separate breakout module, wired into the `5V` `GND` pads. R1 (330 ohm) is the only resistor on the board
-- **The light sensor.** No connector and no divider footprint. Wire it to an ADC1 pin on the ESP32 header directly
+- **The analog light sensor.** The v4 connector is for the digital BH1750. An LDR divider still has no footprint here and wires to an ADC1 pin on the ESP32 header directly
 - **The ESP32 itself.** It is socketed in two 22-way female headers with their rows 25.4 mm apart, not soldered down. Check that spacing against the dev board you intend to use before ordering: some ESP32-S3 boards are 0.9 in rather than 1.0 in wide
 
 ### Two things the files do not tell you
@@ -130,10 +134,10 @@ One cosmetic defect, if you respin it: in the exported top silkscreen the `ESP32
 The images above are generated from the Gerbers, so they show what a fab would actually make rather than what the editor draws:
 
 ```sh
-npx --yes @tracespace/cli@4.2.8 --out . "PCB/Gerber files/"*.g* "PCB/Gerber files/RGB display_v3_drill.txt"
+npx --yes @tracespace/cli@4.2.8 --out . "PCB/Gerber/"*.g* "PCB/Gerber/RGB display_v4_drill.txt"
 ```
 
-That writes `RGB display_v3_.top.svg` and `.bottom.svg`. Convert those to PNG for the docs: the SVG is a couple of megabytes because Fritzing exports the ground pour as thousands of hairline strokes rather than a filled region.
+That writes `RGB display_v4_.top.svg` and `.bottom.svg`. Convert those to PNG for the docs: the SVG is a couple of megabytes because Fritzing exports the ground pour as thousands of hairline strokes rather than a filled region.
 
 ## Why the level shifter
 

@@ -1,0 +1,29 @@
+# Pick And Place List
+# eMail=
+#
+# Project=RGB display_v4
+# Date=22:42:03
+# CreatedBy=Fritzing 1.0.7.2026-04-14.CD-2576-0-394a8bb4
+#
+# Coordinates in mils, always center of component
+# Origin 0/0=Lower left corner of PCB. Rotation in degree (0-360, math. pos.)
+RefDes,Description,Package,X,Y,Rotation,Side,Mount
+Description: resistance;capacitance;inductance;voltage;current;power;mpn;mn;
+Via1,";;;;;;;;","",2100,213.972,0,Top,MANUAL
+C2,";;;;;;;;","cap-pth-5mm",130.403,383.569,45,Top,SMT
+C3,";;;;;;;;","cap-pth-5mm",430.403,383.569,45,Top,SMT
+C4,";;;;;;;;","cap-pth-5mm",730.403,383.567,45,Top,SMT
+C5,";;;;;;;;","cap-pth-5mm",1030.4,383.569,45,Top,SMT
+C1,";;;;;;;;","cpol-radial-100uf-25v",1264.64,549.33,45,Top,SMT
+C6,";;;;;;;;","cap-pth-5mm",1700,512.395,90,Top,SMT
+PWR4,";;;;;;;;","THT",146.364,112.395,-90,Top,THT
+PWR3,";;;;;;;;","THT",446.85,113.972,-90,Top,THT
+PWR2,";;;;;;;;","THT",750,113.972,-90,Top,THT
+PWR1,";;;;;;;;","THT",1050,113.972,-90,Top,THT
+5V GND,";;;;;;;;","THT",1350,113.972,-90,Top,THT
+GND SDA SCL 5V,";;;;;;;;","THT",850,613.972,-90,Top,THT
+R1,"330;;;;;0.25W;;;","THT",1500,513.972,-90,Top,THT
+GND D 5V,";;;;;;;;","THT",2000,113.972,-90,Top,THT
+ESP32-S3-N16R8,";;;;;;;;","THT",1350,813.972,-90,Top,THT
+74AHCT125,";;;;;;;;","dil14",2100,463.972,180,Top,THT
+ESP32-S3-N16R9,";;;;;;;;","THT",1350,1813.97,-90,Top,THT

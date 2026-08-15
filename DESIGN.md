@@ -113,7 +113,7 @@ own keys:
 | `integr` | api_key, webhook url, webhook event mask, the web UI login (`ui_auth`, `ui_user`, `ui_pass`), plus the legacy device-name copy `dname` superseded |
 | `wg` | WireGuard enable, private key, peer public key, endpoint, port, allowed IPs, keepalive |
 | `mqtt` | MQTT enable, broker URI, username, password, base topic, HA discovery flag + prefix |
-| `lsen` | light sensor: enabled, gpio, dark_raw, bright_raw, min_bri, max_bri, gamma |
+| `lsen` | light sensor: enabled, type (analog\|bh1750), gpio, sda, scl, dark_raw, bright_raw, min_bri, max_bri, gamma. v2 from 2.9.0; a v1 blob has no type/sda/scl and loads as analog |
 
 `settings.c` gains load/save helpers per blob; every blob has a version
 field for forward migration.

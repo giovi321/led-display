@@ -212,9 +212,13 @@ static cJSON *light_sensor_to_json(void)
     light_sensor_get(&c);
 
     cJSON *r = cJSON_CreateObject();
-    cJSON_AddNumberToObject(r, "v", 1);
+    cJSON_AddNumberToObject(r, "v", 2);
     cJSON_AddBoolToObject(r, "enabled", c.enabled);
+    cJSON_AddStringToObject(r, "type",
+                            c.type == LIGHT_SRC_BH1750 ? "bh1750" : "analog");
     cJSON_AddNumberToObject(r, "gpio", c.gpio);
+    cJSON_AddNumberToObject(r, "sda", c.sda);
+    cJSON_AddNumberToObject(r, "scl", c.scl);
     cJSON_AddNumberToObject(r, "dark_raw", c.curve.dark_raw);
     cJSON_AddNumberToObject(r, "bright_raw", c.curve.bright_raw);
     cJSON_AddNumberToObject(r, "min_brightness", c.curve.min_bri);
@@ -675,6 +679,20 @@ static bool apply_light_sensor(const cJSON *sec)
     if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "enabled"))) {
         c.enabled = cJSON_IsTrue(it);
     }
+    // A pre-2.9.0 backup has no "type"; it could only have been analog, and
+    // leaving the stored value alone would apply its pin to whatever type this
+    // device is on now.
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "type"))) {
+        if (strcmp(it->valuestring, "analog") == 0) {
+            c.type = LIGHT_SRC_ANALOG;
+        } else if (strcmp(it->valuestring, "bh1750") == 0) {
+            c.type = LIGHT_SRC_BH1750;
+        } else {
+            return false;
+        }
+    } else {
+        c.type = LIGHT_SRC_ANALOG;
+    }
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "gpio"))) {
         // Validated, not clamped: clamping would silently move the sensor to
         // GPIO10, and a file naming a pin this board cannot read belongs in
@@ -682,6 +700,15 @@ static bool apply_light_sensor(const cJSON *sec)
         int g = it->valueint;
         if (g != 0 && !light_curve_valid_gpio(g)) return false;
         c.gpio = (uint8_t)g;
+    }
+    struct { const char *key; uint8_t *dst; } i2c_pins[] = {
+        {"sda", &c.sda},
+        {"scl", &c.scl},
+    };
+    for (unsigned i = 0; i < sizeof(i2c_pins) / sizeof(i2c_pins[0]); i++) {
+        if (!cJSON_IsNumber(it = cJSON_GetObjectItem(sec, i2c_pins[i].key))) continue;
+        if (!light_curve_valid_i2c_gpio(it->valueint)) return false;
+        *i2c_pins[i].dst = (uint8_t)it->valueint;
     }
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "dark_raw"))) {
         c.curve.dark_raw = (uint16_t)clampi(it->valueint, 0, LIGHT_RAW_MAX);

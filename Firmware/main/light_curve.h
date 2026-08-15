@@ -19,6 +19,11 @@
 #define LIGHT_GPIO_MIN     1
 #define LIGHT_GPIO_MAX     10
 
+// Reference pins for the BH1750 on the v4 controller board's
+// "GND SDA SCL 5V" connector. Only defaults: both are configurable.
+#define LIGHT_I2C_SDA_DEFAULT  8
+#define LIGHT_I2C_SCL_DEFAULT  9
+
 // Brightness steps the level has to move before the panel is re-driven.
 // Keeps a reading that sits on a boundary from stepping up and down forever.
 #define LIGHT_HYSTERESIS   3
@@ -38,6 +43,15 @@ void light_curve_defaults(light_curve_t *c);
 bool light_curve_valid(const light_curve_t *c);
 
 bool light_curve_valid_gpio(int gpio);
+
+// Whether `gpio` can carry an I2C line on the ESP32-S3-N16R8 this board is
+// built around. Rejects, in order: anything outside 0..48; GPIO22 to GPIO25,
+// which the S3 does not bring out at all; the strapping pins 0, 3, 45 and 46,
+// which are sampled at reset and would be pulled by an I2C bus; and GPIO26 to
+// GPIO37, which are wired to the module's own SPI flash and octal PSRAM.
+// Taking one of those last two groups out is not a configuration error you
+// recover from - it is the module failing to boot.
+bool light_curve_valid_i2c_gpio(int gpio);
 
 // raw (0..LIGHT_RAW_MAX, clamped) -> brightness. dark_raw/bright_raw may come
 // in either numeric order (a pulled-up LDR reads high in the dark), so a

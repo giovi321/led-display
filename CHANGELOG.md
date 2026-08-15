@@ -4,6 +4,21 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-08-15
+
+### Added
+
+- Support for the BH1750 digital lux meter as a light-sensor source, alongside the analog input the firmware has always had. Neither is preferred and both stay first-class: the analog divider needs no extra module and works on a v3 board, the BH1750 reports real lux and plugs into a connector. Pick one under Sensor on the Hardware tab, or send `type` to `POST /api/display/light_sensor`
+- Everything after the reading is shared between them: the same two calibration points, the same response curve, smoothing, hysteresis and handover to the brightness arbiter. Only three small functions in `light_sensor.c` know which sensor is fitted, so the calibration flow is identical either way. Switching source discards the smoothed reading, because the next sample comes from different hardware on a different scale
+- `GET /api/display/light_sensor` reports `type`, both pin sets and `valid_i2c_gpios`, so a client never needs its own copy of which pins the module can spare. `sampling` now means "configured **and** answering", so a BH1750 that is unplugged or miswired says so instead of showing a frozen reading
+
+### Changed
+
+- The controller board is revision v4: it adds a 4-way `GND SDA SCL 5V` connector for the sensor, taking the board from six connectors to seven and from 90 drilled holes to 94. Nothing else moved. SDA reaches GPIO8 and SCL GPIO9, which is what the firmware defaults to
+- The `lsen` config blob is v2, adding `type`, `sda` and `scl`. A v1 blob has none of those and loads as analog, which is the only thing it could have been, so an update changes no behaviour. The same applies to a backup taken before this release
+- I2C pins are validated against what the ESP32-S3-N16R8 can actually spare: not the strapping pins 0, 3, 45 and 46, not GPIO22 to GPIO25 which the chip does not bring out, and not GPIO26 to GPIO37, which carry the module's own flash and PSRAM. Taking one of those last two out does not misconfigure the sensor, it stops the module booting
+- The board documentation says JST-XH 2.54 mm for all seven connectors, which is what is fitted. The previous wording described the footprints as generic headers, which is what the design file draws but not what goes in them
+
 ## [2.8.1] - 2026-08-15
 
 ### Changed

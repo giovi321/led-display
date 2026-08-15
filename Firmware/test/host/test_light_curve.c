@@ -160,6 +160,73 @@ static void test_validation(void)
 }
 
 // ESP32-S3: ADC1 only (GPIO1..GPIO10). ADC2 shares hardware with WiFi.
+static void test_valid_i2c_gpio(void)
+{
+    // The pins the v4 board's sensor connector reaches. If these ever stop
+    // passing, every stored BH1750 config on every device is rejected at boot.
+    assert(light_curve_valid_i2c_gpio(LIGHT_I2C_SDA_DEFAULT));
+    assert(light_curve_valid_i2c_gpio(LIGHT_I2C_SCL_DEFAULT));
+    assert(LIGHT_I2C_SDA_DEFAULT == 8);
+    assert(LIGHT_I2C_SCL_DEFAULT == 9);
+
+    // Ordinary usable pins.
+    assert(light_curve_valid_i2c_gpio(1));
+    assert(light_curve_valid_i2c_gpio(21));
+    assert(light_curve_valid_i2c_gpio(38));
+    assert(light_curve_valid_i2c_gpio(47));
+    assert(light_curve_valid_i2c_gpio(48));
+
+    // Strapping pins: sampled at reset, and an I2C bus pulls them.
+    assert(!light_curve_valid_i2c_gpio(0));
+    assert(!light_curve_valid_i2c_gpio(3));
+    assert(!light_curve_valid_i2c_gpio(45));
+    assert(!light_curve_valid_i2c_gpio(46));
+
+    // Not bonded out on the S3 at all.
+    for (int g = 22; g <= 25; g++) assert(!light_curve_valid_i2c_gpio(g));
+
+    // SPI flash and octal PSRAM: taking one out does not misconfigure the
+    // sensor, it stops the module booting.
+    for (int g = 26; g <= 37; g++) assert(!light_curve_valid_i2c_gpio(g));
+
+    // Off the end in both directions.
+    assert(!light_curve_valid_i2c_gpio(-1));
+    assert(!light_curve_valid_i2c_gpio(49));
+    assert(!light_curve_valid_i2c_gpio(1000));
+    printf("test_valid_i2c_gpio ok\n");
+}
+
+static void test_i2c_and_adc_pin_rules_are_separate(void)
+{
+    // GPIO3 is a legal ADC1 pin and an illegal I2C pin. Sharing one validator
+    // between the two sensor types would break one of them.
+    assert(light_curve_valid_gpio(3));
+    assert(!light_curve_valid_i2c_gpio(3));
+    // And the other way: GPIO21 carries I2C fine but is not on ADC1.
+    assert(!light_curve_valid_gpio(21));
+    assert(light_curve_valid_i2c_gpio(21));
+    printf("test_i2c_and_adc_pin_rules_are_separate ok\n");
+}
+
+static void test_bh1750_lux_maps_onto_the_curve(void)
+{
+    // The BH1750 path feeds lux (raw / 1.2, clamped) into the same curve, so
+    // the calibration flow has to behave identically to the analog one.
+    light_curve_t c = base();
+    c.dark_raw   = 10;      // a dim room, in lux
+    c.bright_raw = 500;     // office daylight
+    c.min_bri    = 8;
+    c.max_bri    = 200;
+
+    assert(light_curve_brightness(&c, 10) == 8);
+    assert(light_curve_brightness(&c, 500) == 200);
+    assert(light_curve_brightness(&c, 0) == 8);       // below dark clamps
+    assert(light_curve_brightness(&c, 4095) == 200);  // above bright clamps
+    int mid = light_curve_brightness(&c, 255);
+    assert(mid > 8 && mid < 200);
+    printf("test_bh1750_lux_maps_onto_the_curve ok\n");
+}
+
 static void test_valid_gpio(void)
 {
     assert(!light_curve_valid_gpio(0));
@@ -242,6 +309,9 @@ int main(void)
     test_monotonic();
     test_validation();
     test_valid_gpio();
+    test_valid_i2c_gpio();
+    test_i2c_and_adc_pin_rules_are_separate();
+    test_bh1750_lux_maps_onto_the_curve();
     test_smoothing();
     test_hysteresis();
     test_zero_boundary_settles();

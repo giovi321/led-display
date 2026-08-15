@@ -39,7 +39,7 @@ Firmware v2 (current version 2.2.0, `fw_version.h`) is a single ESP-IDF applicat
 
 `fonts.c` holds the glyph data and the spacing rules, pure C: three column-major ASCII fonts (`5x7`, `3x5`, `7x12`), proportional advance with tabular digits, monospace as the alternative, and `font_fit`, which substitutes the tallest font that fits when the stored one is too tall for the active layout.
 
-`light_sensor.c` reads an ADC1 pin once a second and hands the level to the scheduler's brightness arbiter; `light_curve.c` is its pure half (raw reading to brightness, smoothing, hysteresis). Sampling runs whenever a usable pin is stored, so the UI can calibrate against a live reading before the sensor is switched on.
+`light_sensor.c` samples once a second and hands the level to the scheduler's brightness arbiter; `light_curve.c` is its pure half (raw reading to brightness, smoothing, hysteresis, pin rules). Two sources feed the same pipeline: an ADC1 pin read through esp_adc oneshot, or a BH1750 lux meter read over I2C at address 0x23 and scaled onto the same 0..4095 range. Only three small functions know which is fitted; everything after the read is shared, which is what keeps one calibration flow working for both. Sampling runs whenever a usable sensor is stored, so the UI can calibrate against a live reading before the sensor is switched on, and a sensor that stops answering is reported rather than frozen.
 
 ### Settings and NVS
 
@@ -52,7 +52,7 @@ Firmware v2 (current version 2.2.0, `fw_version.h`) is a single ESP-IDF applicat
 | `valuecfg` | value endpoint formatting and staleness config |
 | `integr` | API key, outbound webhook config, and the legacy device-name copy the `dname` key superseded |
 | `wg` | WireGuard client config |
-| `lsen` | light sensor pin, calibration readings, brightness range, curve |
+| `lsen` | light sensor type, analog pin, I2C pins, calibration readings, brightness range, curve |
 
 The legacy v1 `map` key (integer mapping mode 0..6) is read once and migrated to a `layout` blob at boot.
 

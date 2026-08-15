@@ -229,13 +229,36 @@
   </div>
   <div class="card">
     <h2>Light sensor</h2>
-    <p class="note">Optional. An analog light sensor - an LDR voltage divider or
-      an analog lux module - can set the brightness for you as the room changes.</p>
+    <p class="note">Optional. A light sensor can set the brightness for you as
+      the room changes. Either kind works, and the calibration below is the
+      same for both.</p>
 
-    <div class="flab">Sensor pin<button type="button" class="hlp"
-      data-help="Only GPIO1 to GPIO10 are offered: those are the ADC1 pins. The chip's second ADC shares hardware with the WiFi radio, so it cannot be read on a device that is online."
-      aria-expanded="false" aria-label="Explain the pin choice">?</button></div>
-    <select id="ls-gpio"></select>
+    <div class="flab">Sensor<button type="button" class="hlp"
+      data-help="Analog is an LDR voltage divider or an analog lux module on an ADC pin. BH1750 is the GY-302 digital lux meter, which the v4 board has a dedicated connector for. The BH1750 needs no calibration of its own but still uses the two points below to decide how its readings map to brightness."
+      aria-expanded="false" aria-label="Explain the sensor choice">?</button></div>
+    <select id="ls-type">
+      <option value="analog">Analog (LDR or lux module)</option>
+      <option value="bh1750">BH1750 digital lux meter</option>
+    </select>
+
+    <div id="ls-analogrow">
+      <div class="flab">Sensor pin<button type="button" class="hlp"
+        data-help="Only GPIO1 to GPIO10 are offered: those are the ADC1 pins. The chip's second ADC shares hardware with the WiFi radio, so it cannot be read on a device that is online."
+        aria-expanded="false" aria-label="Explain the pin choice">?</button></div>
+      <select id="ls-gpio"></select>
+    </div>
+
+    <div id="ls-i2crow" class="hidden">
+      <div class="flab">I2C pins<button type="button" class="hlp"
+        data-help="The pins SDA and SCL are wired to. GPIO8 and GPIO9 are what the v4 board's GND SDA SCL 5V connector reaches, so leave them alone unless you wired it differently. Pins the module needs for its own flash and PSRAM, and the strapping pins read at reset, are not offered."
+        aria-expanded="false" aria-label="Explain the I2C pins">?</button></div>
+      <div class="row">
+        <label class="inline" for="ls-sda">SDA</label>
+        <select id="ls-sda"></select>
+        <label class="inline" for="ls-scl">SCL</label>
+        <select id="ls-scl"></select>
+      </div>
+    </div>
 
     <div id="ls-live" class="kvs"></div>
     <p id="ls-hint" class="note"></p>

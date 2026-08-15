@@ -18,7 +18,7 @@ One file, `led-display-config.json`, holding:
 - integrations: the device name, webhook URL and event mask, and the API key in cleartext
 - WireGuard configuration, including the private key in cleartext
 - the on/off schedule, including the off-window action and its dim level
-- the [light sensor](../light-sensor/) configuration: pin, both calibration readings, the brightness range and the curve. The live reading is not part of it, since a backup describes the configuration and not what the room looked like
+- the [light sensor](../light-sensor/) configuration: which sensor, its pins, both calibration readings, the brightness range and the curve. The live reading is not part of it, since a backup describes the configuration and not what the room looked like
 
 WiFi credentials are deliberately excluded. A config file tends to move between devices and people, and it should not carry the network password along; a restored device joins the network with whatever credentials it already has.
 
@@ -43,7 +43,7 @@ Two things to be aware of when restoring:
 - a file whose `integrations` section carries an API key turns key checking on the moment it is applied; clients (including other browsers) must present that key from then on
 - restoring a `wireguard` section with `enabled: true` starts the tunnel with the restored keys
 - a `device_name` in the `integrations` section renames the device: hostname, setup network, and the `device` field in webhooks all follow it, so two devices restored from the same file end up with the same name
-- a `light_sensor` section with `enabled: true` hands the brightness to the sensor as soon as it is applied; a section that enables it without a pin, that names a pin outside GPIO1 to GPIO10, or whose two calibration readings are equal, lands in `skipped` instead. The pin is validated rather than clamped, so a file from a board wired differently does not silently move the sensor to another pin
+- a `light_sensor` section with `enabled: true` hands the brightness to the sensor as soon as it is applied; a section that enables an analog sensor without a pin, that names an analog pin outside GPIO1 to GPIO10 or an I2C pin the module cannot spare, or whose two calibration readings are equal, lands in `skipped` instead. Pins are validated rather than clamped, so a file from a board wired differently does not silently move the sensor to another pin. A file written before 2.9.0 has no `type` and restores as analog, which is the only thing it could have been
 
 ## When to export
 

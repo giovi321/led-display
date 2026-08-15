@@ -38,7 +38,7 @@ Chain the panels in whatever order the connectors allow and mount them whichever
 - Separate screens for the boot splash, for normal running, and for a lost WiFi link, the last of which can hold the content, show a message, go dark, or keep the content and mark one pixel in a position, colour and brightness you pick
 - Two optional locks, both off by default: an API key for scripts, and a browser login over the whole interface
 - Up to 5 saved WiFi networks: the strongest one in range wins at boot, a lost link is retried with a growing backoff, and the setup AP only comes back when nothing answers
-- Optional ambient light sensor: an LDR divider on an ADC pin sets the brightness from the room, calibrated against the live reading in the browser
+- Optional ambient light sensor, either kind: a BH1750 lux meter on the board's I2C connector, or an LDR divider on an ADC pin. Both set the brightness from the room and share one calibration flow against the live reading in the browser
 - One device name for the network hostname, the setup AP SSID and the webhook payloads
 - OTA updates both ways: upload a `.bin` from the browser or have the device pull one from a URL, with automatic rollback if the new image fails to boot
 - Config backup and restore as one JSON file; WiFi credentials are deliberately excluded so the file can move between devices and people
@@ -59,7 +59,7 @@ The reference build this firmware runs on:
 | Chain       | controller -> TL -> TR -> BR -> BL                  |
 | Mounting    | Top panels upright, bottom panels rotated 180 deg   |
 | Data pin    | GPIO 16 (through SN74HCT125N level shifter to 5 V)  |
-| PCB         | 2-layer, about 63.6 x 48.6 mm, all through-hole; sockets the dev board and breaks 5 V out to four panel power connectors. Fritzing v3 source + Gerbers in [`PCB/`](PCB/) |
+| PCB         | 2-layer, about 63.6 x 48.6 mm, all through-hole; sockets the dev board, breaks 5 V out to four panel power connectors and carries an I2C connector for the light sensor. Fritzing v4 source + Gerbers in [`PCB/`](PCB/) |
 
 The PCB expects 5 V LED panels: the supply rail, the level shifter and the connectors are all laid out for 5 V WS2812B-class matrices. 12 V variants need a different power arrangement and are not supported by this board.
 
@@ -135,7 +135,7 @@ This is a LAN device speaking plain HTTP. Treat it that way.
 │   │   └── web/             index.html, style.css, app.js, editor.js (gzipped at build)
 │   ├── test/host/           host unit tests (plain gcc + assert)
 │   └── tools/wsl_build.sh   build helper for a WSL-hosted toolchain
-├── PCB/                     Fritzing source + Gerbers (v3 board)
+├── PCB/                     Fritzing source + Gerbers (v4 board)
 └── 3D/                      enclosure parts: DXF outlines to cut, STL to print
     ├── 8x32/                parts of the reference build, from 32x8 panels
     │   ├── Display modules support panel.dxf

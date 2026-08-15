@@ -28,6 +28,15 @@ bool light_curve_valid_gpio(int gpio)
     return gpio >= LIGHT_GPIO_MIN && gpio <= LIGHT_GPIO_MAX;
 }
 
+bool light_curve_valid_i2c_gpio(int gpio)
+{
+    if (gpio < 0 || gpio > 48) return false;
+    if (gpio >= 22 && gpio <= 25) return false;   // not bonded out on the S3
+    if (gpio == 0 || gpio == 3 || gpio == 45 || gpio == 46) return false;   // strapping
+    if (gpio >= 26 && gpio <= 37) return false;   // SPI flash + octal PSRAM
+    return true;
+}
+
 uint8_t light_curve_brightness(const light_curve_t *c, int raw)
 {
     if (!c) return 0;

@@ -95,7 +95,10 @@ curl http://192.168.1.50/api/display/light_sensor
 ```json
 {
   "enabled": true,
+  "type": "analog",
   "gpio": 4,
+  "sda": 8,
+  "scl": 9,
   "dark_raw": 200,
   "bright_raw": 2800,
   "min_brightness": 8,
@@ -105,31 +108,45 @@ curl http://192.168.1.50/api/display/light_sensor
   "raw": 1465,
   "level": 61,
   "raw_max": 4095,
-  "valid_gpios": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  "valid_gpios": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "valid_i2c_gpios": [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+                      18, 19, 20, 21, 38, 39, 40, 41, 42, 47, 48]
 }
 ```
 
 | Field | Meaning |
 |---|---|
 | `enabled` | The sensor level replaces the stored brightness while the schedule allows the display on |
-| `gpio` | The ADC1 pin the sensor is wired to; 0 means none set |
-| `dark_raw`, `bright_raw` | The two calibration readings, 0..`raw_max`. Either may be the higher number: a divider that reads high in the dark gives a reversed pair, and the curve handles it without a separate inversion setting |
+| `type` | `analog` (ADC pin) or `bh1750` (I2C lux meter). Both pin sets are reported whichever is active, so switching back and forth does not lose the other one's pins |
+| `gpio` | Analog only: the ADC1 pin the sensor is wired to; 0 means none set |
+| `sda`, `scl` | BH1750 only: the I2C pins. The v4 board's sensor connector reaches GPIO8 and GPIO9 |
+| `dark_raw`, `bright_raw` | The two calibration readings. Analog: 0..`raw_max` ADC counts. BH1750: lux, on the same scale. Either may be the higher number - a divider that reads high in the dark gives a reversed pair, and the curve handles it without a separate inversion setting |
 | `min_brightness`, `max_brightness` | Brightness at `dark_raw` and at `bright_raw` |
 | `gamma_x10` | Curve shape between the two ends, in tenths: 10 is a straight line, below 10 brightens early, above 10 stays dim longer |
-| `sampling` | True whenever a usable pin is stored, even with `enabled` false, so calibration works before switching it on |
-| `raw` | Smoothed reading, -1 until the first sample |
+| `sampling` | A usable sensor is stored **and** answering, even with `enabled` false, so calibration works before switching it on. A BH1750 that stops replying drops this to false while the config stays as it was |
+| `raw` | Smoothed reading, -1 until the first sample. Counts for analog, lux for the BH1750 |
 | `level` | Brightness the curve currently asks for, -1 when the sensor is not driving |
-| `raw_max` | Full-scale ADC reading, 4095 |
-| `valid_gpios` | The pins that can be used: ADC1 only, because ADC2 shares hardware with the WiFi radio |
+| `raw_max` | Top of the reading scale, 4095. BH1750 lux is clamped to it |
+| `valid_gpios` | Pins for the analog sensor: ADC1 only, because ADC2 shares hardware with the WiFi radio |
+| `valid_i2c_gpios` | Pins `sda` and `scl` may use. Excludes the strapping pins 0, 3, 45 and 46, the GPIO22 to GPIO25 range the S3 does not bring out, and GPIO26 to GPIO37, which the module needs for its own flash and PSRAM |
 
 ## POST /api/display/light_sensor
 
-Partial update: absent fields keep their stored value. Accepts `enabled`, `gpio`, `dark_raw`, `bright_raw`, `min_brightness` and `max_brightness`, plus `gamma_x10`, with the meanings above. Unknown fields are ignored. The config is persisted, the ADC is re-armed and the brightness is re-applied in one step.
+Partial update: absent fields keep their stored value. Accepts `enabled`, `type`, `gpio`, `sda`, `scl`, `dark_raw`, `bright_raw`, `min_brightness` and `max_brightness`, plus `gamma_x10`, with the meanings above. Unknown fields are ignored. The config is persisted, the sensor is re-armed and the brightness is re-applied in one step.
+
+Changing `type`, or either pin, throws the smoothed reading away: the next sample comes from different hardware on a different scale, so carrying the old one over would be meaningless. Re-capture the two calibration points after a switch.
 
 ```bash
+# analog divider on GPIO4
 curl -X POST http://192.168.1.50/api/display/light_sensor \
   -H "X-Api-Key: mysecret" -H "Content-Type: application/json" \
-  -d '{"gpio":4,"dark_raw":180,"bright_raw":2950,
+  -d '{"type":"analog","gpio":4,"dark_raw":180,"bright_raw":2950,
+       "min_brightness":8,"max_brightness":128,"enabled":true}'
+
+# BH1750 on the v4 board's sensor connector
+curl -X POST http://192.168.1.50/api/display/light_sensor \
+  -H "X-Api-Key: mysecret" -H "Content-Type: application/json" \
+  -d '{"type":"bh1750","sda":8,"scl":9,"dark_raw":5,"bright_raw":400,
        "min_brightness":8,"max_brightness":128,"enabled":true}'
 ```
 
@@ -137,10 +154,13 @@ Errors, all 400:
 
 | Message | Cause |
 |---|---|
+| `type must be analog or bh1750` | An unknown sensor type |
 | `gpio must be 0 (none) or an ADC1 pin, GPIO1-GPIO10` | A pin outside ADC1 |
+| `sda/scl must be a free GPIO: not 0/3/45/46 (strapping), not 22-25 (absent), not 26-37 (flash and PSRAM)` | An I2C pin that cannot carry a bus on this module |
 | `dark_raw/bright_raw must be 0-4095` | Reading out of range |
 | `min_brightness/max_brightness must be 0-255` | Brightness out of range |
 | `gamma_x10 must be 5-40 (0.5-4.0)` | Curve out of range |
+| `dark_raw and bright_raw must differ, SDA and SCL must be different pins, and enabling an analog sensor needs a pin` | A configuration that could not produce a brightness |
 | `dark_raw and bright_raw must differ, and enabling the sensor needs a pin` | A zero-width calibration window has no slope, and there is nothing to enable without a pin |
 
 Plus 500 `"saving light sensor config failed"` when the write to flash fails.
