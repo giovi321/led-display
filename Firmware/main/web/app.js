@@ -1276,8 +1276,17 @@ async function refreshSystem() {
     if (s.system.offline_screen) $('#scr-offline').value = s.system.offline_screen;
     $('#scr-offlinetext').value = s.system.offline_text || '';
     if (s.system.offline_color) $('#scr-dotcolor').value = rgb2hex(s.system.offline_color);
-    if (s.system.offline_corner !== undefined) {
-      $('#scr-dotcorner').value = String(s.system.offline_corner);
+    // The panel bounds come from the active layout, so the steppers cannot
+    // offer a position the device would reject.
+    if (s.layout) {
+      $('#scr-dotx').max = Math.max(0, (s.layout.width || 1) - 1);
+      $('#scr-doty').max = Math.max(0, (s.layout.height || 1) - 1);
+    }
+    if (s.system.offline_x !== undefined) $('#scr-dotx').value = s.system.offline_x;
+    if (s.system.offline_y !== undefined) $('#scr-doty').value = s.system.offline_y;
+    if (s.system.offline_brightness !== undefined) {
+      $('#scr-dotbri').value = s.system.offline_brightness;
+      $('#scr-dotbri-val').textContent = s.system.offline_brightness;
     }
     setScreensUi();
     // Empty when no name is stored: the placeholder then shows the default
@@ -1301,6 +1310,9 @@ function setScreensUi() {
 }
 $('#scr-offline').onchange = setScreensUi;
 setScreensUi();
+$('#scr-dotbri').oninput = e => {
+  $('#scr-dotbri-val').textContent = e.target.value;
+};
 
 $('#scr-save').onclick = () => act($('#scr-save'), async () => {
   await jpost('/api/system/boot_screen', { mode: $('#bootscr').value });
@@ -1309,7 +1321,9 @@ $('#scr-save').onclick = () => act($('#scr-save'), async () => {
     offline_screen: $('#scr-offline').value,
     offline_text: $('#scr-offlinetext').value,
     offline_color: hex2rgb($('#scr-dotcolor').value),
-    offline_corner: +$('#scr-dotcorner').value,
+    offline_x: +$('#scr-dotx').value,
+    offline_y: +$('#scr-doty').value,
+    offline_brightness: +$('#scr-dotbri').value,
   });
   toast('Screens saved');
 });

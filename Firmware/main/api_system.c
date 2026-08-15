@@ -2,6 +2,7 @@
 // /api/schedule handlers. Endpoint ownership: api_handlers.h; response
 // shapes: DESIGN.md section 5.
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_chip_info.h"
@@ -145,7 +146,9 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddNumberToObject(oc, "r", cfg.offline_color.r);
     cJSON_AddNumberToObject(oc, "g", cfg.offline_color.g);
     cJSON_AddNumberToObject(oc, "b", cfg.offline_color.b);
-    cJSON_AddNumberToObject(s, "offline_corner", cfg.offline_corner);
+    cJSON_AddNumberToObject(s, "offline_x", cfg.offline_x);
+    cJSON_AddNumberToObject(s, "offline_y", cfg.offline_y);
+    cJSON_AddNumberToObject(s, "offline_brightness", cfg.offline_bright);
 
     // Active layout summary; the full config comes from GET /api/layout.
     mapping_config_t map;
@@ -310,12 +313,29 @@ static esp_err_t system_screens_post(httpd_req_t *req)
         if (cJSON_IsNumber(cg)) cfg.offline_color.g = clamp_u8(cg->valueint);
         if (cJSON_IsNumber(cb)) cfg.offline_color.b = clamp_u8(cb->valueint);
     }
-    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "offline_corner"))) {
-        if (it->valueint < 0 || it->valueint > 3) {
+    // Position is validated against the panel that is actually configured, so
+    // a marker can never be saved somewhere it would silently never appear.
+    const int mw = led_driver_width(), mh = led_driver_height();
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "offline_x"))) {
+        if (it->valueint < 0 || it->valueint >= mw) {
             cJSON_Delete(json);
-            return web_send_err(req, "offline_corner must be 0..3", 400);
+            char msg[64];
+            snprintf(msg, sizeof(msg), "offline_x must be 0..%d", mw - 1);
+            return web_send_err(req, msg, 400);
         }
-        cfg.offline_corner = (uint8_t)it->valueint;
+        cfg.offline_x = (uint16_t)it->valueint;
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "offline_y"))) {
+        if (it->valueint < 0 || it->valueint >= mh) {
+            cJSON_Delete(json);
+            char msg[64];
+            snprintf(msg, sizeof(msg), "offline_y must be 0..%d", mh - 1);
+            return web_send_err(req, msg, 400);
+        }
+        cfg.offline_y = (uint16_t)it->valueint;
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "offline_brightness"))) {
+        cfg.offline_bright = clamp_u8(it->valueint);
     }
     cJSON_Delete(json);
 

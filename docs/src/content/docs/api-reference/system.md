@@ -74,7 +74,10 @@ curl http://192.168.1.50/api/status
     "boot_screen": "ip",
     "startup_screen": "border",
     "offline_screen": "keep",
-    "offline_text": ""
+    "offline_text": "",
+    "offline_x": 0,
+    "offline_y": 0,
+    "offline_brightness": 255
   },
   "layout": {
     "rows": 2, "cols": 2,
@@ -127,8 +130,10 @@ curl http://192.168.1.50/api/status
 | `system.device_name_stored` | The name you set, empty when none is stored |
 | `system.boot_screen` | What settles on the panel after boot: `text` (the configured content), `ip` or `none` |
 | `system.startup_screen` | The splash before the network is up: `border`, `blank` or `content` |
-| `system.offline_screen` | What a lost WiFi link puts on the panel: `keep`, `text` or `blank` |
+| `system.offline_screen` | What a lost WiFi link puts on the panel: `keep`, `text`, `dot` or `blank` |
 | `system.offline_text` | The message shown when `offline_screen` is `text` |
+| `system.offline_x`, `system.offline_y` | Where the `dot` marker sits |
+| `system.offline_brightness` | The marker's own brightness, 0..255 |
 | `layout.*` | Summary of the active layout; the full config comes from [`GET /api/layout`](../layout/) |
 | `value_age_s` | Seconds since the last `POST /api/value`; -1 means never |
 | `wireguard.last_handshake` | Unix seconds, 0 means never |
@@ -171,7 +176,9 @@ The startup splash and what a lost WiFi link puts on the panel. Partial update: 
 | `offline_screen` | string | `keep` (leave the last content, the default), `text`, `dot`, or `blank` |
 | `offline_text` | string | Up to 63 characters, shown when `offline_screen` is `text` |
 | `offline_color` | object | `{"r":0..255,"g":0..255,"b":0..255}`, the colour of the `dot` pixel |
-| `offline_corner` | number | 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right, for the `dot` pixel |
+| `offline_x` | number | Marker column, 0 to `layout.width` − 1 |
+| `offline_y` | number | Marker row, 0 to `layout.height` − 1 |
+| `offline_brightness` | number | 0..255, the marker's own brightness |
 
 The border default is deliberate: it lights every edge pixel, so a miswired or half-dead panel announces itself in the first second after power-on, before anything else can mask it.
 
@@ -183,9 +190,11 @@ curl -X POST http://192.168.1.50/api/system/screens \
   -d '{"startup_screen":"border","offline_screen":"text","offline_text":"OFFLINE"}'
 ```
 
-`dot` lights a single pixel and nothing else, which is the quietest way for a wall-mounted display to admit it has lost the network: visible if you look, invisible from across the room.
+`dot` is the only one of the four that is an overlay rather than a screen. The panel goes on showing whatever it was showing, and one pixel at (`offline_x`, `offline_y`) is lit on top of it: the quietest way for a wall-mounted display to admit it has lost the network without also throwing away the number someone is standing there reading. `offline_brightness` is the marker's own, applied instead of the panel brightness and its cap, so the pixel stays visible on a panel the light sensor has dimmed or the schedule has turned off. Coming back online removes the pixel and repaints nothing.
 
-Errors: 400 `"startup_screen must be border|blank|content"`, 400 `"offline_screen must be keep|text|blank|dot"`, 400 `"offline_text too long (max 63)"`, 400 `"offline_corner must be 0..3"`, 500 `"saving screens failed"`.
+`offline_x` and `offline_y` are validated against the configured panel, so the bounds move with [the layout](../layout/). Before 2.7.0 the marker was pinned to a corner with `offline_corner`; a stored corner is converted to coordinates on the first boot of 2.7.0 and the field is gone from the API.
+
+Errors: 400 `"startup_screen must be border|blank|content"`, 400 `"offline_screen must be keep|text|blank|dot"`, 400 `"offline_text too long (max 63)"`, 400 `"offline_x must be 0..N"`, 400 `"offline_y must be 0..N"`, 500 `"saving screens failed"`.
 
 ## POST /api/system/device_name
 

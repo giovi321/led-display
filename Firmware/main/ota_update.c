@@ -35,6 +35,10 @@
 static const char *TAG = "ota";
 
 #define OTA_URL_MAX_LEN     512    // sanity cap for /api/ota/url targets
+// Request-line + header room for the longest URL we can end up fetching,
+// which is a redirect target rather than anything the user typed. 2 KB
+// leaves margin for GitHub lengthening its signed asset URLs again.
+#define OTA_TX_BUF_SIZE     2048
 #define OTA_HTTP_TIMEOUT_MS 30000
 #define OTA_WORKER_STACK    8192   // TLS handshake inside the worker needs room
 #define OTA_REBOOT_DELAY_MS 1500   // lets httpd flush + webhook task deliver
@@ -287,9 +291,14 @@ static void url_worker(void *arg)
         .url               = ctx->url,
         .crt_bundle_attach = esp_crt_bundle_attach,   // https: IDF cert bundle
         .timeout_ms        = OTA_HTTP_TIMEOUT_MS,
-        // The client's default tx buffer is 512 bytes, which the request
-        // line of a maximum-length accepted URL would not fit into.
-        .buffer_size_tx    = OTA_URL_MAX_LEN + 256,
+        // Sized for the REDIRECT target, not for the URL we were handed. A
+        // GitHub release asset URL is ~80 characters and answers 302 to a
+        // signed release-assets.githubusercontent.com URL whose query alone
+        // (SAS signature plus a ~330-character jwt) runs to ~800 bytes; the
+        // whole request line measured 880. esp_http_client formats the
+        // request line into this buffer and fails with "Out of buffer" when
+        // it does not fit, so anything smaller breaks every GitHub update.
+        .buffer_size_tx    = OTA_TX_BUF_SIZE,
     };
     esp_https_ota_config_t ota_cfg = {
         .http_config = &http_cfg,

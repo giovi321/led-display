@@ -75,7 +75,9 @@ static cJSON *display_to_json(const settings_t *s)
     cJSON_AddNumberToObject(ocol, "r", s->offline_color.r);
     cJSON_AddNumberToObject(ocol, "g", s->offline_color.g);
     cJSON_AddNumberToObject(ocol, "b", s->offline_color.b);
-    cJSON_AddNumberToObject(d, "offline_corner", s->offline_corner);
+    cJSON_AddNumberToObject(d, "offline_x", s->offline_x);
+    cJSON_AddNumberToObject(d, "offline_y", s->offline_y);
+    cJSON_AddNumberToObject(d, "offline_brightness", s->offline_bright);
     return d;
 }
 
@@ -429,8 +431,20 @@ static bool apply_display(const cJSON *sec)
         if (cJSON_IsNumber(g)) s.offline_color.g = (uint8_t)clampi(g->valueint, 0, 255);
         if (cJSON_IsNumber(b)) s.offline_color.b = (uint8_t)clampi(b->valueint, 0, 255);
     }
+    // A backup taken before 2.7.0 carries offline_corner and no coordinates;
+    // leaving x/y at OFFLINE_POS_UNSET hands it to the same one-shot
+    // migration a stored corner goes through on the next boot.
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "offline_corner"))) {
         s.offline_corner = (uint8_t)clampi(it->valueint, 0, 3);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "offline_x"))) {
+        s.offline_x = (uint16_t)clampi(it->valueint, 0, OFFLINE_POS_UNSET);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "offline_y"))) {
+        s.offline_y = (uint16_t)clampi(it->valueint, 0, OFFLINE_POS_UNSET);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "offline_brightness"))) {
+        s.offline_bright = (uint8_t)clampi(it->valueint, 0, 255);
     }
 
     if (settings_save(&s) != ESP_OK) return false;

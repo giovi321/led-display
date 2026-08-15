@@ -156,9 +156,21 @@ static void show_boot_screen(const settings_t *cfg, const wifi_mgr_status_t *s)
 // else is on the panel - a pushed value, a test pattern - stays untouched.
 static bool s_ap_banner;
 
-// Whether the offline screen is currently on the panel, so the configured
-// content only has to be restored once, on the transition back.
+// Whether a replacement offline screen is currently on the panel, so the
+// configured content only has to be restored once, on the transition back.
 static bool s_offline_screen;
+
+// The offline marker is tracked separately because it is not a screen: it
+// replaced nothing, so coming back online must only take the pixel away and
+// must NOT repaint the boot screen over content the user asked to keep.
+static bool s_offline_marker;
+
+static void clear_offline_marker(void)
+{
+    if (!s_offline_marker) return;
+    s_offline_marker = false;
+    display_set_offline_marker(false, 0, 0, (display_color_t){0, 0, 0}, 0);
+}
 
 static void on_wifi_state(const wifi_mgr_status_t *s)
 {
@@ -168,6 +180,7 @@ static void on_wifi_state(const wifi_mgr_status_t *s)
     if (s->mode == WIFI_MGR_MODE_AP) {
         s_ap_banner = true;
         s_offline_screen = false;
+        clear_offline_marker();   // the banner owns the panel in AP mode
         show_network_banner(&cfg, s);
     } else if (s_ap_banner && s->connected) {
         s_ap_banner = false;
@@ -176,20 +189,27 @@ static void on_wifi_state(const wifi_mgr_status_t *s)
         // Link lost while still in station mode. AP mode is handled above and
         // deliberately overrides this: there the panel is the only place the
         // setup address appears.
-        if (!s_offline_screen) {
+        if (cfg.offline_screen == OFFLINE_DOT) {
+            if (!s_offline_marker) {
+                s_offline_marker = true;
+                display_set_offline_marker(true, cfg.offline_x, cfg.offline_y,
+                                           cfg.offline_color, cfg.offline_bright);
+            }
+        } else if (!s_offline_screen) {
             s_offline_screen = true;
             if (cfg.offline_screen == OFFLINE_TEXT && cfg.offline_text[0]) {
                 display_show_text(cfg.offline_text, cfg.color, cfg.scroll_mode,
                                   cfg.speed, cfg.scale);
-            } else if (cfg.offline_screen == OFFLINE_DOT) {
-                display_show_dot(cfg.offline_corner, cfg.offline_color);
             } else {
                 display_clear();
             }
         }
-    } else if (s->connected && s_offline_screen) {
-        s_offline_screen = false;
-        show_boot_screen(&cfg, s);
+    } else if (s->connected && (s_offline_screen || s_offline_marker)) {
+        clear_offline_marker();
+        if (s_offline_screen) {
+            s_offline_screen = false;
+            show_boot_screen(&cfg, s);
+        }
     }
 
     // The mode change moves the arbiter's setup-AP exception in or out of play
@@ -221,6 +241,18 @@ void app_main(void)
     led_driver_set_brightness(cfg.brightness);
     ESP_ERROR_CHECK(display_init());
     display_set_font(cfg.font, cfg.prop);
+
+    // 3b. One-shot: the offline marker used to be pinned to a corner, which
+    //     only means a coordinate once the panel geometry is known - hence
+    //     here rather than in settings_load(). Writes real coordinates back,
+    //     so this runs exactly once per device.
+    if (cfg.offline_x == OFFLINE_POS_UNSET || cfg.offline_y == OFFLINE_POS_UNSET) {
+        cfg.offline_x = (cfg.offline_corner & 1) ? (uint16_t)(led_driver_width() - 1) : 0;
+        cfg.offline_y = (cfg.offline_corner & 2) ? (uint16_t)(led_driver_height() - 1) : 0;
+        ESP_LOGI(TAG, "offline marker migrated from corner %u to (%u, %u)",
+                 cfg.offline_corner, cfg.offline_x, cfg.offline_y);
+        settings_save_screens(&cfg);
+    }
 
     // 4. Startup splash. The border lights every edge pixel, so a miswired or
     //    half-dead panel says so within a second of power-on; that is why it

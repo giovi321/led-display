@@ -5,10 +5,14 @@
 //
 //   node Firmware/tools/gen_render.js Firmware/main/fonts.c > docs/src/assets/display-render.svg
 //
-// Geometry taken from the DXF (all millimetres):
+// Geometry taken from the DXF (all millimetres). The cut file stores every
+// curve as a polyline, so the holes below are the clustered loop centres, not
+// CIRCLE entities: all twelve come out at r 2.500, i.e. 5 mm clearance holes
+// for the M5 screws. The 5.25 radius that appears at (+-329.75, +-89.75) is
+// the corner fillet of the sheet outline, not a thirteenth fixing.
 //   sheet          670 x 190 overall, 5.25 corner radius
-//   fixing holes   4 corner at (+-329.75, +-89.75) and 8 more at
-//                  (+-327, 0), (0, +-87), (+-163.5, +-87)
+//   fixing holes   12 of 5 mm dia at (+-327, {-87, 0, +87}),
+//                  (+-163.5, +-87) and (0, +-87)
 //   wire cutouts   12 of 20 x 30 through the support panel
 //   LED pitch      10, giving 640 x 160 of matrix inside a 15 mm border
 
@@ -70,14 +74,16 @@ const SHEET_W = 670, SHEET_H = 190, CORNER_R = 5.25;
 const PITCH = 10, COLS = 64, ROWS = 16;
 const MARGIN = (SHEET_W - COLS * PITCH) / 2;          // 15 mm all round
 
-// Fixing holes, centred on the sheet, straight from the DXF.
+// Fixing holes, centred on the sheet, straight from the DXF. Twelve M5
+// clearance holes, all the same size - the corner ones included.
+const HOLE_R = 2.5;                                   // 5 mm dia, from the DXF
+const HEAD_R = 5;                                     // DIN 7991 M5 head, 10 mm dia
+const SOCKET_AF = 3;                                  // 3 mm hex key across flats
 const HOLES = [
-  ...[-329.75, 329.75].flatMap(x => [-89.75, 89.75].map(y => ({ x, y, r: 5.25 }))),
-  { x: -327, y: 0, r: 2.5 }, { x: 327, y: 0, r: 2.5 },
-  { x: 0, y: -87, r: 2.5 },  { x: 0, y: 87, r: 2.5 },
-  { x: -163.5, y: -87, r: 2.5 }, { x: -163.5, y: 87, r: 2.5 },
-  { x: 163.5, y: -87, r: 2.5 },  { x: 163.5, y: 87, r: 2.5 },
-];
+  ...[-327, 327].flatMap(x => [-87, 0, 87].map(y => ({ x, y }))),
+  ...[-163.5, 0, 163.5].flatMap(x => [-87, 87].map(y => ({ x, y }))),
+].map(h => ({ ...h, r: HOLE_R }));
+if (HOLES.length !== 12) throw new Error('expected 12 fixings, got ' + HOLES.length);
 const CUTOUT_X = [-290, -170, -50, 30, 150, 270];     // 20 x 30, two rows
 
 const TEXT = '1234', SCALE = 2;
@@ -98,55 +104,123 @@ for (let j = 0; j < ROWS; j++) {
   leds += '\n      ';
 }
 
-// Screws: a head with a slot, sized from the hole it sits in.
-const screw = (x, y, r) =>
-  `<g class="screw"><circle cx="${x}" cy="${y}" r="${r}" class="shead"/>` +
-  `<circle cx="${x}" cy="${y}" r="${(r * 0.62).toFixed(2)}" class="sinner"/>` +
-  `<line x1="${(x - r * 0.5).toFixed(2)}" y1="${y}" x2="${(x + r * 0.5).toFixed(2)}" y2="${y}" class="sslot"/></g>`;
+// Screws, face on: the countersunk head fills a 10 mm circle whatever the
+// 5 mm hole under it measures, and a socket screw shows a hex recess rather
+// than a slot. All twelve are the same M5x40, so all twelve draw identically.
+const hexPath = (x, y, af) => {
+  const rc = af / Math.sqrt(3);                       // across flats -> corners
+  return Array.from({ length: 6 }, (_, i) => {
+    const a = Math.PI / 6 + i * Math.PI / 3;
+    return `${(x + rc * Math.cos(a)).toFixed(2)},${(y + rc * Math.sin(a)).toFixed(2)}`;
+  }).join(' ');
+};
+const screw = (x, y) =>
+  `<g class="screw"><circle cx="${x}" cy="${y}" r="${HEAD_R}" class="shead"/>` +
+  `<circle cx="${x}" cy="${y}" r="${(HEAD_R * 0.82).toFixed(2)}" class="scone"/>` +
+  `<polygon points="${hexPath(x, y, SOCKET_AF)}" class="ssocket"/></g>`;
 
-const screwsFront = HOLES.map(h => screw(hx(h), hy(h), h.r)).join('');
+const screwsFront = HOLES.map(h => screw(hx(h), hy(h))).join('');
 
 // ---- section through the sandwich ----------------------------------------
-// Generous row pitch so the labels never collide, and every label is on the
-// same baseline as its own layer.
-const SY = 300, ROW = 30;
+// Layers sit at their real thicknesses, so the 6 mm short spacers and the
+// 22 mm long ones read as different gaps. Only the vertical axis is
+// exaggerated (x stays 1:1 with the front view); the caption says by how
+// much, because the stack is 36 mm against a 670 mm sheet and would
+// otherwise be a hairline.
+const SY = 312;            // front face of the front panel
+const VS = 3;              // mm -> px, vertical only
+const SPACER_OD = 10;      // printed spacer outside diameter
+const SHANK_D = 5;         // M5
+const HEAD_H = 2.8;        // DIN 7991 head height, buried in the front panel
+const NUT_AF = 8, NUT_HEX_H = 5, NUT_DOME_R = 4;   // DIN 1587 M5 dome nut
+const SCREW_L = 40;        // M5x40, measured over the countersunk head
+
 const layers = [
   { t: 3,  cls: 'plexi', label: 'Front panel, 3 mm smoked grey plexiglass' },
-  { t: 6,  cls: 'gap',   label: 'Short spacers' },
-  { t: 2,  cls: 'alu',   label: 'Aluminium support panel, LED panels glued on' },
-  { t: 22, cls: 'gap',   label: 'Long spacers, wiring and PCB' },
+  { t: 6,  cls: 'gap', spacer: true, label: 'Short spacers, 6 mm' },
+  { t: 2,  cls: 'alu',   label: 'Aluminium support panel, 2 mm, LED panels glued on' },
+  { t: 22, cls: 'gap', spacer: true, label: 'Long spacers, 22 mm, wiring and PCB' },
   { t: 3,  cls: 'plexi', label: 'Back panel, 3 mm smoked grey plexiglass' },
 ];
 
-let stack = '', legend = '', aluY = 0;
-layers.forEach((l, i) => {
-  const y = SY + i * ROW;
-  stack += `<rect x="${OX}" y="${y}" width="${SHEET_W}" height="${l.t}" class="${l.cls}"/>`;
-  legend += `<text x="${OX + SHEET_W + 16}" y="${y + l.t / 2 + 4}" class="lbl">${l.label}</text>`;
-  if (l.cls === 'alu') aluY = y;
-});
+// Run the thicknesses up front: the screw and the labels both need the
+// finished stack height, not just their own layer.
+let acc = SY;
+for (const l of layers) {
+  l.y = acc;
+  l.h = l.t * VS;
+  acc += l.h;
+}
+const stackTop = SY, stackBot = acc;
+const aluY = layers.find(l => l.cls === 'alu').y;
 
-// LED panels on the support layer, the wire cutouts through it, and the same
-// twelve screws passing through the whole stack.
+// One fixing per column: the cut plane is offset so it steps through a screw
+// in each of the five columns while still crossing the LED panels.
+const COLS_X = [...new Set(HOLES.map(h => h.x))].sort((a, b) => a - b);
+const sx = x => OX + SHEET_W / 2 + x;
+
+let stack = '', spacers = '';
+for (const l of layers) {
+  stack += `<rect x="${OX}" y="${l.y}" width="${SHEET_W}" height="${l.h}" class="${l.cls}"/>`;
+  if (!l.spacer) continue;
+  for (const x of COLS_X) {
+    spacers += `<rect x="${(sx(x) - SPACER_OD / 2).toFixed(2)}" y="${l.y}" ` +
+               `width="${SPACER_OD}" height="${l.h}" class="spacer"/>`;
+  }
+}
+
+// LED panels on the front face of the support panel, and the wire cutouts
+// through it.
 let panels = '';
 for (const p of [0, 1]) {
-  panels += `<rect x="${OX + MARGIN + p * 320}" y="${aluY - 3}" width="320" height="3" class="ledpanel"/>`;
+  panels += `<rect x="${OX + MARGIN + p * 320}" y="${(aluY - 3 * VS).toFixed(2)}" ` +
+            `width="320" height="${3 * VS}" class="ledpanel"/>`;
 }
 let cuts = '';
 for (const x of CUTOUT_X) {
-  cuts += `<rect x="${OX + SHEET_W / 2 + x}" y="${aluY}" width="20" height="2" class="cut"/>`;
-}
-const stackTop = SY, stackBot = SY + (layers.length - 1) * ROW + 3;
-let screwsSide = '';
-for (const h of HOLES) {
-  // one per distinct x, drawn as a shaft through every layer
-  screwsSide += `<line x1="${hx(h)}" y1="${stackTop - 4}" x2="${hx(h)}" y2="${stackBot + 4}" class="shaft"/>` +
-                `<circle cx="${hx(h)}" cy="${stackTop - 5}" r="${h.r * 0.55}" class="shead"/>`;
+  cuts += `<rect x="${OX + SHEET_W / 2 + x}" y="${aluY}" width="20" height="${2 * VS}" class="cut"/>`;
 }
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 470" width="1050" height="470" role="img" aria-label="Render of the assembled 64 by 16 LED display: four WS2812B 32x8 panels behind a smoked grey plexiglass front showing 1234, with a section through the layer stack">
+// The screw itself: head countersunk flush into the front panel, shank down
+// through the stack, and the dome nut closed on whatever thread comes out of
+// the back. 40 mm over a 36 mm stack leaves 4 mm for the nut.
+const tipY = SY + SCREW_L * VS;
+let screwsSide = '';
+for (const x of COLS_X) {
+  const c = sx(x);
+  const hw = HEAD_R, sw = SHANK_D / 2, nw = NUT_AF / 2;
+  screwsSide +=
+    `<g class="screw">` +
+    // countersunk head: 10 mm at the surface tapering to the 5 mm shank
+    `<polygon points="${c - hw},${SY} ${c + hw},${SY} ${c + sw},${SY + HEAD_H * VS} ` +
+    `${c - sw},${SY + HEAD_H * VS}" class="shead"/>` +
+    `<rect x="${c - sw}" y="${SY + HEAD_H * VS}" width="${SHANK_D}" ` +
+    `height="${(tipY - SY - HEAD_H * VS).toFixed(2)}" class="shank"/>` +
+    // dome nut, seated on the back face
+    `<rect x="${c - nw}" y="${stackBot}" width="${NUT_AF}" ` +
+    `height="${NUT_HEX_H * VS}" class="nut"/>` +
+    `<path d="M ${c - nw} ${stackBot + NUT_HEX_H * VS} ` +
+    `a ${nw} ${NUT_DOME_R * VS} 0 0 0 ${NUT_AF} 0 z" class="nut"/>` +
+    `</g>`;
+}
+
+// Labels on an even pitch with a leader back to their layer, so the 2 mm
+// support panel gets a readable caption without crowding its neighbours.
+// Only ~20 px separate the sheet edge from the label column, so the leader
+// is a single straight run rather than an elbow.
+const LBL_X = OX + SHEET_W + 22;
+const lblY = i => stackTop + 6 + i * ((stackBot - stackTop) / (layers.length - 1));
+let legend = '';
+layers.forEach((l, i) => {
+  const ly = lblY(i), my = l.y + l.h / 2;
+  legend += `<path d="M ${OX + SHEET_W + 1} ${my.toFixed(2)} ` +
+            `L ${LBL_X - 5} ${ly.toFixed(2)}" class="leader"/>` +
+            `<text x="${LBL_X}" y="${(ly + 4).toFixed(2)}" class="lbl">${l.label}</text>`;
+});
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 490" width="1050" height="490" role="img" aria-label="Render of the assembled 64 by 16 LED display: four WS2812B 32x8 panels behind a smoked grey plexiglass front showing 1234, with a section through the layer stack">
   <title>led-display, reference build</title>
-  <desc>Face-on view of the assembled display and a section through its layers, to the cut sizes in 3D/8x32: a 670 by 190 mm sheet with twelve perimeter fixings, carrying a 64 by 16 pixel matrix on a 10 mm pitch.</desc>
+  <desc>Face-on view of the assembled display and a section through its layers, to the cut sizes in 3D/8x32: a 670 by 190 mm sheet with twelve M5 perimeter fixings, carrying a 64 by 16 pixel matrix on a 10 mm pitch. The section shows the five layers at their real thicknesses - 3 mm front panel, 6 mm short spacers, 2 mm aluminium support panel, 22 mm long spacers, 3 mm back panel - with a countersunk screw entering from the front and a dome nut closed on the back.</desc>
   <defs>
     <linearGradient id="plexiFill" x1="0" y1="0" x2="0.35" y2="1">
       <stop offset="0" stop-color="#3a3f45"/>
@@ -171,9 +245,12 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 470" widt
       .ledpanel { fill: #14161a; stroke: #2e3238; stroke-width: 0.5; }
       .cut   { fill: #23262b; }
       .shead { fill: #9aa1aa; stroke: #5f656d; stroke-width: 0.5; }
-      .sinner{ fill: #7e858e; }
-      .sslot { stroke: #4a5058; stroke-width: 1.1; stroke-linecap: round; }
-      .shaft { stroke: #5f656d; stroke-width: 1.2; stroke-dasharray: 3 2; }
+      .scone { fill: #848b94; }
+      .ssocket { fill: #3f444b; }
+      .shank { fill: #8a9099; stroke: #5f656d; stroke-width: 0.4; }
+      .nut   { fill: #9aa1aa; stroke: #5f656d; stroke-width: 0.5; }
+      .spacer{ fill: #3a3f45; stroke: #565c64; stroke-width: 0.5; }
+      .leader{ fill: none; stroke: #5a6068; stroke-width: 0.6; }
       .lbl   { fill: #8f8e96; font: 12px system-ui, sans-serif; }
       .dimt  { fill: #8f8e96; font: 12px system-ui, sans-serif; }
       .diml  { stroke: #5a6068; stroke-width: 0.7; }
@@ -181,7 +258,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 470" widt
     </style>
   </defs>
 
-  <rect width="1050" height="470" fill="#0b0b0d"/>
+  <rect width="1050" height="490" fill="#0b0b0d"/>
 
   <text x="${OX}" y="${OY - 12}" class="cap">Reference build, front</text>
 
@@ -199,12 +276,16 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 470" widt
   <text x="${OX + SHEET_W + 16}" y="${OY + 34}" class="lbl">2 &#215; 2 grid, 1024 LEDs</text>
   <text x="${OX + SHEET_W + 16}" y="${OY + 52}" class="lbl">5 V, flexible panels</text>
 
-  <text x="${OX}" y="${SY - 18}" class="cap">Section</text>
-  ${screwsSide}
+  <text x="${OX}" y="${SY - 34}" class="cap">Section through the fixings</text>
+  <text x="${OX}" y="${SY - 16}" class="lbl">Offset cut plane, stepped to take one screw per column &#183; vertical scale &#215;${VS}, horizontal 1:1</text>
   <g>${stack}</g>
+  <g>${spacers}</g>
   ${panels}
   ${cuts}
+  <g>${screwsSide}</g>
   <g>${legend}</g>
+
+  <text x="${OX}" y="${(stackBot + NUT_HEX_H * VS + NUT_DOME_R * VS + 22).toFixed(2)}" class="dimt">M5&#215;40 countersunk socket screw from the front, M5 dome nut at the back &#183; 36 mm stack leaves 4 mm of thread for the nut</text>
 </svg>
 `;
 

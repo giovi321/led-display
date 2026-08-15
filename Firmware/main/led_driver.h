@@ -46,6 +46,19 @@ bool led_driver_get_pixel(int x, int y, uint8_t *r, uint8_t *g, uint8_t *b);
 // test patterns so the user can see how the physical chain is wired.
 void led_driver_set_raw(int strip_index, uint8_t r, uint8_t g, uint8_t b);
 
+// A marker pixel stamped onto every frame as it goes out, on top of whatever
+// the renderer drew. Presentation only: the frame buffer underneath is never
+// touched, so switching the marker off restores the pixel below it without a
+// repaint, and no render path has to know the marker exists.
+//
+// `brightness` is the marker's own, applied instead of the panel brightness
+// and its cap - the offline indicator has to stay readable on a panel dimmed
+// by the light sensor or blanked by the schedule, which is the whole point of
+// showing it. Out-of-range coordinates (a layout change under a stored
+// position) silently draw nothing.
+void led_driver_set_marker(bool on, int x, int y,
+                           uint8_t r, uint8_t g, uint8_t b, uint8_t brightness);
+
 void led_driver_refresh(void);
 
 void led_driver_lock(void);

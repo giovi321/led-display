@@ -527,19 +527,24 @@
     <select id="scr-offline">
       <option value="keep">Keep showing the last content (default)</option>
       <option value="text">Show a message</option>
-      <option value="dot">Show a single pixel</option>
+      <option value="dot">Keep the content and mark one pixel</option>
       <option value="blank">Blank the panel</option>
     </select>
     <input id="scr-offlinetext" class="hidden" type="text" maxlength="63"
            placeholder="e.g. OFFLINE" autocomplete="off">
-    <div id="scr-dotrow" class="row hidden">
-      <input id="scr-dotcolor" type="color" value="#500000" aria-label="Offline pixel colour">
-      <select id="scr-dotcorner" aria-label="Offline pixel corner">
-        <option value="0">Top left</option>
-        <option value="1">Top right</option>
-        <option value="2">Bottom left</option>
-        <option value="3">Bottom right</option>
-      </select>
+    <div id="scr-dotrow" class="hidden">
+      <p class="note">The panel keeps showing whatever it was showing and this
+        one pixel is lit on top of it. It has its own brightness, so it stays
+        visible on a panel the light sensor or the schedule has dimmed.</p>
+      <div class="row">
+        <input id="scr-dotcolor" type="color" value="#500000" aria-label="Marker pixel colour">
+        <label class="inline" for="scr-dotx">X</label>
+        <input id="scr-dotx" type="number" min="0" step="1" value="0">
+        <label class="inline" for="scr-doty">Y</label>
+        <input id="scr-doty" type="number" min="0" step="1" value="0">
+      </div>
+      <label for="scr-dotbri">Marker brightness <span id="scr-dotbri-val" class="val">255</span></label>
+      <input id="scr-dotbri" type="range" min="1" max="255" value="255">
     </div>
 
     <div class="row"><button class="act" id="scr-save">Save screens</button></div>

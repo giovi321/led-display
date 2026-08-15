@@ -19,7 +19,7 @@ Front to back:
 4. Long printed spacers from the same `Spacers.stl`, leaving room behind the support panel for the wiring
 5. Back panel, plexiglass, cut from `Front and back panels.dxf` again
 
-Twelve M5x40 flat-head socket screws go in from the front, pass through all five layers, and close on twelve M5 hex acorn cap nuts at the back. The 40 mm screw length is what fixes the total stack height, so the two sheet thicknesses plus the two spacer lengths have to leave enough thread for the nuts.
+Twelve M5x40 countersunk socket screws go in from the front, pass through all five layers, and close on twelve M5 acorn nuts at the back. The 40 mm screw length is what fixes the total stack height, so the two sheet thicknesses plus the two spacer lengths have to leave enough thread for the nuts.
 
 The controller board is not part of the sandwich. It lives in its own printed case, `Box for PCB_v2.stl`, which leaves the JST connectors accessible so the panel pigtails plug straight in.
 
@@ -32,8 +32,8 @@ The controller board is not part of the sandwich. It lives in its own printed ca
 | Support panel | 1 | `3D/8x32/Display modules support panel.dxf` | Aluminium, with square holes for the LED panel wires |
 | Thin spacers | as needed | `3D/8x32/Spacers.stl` | Printed, front panel to support panel |
 | Long spacers | as needed | same file | Printed, support panel to back panel |
-| M5x40 flat-head socket screws | 12 | hardware shop | Inserted from the front |
-| M5 hex acorn cap nuts | 12 | hardware shop | Closed at the back |
+| M5x40 countersunk socket screws | 12 | hardware shop | DIN 7991, inserted from the front |
+| M5 acorn nuts | 12 | hardware shop | DIN 1587 dome nuts, closed at the back |
 | LED panels | 4 | see [hardware](../hardware/) | WS2812B 32x8, wires already soldered |
 | Silicone adhesive | as needed | hardware shop | Glues the LED panels to the support panel |
 | Controller case | 1 | `3D/Box for PCB_v2.stl` | Printed, JST connectors exposed |
@@ -45,7 +45,7 @@ The cut files are the authority on geometry: they define the panel positions and
 ## Order of work
 
 1. Send `Front and back panels.dxf` to be laser-cut twice from plexiglass and `Display modules support panel.dxf` to be cut once from aluminium. Print both spacer lengths from `Spacers.stl`, the controller case, and the USB-C flange
-2. Dry-fit the stack with two screws: check the holes line up and the screws still take the nuts. Flat-head screws only sit flush in a countersunk hole, which a laser will not cut, so chamfer the twelve holes in the front panel now if you want the heads level with the surface
+2. Dry-fit the stack with two screws: check the holes line up and the screws still take the nuts. The cut file gives all twelve holes a plain 5 mm bore, and a countersunk head only sits flush in a chamfered one, which a laser will not cut, so chamfer the twelve holes in the front panel now if you want the heads level with the surface
 3. Lay the support panel front face up and put each LED panel over its position, feeding its pre-soldered wires through the square hole behind it. Check the orientation of every panel and the reach of every pigtail before any glue goes on: once the panels are siliconed down, nothing about their position or rotation can be changed
 4. Bond the LED panels to the support panel with silicone and let it cure fully before handling the panel further. Silicone stays flexible, which matters because the aluminium and the flexible panels do not expand at the same rate
 5. Behind the support panel, chain each panel's DOUT to the next panel's DIN and run the first panel's DIN to the controller. Feed panel power from the supply rather than through the daisy-chained signal wires; the [hardware guide](../hardware/#data-chain) covers why. Note the order you end up chaining them in, but do not force a particular order: the [arrangement editor](../../admin-guide/arrangement-editor/) adapts to whatever order the cabling turned out to be

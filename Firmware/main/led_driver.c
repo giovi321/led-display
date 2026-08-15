@@ -27,6 +27,12 @@ static uint8_t            s_brightness     = LED_DEFAULT_BRIGHTNESS;
 static uint8_t            s_brightness_cap = 255;   // 255 = uncapped
 static SemaphoreHandle_t  s_lock;
 
+// Overlay pixel, applied at refresh time and never stored in s_frame.
+static bool               s_marker_on;
+static int                s_marker_x, s_marker_y;
+static pixel_t            s_marker_col;
+static uint8_t            s_marker_bri = 255;
+
 static inline uint8_t scale(uint8_t v)
 {
     // Effective brightness is the user setting clamped by the cap, so a
@@ -253,6 +259,18 @@ bool led_driver_get_pixel(int x, int y, uint8_t *r, uint8_t *g, uint8_t *b)
     return true;
 }
 
+void led_driver_set_marker(bool on, int x, int y,
+                           uint8_t r, uint8_t g, uint8_t b, uint8_t brightness)
+{
+    // Bounds are checked in refresh, not here: a layout change after this
+    // call can invalidate a position that was good when it was set.
+    s_marker_x   = x;
+    s_marker_y   = y;
+    s_marker_col = (pixel_t){r, g, b};
+    s_marker_bri = brightness;
+    s_marker_on  = on;
+}
+
 void led_driver_refresh(void)
 {
     if (!s_strip) {
@@ -265,6 +283,18 @@ void led_driver_refresh(void)
                             scale(s_frame[i].r),
                             scale(s_frame[i].g),
                             scale(s_frame[i].b));
+    }
+    if (s_marker_on &&
+        s_marker_x >= 0 && s_marker_x < s_width &&
+        s_marker_y >= 0 && s_marker_y < s_height) {
+        // Last write wins, so the marker sits over the content rather than
+        // being blended into it, and at its own brightness rather than the
+        // panel's.
+        const uint16_t idx = s_lut[s_marker_y * s_width + s_marker_x];
+        led_strip_set_pixel(s_strip, idx,
+                            (uint8_t)(((uint16_t)s_marker_col.r * s_marker_bri) / 255),
+                            (uint8_t)(((uint16_t)s_marker_col.g * s_marker_bri) / 255),
+                            (uint8_t)(((uint16_t)s_marker_col.b * s_marker_bri) / 255));
     }
     led_strip_refresh(s_strip);
 }

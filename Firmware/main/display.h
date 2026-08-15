@@ -48,10 +48,13 @@ void display_show_text_static(const char *text, display_color_t color);
 void display_set_font(uint8_t font_id, bool prop);
 void display_get_font(uint8_t *font_id_out, bool *prop_out);
 
-// Light a single pixel in one corner of the panel and nothing else, for the
-// offline indicator. Corner is 0 top-left, 1 top-right, 2 bottom-left,
-// 3 bottom-right. Clears the stored text state like display_clear() does.
-void display_show_dot(uint8_t corner, display_color_t color);
+// The offline indicator: one pixel at (x, y) in `color`, stamped over
+// whatever the panel is already showing and lit at its own `brightness`
+// rather than the panel's. The content underneath is untouched - a scroll
+// carries on scrolling - and switching the marker off restores the pixel
+// below it without a repaint.
+void display_set_offline_marker(bool on, int x, int y,
+                                display_color_t color, uint8_t brightness);
 
 void display_clear(void);
 

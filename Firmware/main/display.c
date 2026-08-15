@@ -514,27 +514,19 @@ void display_show_text_static(const char *text, display_color_t color)
     display_show_text(text, color, DISPLAY_SCROLL_OFF, 50, 0);
 }
 
-void display_show_dot(uint8_t corner, display_color_t color)
+void display_set_offline_marker(bool on, int x, int y,
+                                display_color_t color, uint8_t brightness)
 {
-    s_identify = false;
-    s_test_cancel = true;
-
-    xSemaphoreTake(s_state_lock, portMAX_DELAY);
-    s_state.text[0] = '\0';
-    s_state.scroll_mode = DISPLAY_SCROLL_OFF;
-    s_state_gen++;
-    xSemaphoreGive(s_state_lock);
-
-    const int x = (corner & 1) ? led_driver_width() - 1 : 0;
-    const int y = (corner & 2) ? led_driver_height() - 1 : 0;
-
+    // Deliberately does not touch s_state, identify or the test pattern: the
+    // marker is an overlay, and nothing about what the panel is showing
+    // changes when the link drops.
     led_driver_lock();
-    led_driver_clear();
-    led_driver_set_pixel(x, y, color.r, color.g, color.b);
+    led_driver_set_marker(on, x, y, color.r, color.g, color.b, brightness);
+    // Put the current frame back out so the change lands now. Static content
+    // has no next frame to wait for, so without this the marker would only
+    // appear the next time something else repainted.
     led_driver_refresh();
     led_driver_unlock();
-
-    if (s_task) xTaskNotifyGive(s_task);
 }
 
 void display_set_font(uint8_t font_id, bool prop)

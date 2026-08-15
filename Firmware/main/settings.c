@@ -32,7 +32,10 @@ static const char *NS  = "cfg";
 #define K_OFF_COL_R  "ocr"    // OFFLINE_DOT colour
 #define K_OFF_COL_G  "ocg"
 #define K_OFF_COL_B  "ocb"
-#define K_OFF_CORNER "ocn"
+#define K_OFF_CORNER "ocn"    // legacy corner; read to seed ox/oy, then ignored
+#define K_OFF_X      "ox"     // OFFLINE_DOT position, absent = migrate from ocn
+#define K_OFF_Y      "oy"
+#define K_OFF_BRI    "obri"   // OFFLINE_DOT brightness, absent = full
 #define K_DEVNAME    "dname"  // device name; absent = unset (defaults apply)
 
 static void apply_defaults(settings_t *s)
@@ -53,6 +56,9 @@ static void apply_defaults(settings_t *s)
     s->offline_screen  = OFFLINE_KEEP;
     s->offline_text[0] = '\0';
     s->offline_color   = (display_color_t){80, 0, 0};   // dim red
+    s->offline_x       = OFFLINE_POS_UNSET;             // resolved once, in app_main
+    s->offline_y       = OFFLINE_POS_UNSET;
+    s->offline_bright  = 255;                           // full, so it survives a dimmed panel
     s->offline_corner  = 0;
     s->legacy_map_mode = -1;     // absent
 }
@@ -119,6 +125,11 @@ esp_err_t settings_load(settings_t *out)
     nvs_get_u8(h, K_OFF_COL_G, &out->offline_color.g);
     nvs_get_u8(h, K_OFF_COL_B, &out->offline_color.b);
     if (nvs_get_u8(h, K_OFF_CORNER, &v) == ESP_OK && v <= 3) out->offline_corner = v;
+    // Absent x/y leaves OFFLINE_POS_UNSET in place: the panel geometry the
+    // corner has to be resolved against does not exist yet at load time.
+    nvs_get_u16(h, K_OFF_X, &out->offline_x);
+    nvs_get_u16(h, K_OFF_Y, &out->offline_y);
+    nvs_get_u8 (h, K_OFF_BRI, &out->offline_bright);
 
     nvs_close(h);
     ESP_LOGI(TAG, "settings loaded: brightness=%u cap=%u scroll=%u speed=%u scale=%u font=%u prop=%d boot=%u text='%s'",
@@ -157,6 +168,9 @@ esp_err_t settings_save(const settings_t *in)
     nvs_set_u8 (h, K_OFF_COL_G,  in->offline_color.g);
     nvs_set_u8 (h, K_OFF_COL_B,  in->offline_color.b);
     nvs_set_u8 (h, K_OFF_CORNER, in->offline_corner);
+    nvs_set_u16(h, K_OFF_X,      in->offline_x);
+    nvs_set_u16(h, K_OFF_Y,      in->offline_y);
+    nvs_set_u8 (h, K_OFF_BRI,    in->offline_bright);
 
     err = nvs_commit(h);
     nvs_close(h);
@@ -245,6 +259,9 @@ esp_err_t settings_save_screens(const settings_t *in)
     if (err == ESP_OK) err = nvs_set_u8(h, K_OFF_COL_G, in->offline_color.g);
     if (err == ESP_OK) err = nvs_set_u8(h, K_OFF_COL_B, in->offline_color.b);
     if (err == ESP_OK) err = nvs_set_u8(h, K_OFF_CORNER, in->offline_corner);
+    if (err == ESP_OK) err = nvs_set_u16(h, K_OFF_X, in->offline_x);
+    if (err == ESP_OK) err = nvs_set_u16(h, K_OFF_Y, in->offline_y);
+    if (err == ESP_OK) err = nvs_set_u8(h, K_OFF_BRI, in->offline_bright);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;

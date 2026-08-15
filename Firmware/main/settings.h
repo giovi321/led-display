@@ -38,10 +38,18 @@ typedef enum {
     OFFLINE_KEEP  = 0,    // leave whatever is on the panel (default)
     OFFLINE_TEXT  = 1,    // show offline_text
     OFFLINE_BLANK = 2,    // blank the panel
-    OFFLINE_DOT   = 3,    // a single pixel, in offline_color, in a corner
+    // Keep the content AND mark one pixel. Unlike the three above this is an
+    // overlay, not a screen: the panel goes on showing whatever it showed,
+    // and a single pixel at (offline_x, offline_y) is stamped over the top
+    // at its own brightness. Removing it repaints nothing.
+    OFFLINE_DOT   = 3,
 } offline_screen_t;
 
 #define OFFLINE_TEXT_MAX 63
+
+// offline_x/offline_y before the one-shot migration off offline_corner has
+// run (app_main, once the panel geometry is known).
+#define OFFLINE_POS_UNSET 0xFFFF
 
 // Where the panel content comes from. Static: the text the user typed in the
 // Display tab. Integration: the last value pushed via /api/value (or MQTT),
@@ -67,7 +75,10 @@ typedef struct {
     offline_screen_t offline_screen;
     char            offline_text[OFFLINE_TEXT_MAX + 1];
     display_color_t offline_color;    // the OFFLINE_DOT pixel
-    uint8_t         offline_corner;   // 0 TL, 1 TR, 2 BL, 3 BR
+    uint16_t        offline_x;        // its position, OFFLINE_POS_UNSET before migration
+    uint16_t        offline_y;
+    uint8_t         offline_bright;   // its own brightness, independent of the panel
+    uint8_t         offline_corner;   // legacy 0 TL, 1 TR, 2 BL, 3 BR; migration source only
     // Legacy v1 pixel-mapping mode ("map" NVS key). -1 when absent. Only
     // used once, to migrate to the "layout" blob via mapping_from_legacy().
     int             legacy_map_mode;

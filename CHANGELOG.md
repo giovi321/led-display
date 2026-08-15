@@ -4,6 +4,20 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-08-15
+
+### Fixed
+
+- Updating from a GitHub release always failed at the download with "download failed to start: ESP_FAIL", while uploading the same `.bin` by hand worked. The asset URL is short, but GitHub answers it with a redirect to a signed URL whose query string alone runs to about 800 bytes, and the HTTP client formats the whole request line into a transmit buffer that was sized for the 512-character URL the API accepts, not for where that URL leads. It now gets 2 KB, with room for GitHub to lengthen those signatures again
+
+### Changed
+
+- The single-pixel offline indicator is an overlay rather than a screen. It used to blank the panel and light one pixel, which threw away the content it was meant to annotate; it now leaves the display exactly as it was and lights one pixel on top. Its position is a free coordinate instead of a corner, and it has its own brightness, applied instead of the panel brightness and its cap, so it stays visible on a panel dimmed by the light sensor or turned off by the schedule. Coming back online takes the pixel away and repaints nothing
+- `offline_corner` is replaced by `offline_x`, `offline_y` and `offline_brightness` on `POST /api/system/screens` and in `GET /api/status`. A stored corner is converted to coordinates on the first boot, and a backup taken before this release imports through the same conversion
+- The drawing of the reference build is redrawn from the cut file rather than around it. All twelve fixings are the M5 holes the DXF actually contains, at one size, including the four near the corners that were missing; the four oversized screws previously drawn outside them were the corner fillets of the sheet outline, not holes. The heads are drawn at the 10 mm of a countersunk M5 rather than at the diameter of the hole beneath them, and with a hex socket rather than a slot
+- The section is to scale. The layers sit at their real thicknesses, so the 6 mm short spacers and the 22 mm long ones are visibly different gaps instead of five evenly spaced bands, and the spacers themselves are drawn as the parts they are. The screws are now visible as screws: countersunk head buried in the front panel, shank through the stack, dome nut closed on the back
+- The assembly guide calls the closing nuts acorn nuts, not "acorn cap nuts". Acorn, cap and dome are three names for the same DIN 1587 fastener, so the pair was a tautology
+
 ## [2.6.0] - 2026-08-15
 
 ### Fixed
