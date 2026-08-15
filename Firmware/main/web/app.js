@@ -1040,6 +1040,15 @@ $('#wg-reveal').onclick = () => {
 };
 
 $('#wg-save').onclick = () => act($('#wg-save'), async () => {
+  // The form is the whole truth for this card, so saving it while it is
+  // still empty writes emptiness over a working tunnel. That is what Reset
+  // config is for; a blank form usually means the page has not loaded yet.
+  const blank = !$('#wg-host').value.trim() && !$('#wg-addr').value.trim() &&
+                !$('#wg-pub').value.trim();
+  if (blank) {
+    toast('Nothing to save. Reload the page, or use Reset config to clear it.', true);
+    return;
+  }
   const cfg = {
     enabled: $('#wg-en').checked,
     peer_public_key: $('#wg-pub').value.trim(),

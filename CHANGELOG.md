@@ -4,6 +4,12 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2026-08-15
+
+### Fixed
+
+- Pressing Save on the WireGuard card while the form was still empty wrote that emptiness over a working tunnel: the card sends the whole form, so an unloaded page silently cleared the endpoint, address and allowed IPs, leaving only the private key. Saving an entirely blank form is now refused, with Reset config as the deliberate way to clear it
+
 ## [2.5.1] - 2026-08-15
 
 ### Fixed
