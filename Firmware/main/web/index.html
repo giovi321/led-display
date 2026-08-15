@@ -296,6 +296,15 @@
     <p id="wg-missing" class="note hidden">WireGuard is not included in this build.</p>
     <div id="wg-body">
       <p id="wg-status" class="note"></p>
+      <div id="wg-pubrow" class="hidden">
+        <div class="flab">This device's public key<button type="button" class="hlp"
+          data-help="Give this to the peer at the other end: it is the key the server must list for this device. It is derived from the private key below and is not secret."
+          aria-expanded="false" aria-label="Explain the public key">?</button></div>
+        <div class="row">
+          <code id="wg-pub-self" class="code"></code>
+          <button class="sec" id="wg-pub-copy">Copy</button>
+        </div>
+      </div>
       <label class="check big"><input id="wg-en" type="checkbox"> Enable tunnel</label>
       <label for="wg-priv">Private key</label>
       <div class="row">

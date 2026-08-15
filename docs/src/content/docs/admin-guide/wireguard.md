@@ -35,7 +35,15 @@ The device does not generate keys. Create the pair on any machine with WireGuard
 wg genkey | tee device.key | wg pubkey > device.pub
 ```
 
-On the peer side, add the device as a `[Peer]` with the contents of `device.pub` and `AllowedIPs` set to the device's tunnel address as a /32.
+On the peer side, add the device as a `[Peer]` with `AllowedIPs` set to the device's tunnel address as a /32. The card shows **this device's public key** once a private key is stored, with a Copy button, so the value to paste into the server comes from the device itself rather than from a file you have to keep track of. It is also in `GET /api/wireguard` as `status.public_key`. The public half is not a secret; the private key never leaves the device except through the [config export](../backup-restore/).
+
+## Tunnel address and what it can reach
+
+The tunnel address is normally written as a /32, the way `wg-quick` configurations do it, and the firmware accepts that. But a /32 needs a caveat here, because this device has no routing table: lwIP chooses an interface by matching the destination against each interface's own subnet and otherwise falls back to the default interface. Taken literally, a /32 tunnel matches nothing at all - not even the peer at the other end - so replies to anything inside the tunnel would leave over WiFi and disappear. A tunnel that completes a handshake but cannot be pinged is exactly this.
+
+The firmware therefore gives the tunnel interface the widest Allowed IPs range that contains its own address: with address `10.6.0.2/32` and allowed IPs `10.6.0.0/24`, the interface comes up as `10.6.0.2/24` and the whole tunnel subnet is reachable in both directions. Allowed IPs is already the list of what belongs to the tunnel, so this needs no extra setting. `0.0.0.0/0` is excluded from that rule, because full-tunnel is handled by making WireGuard the default interface instead.
+
+The practical consequence is that Allowed IPs should list the tunnel subnet (`10.6.0.0/24`), not just the peer, if you want to reach the display from other hosts on the VPN.
 
 The private key is stored in the device's flash and is included in the [config export](../backup-restore/); it never appears in `GET /api/wireguard` responses (only a `private_key_set` flag), status output, or logs.
 
@@ -44,10 +52,23 @@ The private key is stored in the device's flash and is included in the [config e
 `GET /api/wireguard` includes a status object, and the same fields appear in `/api/status`:
 
 ```json
-"status": {"compiled_in": true, "up": true, "held": false, "last_handshake": 1755158400}
+"status": {"compiled_in": true, "up": true, "held": false,
+           "last_handshake": 1755158400, "public_key": "LHQ7g...uDc=",
+           "endpoint_ip": "203.0.113.10", "attempts": 2, "stage": 4}
 ```
 
 `up` means the peer currently answers handshakes; `last_handshake` is a Unix timestamp of the most recent completed handshake, 0 if none yet. The Network tab renders this as a one-line summary ("Tunnel up - last handshake 2 min ago").
+
+The rest exist to make a tunnel that never comes up diagnosable without a serial cable, because "not connected" on its own does not say whose fault it is:
+
+| Field | What it tells you |
+|---|---|
+| `public_key` | The key this device presents. If the server does not list exactly this, nothing else matters |
+| `endpoint_ip` | What the endpoint hostname resolved to. Empty means DNS never answered, which is a device-side network problem |
+| `attempts` | Tunnel bring-ups since boot. Climbing steadily means it keeps retrying and failing early; staying at 1 or 2 means it got up and is waiting |
+| `stage` | How far bring-up got: 0 idle, 1 resolving and initialising, 2 creating the interface, 3 applying routes, 4 running |
+
+A resolved `endpoint_ip`, `stage` 4 and `last_handshake` 0 together mean the device is sending handshakes into the void: the packets are leaving and nothing is answering. That points at the peer configuration on the server or a firewall in between, not at the display.
 
 ## Why the tunnel used to crash
 

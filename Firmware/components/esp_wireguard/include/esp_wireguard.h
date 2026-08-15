@@ -137,6 +137,15 @@ typedef struct {
  *      - ESP_ERR_INVALID_STATE: hostname dns resolution cannot start
  *      - ESP_FAIL: Other error.
  */
+/**
+ * @brief Derive the base64 public key from a base64 private key (local
+ *        addition, see PORTING.md).
+ *
+ * Needed to configure the peer at the other end; the device has no other way
+ * to report which key it is presenting. `out` needs room for 45 bytes.
+ */
+esp_err_t esp_wireguard_public_key(const char *private_key_b64, char *out, size_t outsz);
+
 esp_err_t esp_wireguard_init(wireguard_config_t *config, wireguard_ctx_t *ctx);
 
 /**

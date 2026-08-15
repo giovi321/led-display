@@ -439,6 +439,16 @@ static bool wireguard_generate_public_key(uint8_t *public_key, const uint8_t *pr
 	return result;
 }
 
+// Local addition (see PORTING.md): the public half of a private key, without
+// needing a device or a netif. Callers need it to configure the peer at the
+// other end, and there is otherwise no way to get it off the device.
+bool wireguard_public_key_from_private(const uint8_t *private_key, uint8_t *public_key) {
+	uint8_t clamped[WIREGUARD_PRIVATE_KEY_LEN];
+	memcpy(clamped, private_key, WIREGUARD_PRIVATE_KEY_LEN);
+	wireguard_clamp_private_key(clamped);
+	return wireguard_generate_public_key(public_key, clamped);
+}
+
 bool wireguard_check_mac1(struct wireguard_device *device, const uint8_t *data, size_t len, const uint8_t *mac1) {
 	bool result = false;
 	uint8_t calculated[WIREGUARD_COOKIE_LEN];

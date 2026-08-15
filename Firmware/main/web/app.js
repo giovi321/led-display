@@ -853,13 +853,29 @@ function renderWgStatus(wg) {
   $('#wg-missing').classList.toggle('hidden', !missing);
   $('#wg-body').classList.toggle('hidden', missing);
   if (missing) return;
+  // The public key comes from /api/status too, so it is available whether or
+  // not the form below has been loaded.
+  const pub = wg.public_key || '';
+  $('#wg-pubrow').classList.toggle('hidden', !pub);
+  if (pub) $('#wg-pub-self').textContent = pub;
+
   let line;
   if (!wg.enabled) {
     line = 'Tunnel disabled.';
   } else if (wg.held) {
     line = 'Tunnel suspended after repeated reboots - check the configuration and save again to retry.';
   } else if (!wg.up) {
-    line = 'Tunnel enabled - not connected.';
+    // Distinguish "the peer is not answering" from "we never got that far",
+    // which is the difference between a server-side and a device-side problem.
+    if (!wg.endpoint_ip) {
+      line = 'Tunnel enabled - the endpoint hostname has not resolved yet.';
+    } else if (!wg.last_handshake) {
+      line = 'Tunnel enabled - handshakes sent to ' + wg.endpoint_ip
+        + ', no reply yet. Check that the peer lists this device\'s public key '
+        + 'above, and that UDP to the endpoint port is allowed.';
+    } else {
+      line = 'Tunnel enabled - not connected.';
+    }
   } else {
     const hs = wg.last_handshake > 0
       ? fmtAge(Math.max(0, Math.floor(Date.now() / 1000) - wg.last_handshake)) + ' ago'
@@ -940,6 +956,22 @@ function setWgFullTunnelUi() {
   $('#wg-fulltunnel').classList.toggle('hidden', !full);
 }
 $('#wg-allowed').oninput = setWgFullTunnelUi;
+
+$('#wg-pub-copy').onclick = () => act($('#wg-pub-copy'), async () => {
+  const txt = $('#wg-pub-self').textContent;
+  try {
+    await navigator.clipboard.writeText(txt);
+  } catch (e) {
+    // Plain-HTTP pages get no clipboard API; same fallback as the curl box.
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  toast('Public key copied');
+});
 
 $('#wg-reveal').onclick = () => {
   const f = $('#wg-priv');

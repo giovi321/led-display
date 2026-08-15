@@ -48,6 +48,12 @@ typedef struct {
     uint8_t  last_crash_stage;      // step in flight at the last crash
     uint32_t last_crash_tcpip_free; // free lwIP stack measured in that run
     uint32_t tcpip_stack_free_min;  // smallest free lwIP stack seen, bytes
+    // Enough to tell "the peer is not answering" from "we never got as far as
+    // asking it", which the handshake timestamp alone cannot.
+    char     public_key[WG_KEY_MAX + 1];  // this device's key, for the peer config
+    char     endpoint_ip[16];             // what the endpoint host resolved to
+    uint32_t attempts;                    // tunnel bring-ups since boot
+    uint8_t  stage;                       // wg_stage_t, where bring-up is now
 } wg_status_t;
 
 // Load config from NVS; if enabled, bring the tunnel up (needs WiFi STA).

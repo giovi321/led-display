@@ -170,6 +170,12 @@ static esp_err_t wireguard_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(status, "up", st.up);
     cJSON_AddBoolToObject(status, "held", st.held);
     cJSON_AddNumberToObject(status, "last_handshake", (double)st.last_handshake);
+    // The public half is not a secret - the peer at the other end needs it -
+    // and there is no other way to read it off the device.
+    cJSON_AddStringToObject(status, "public_key", st.public_key);
+    cJSON_AddStringToObject(status, "endpoint_ip", st.endpoint_ip);
+    cJSON_AddNumberToObject(status, "attempts", st.attempts);
+    cJSON_AddNumberToObject(status, "stage", st.stage);
     return web_send_json(req, r);
 }
 

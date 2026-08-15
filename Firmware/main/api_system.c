@@ -158,6 +158,10 @@ static esp_err_t status_get(httpd_req_t *req)
     // Bring-up diagnostics: which step the last crash reboot died in, and how
     // close the lwIP thread (where the tunnel's crypto runs) came to
     // overflowing its stack.
+    cJSON_AddStringToObject(wgj, "public_key", wg.public_key);
+    cJSON_AddStringToObject(wgj, "endpoint_ip", wg.endpoint_ip);
+    cJSON_AddNumberToObject(wgj, "attempts", wg.attempts);
+    cJSON_AddNumberToObject(wgj, "stage", wg.stage);
     cJSON_AddNumberToObject(wgj, "last_crash_stage", wg.last_crash_stage);
     cJSON_AddNumberToObject(wgj, "last_crash_tcpip_free",
                             (double)wg.last_crash_tcpip_free);

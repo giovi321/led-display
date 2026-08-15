@@ -4,6 +4,17 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] - 2026-08-15
+
+### Fixed
+
+- A tunnel that handshakes could still not be reached at its tunnel address. The tunnel address is normally written as a /32, but this device has no routing table - lwIP picks an interface by matching the destination against each interface's own subnet - so a /32 tunnel matched nothing at all, and replies to anything inside the tunnel left over WiFi instead. The tunnel interface now takes the widest Allowed IPs range that contains its own address, so `10.6.0.2/32` with allowed IPs `10.6.0.0/24` comes up as `10.6.0.2/24` and the tunnel subnet is reachable both ways. `0.0.0.0/0` is excluded, being handled by the default-interface mechanism instead
+
+### Added
+
+- The Network tab shows **this device's public key**, with a Copy button, and `GET /api/wireguard` reports it as `status.public_key`. Configuring the peer at the other end requires it and there was previously no way to read it off the device
+- WireGuard status reports `endpoint_ip` (what the endpoint hostname resolved to), `attempts` and `stage`, so a tunnel that never connects can be told apart from one that never got as far as trying. A resolved endpoint at stage 4 with no handshake means the device is sending into the void, which points at the peer configuration or a firewall rather than at the display. The Network tab says as much in words
+
 ## [2.3.1] - 2026-08-15
 
 ### Fixed

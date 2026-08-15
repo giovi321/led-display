@@ -49,6 +49,12 @@
 #include "wireguard-platform.h"
 #include "wireguardif.h"
 
+/* From wireguard.c. Declared here rather than including wireguard.h, whose
+ * own `wireguard_peer_index` collides with the static of that name below. */
+bool wireguard_public_key_from_private(const uint8_t *private_key, uint8_t *public_key);
+bool wireguard_base64_decode(const char *str, uint8_t *out, size_t *outlen);
+bool wireguard_base64_encode(const uint8_t *in, size_t inlen, char *out, size_t *outlen);
+
 #define TAG "esp_wireguard"
 #define WG_KEY_LEN  (32)
 #define WG_B64_KEY_LEN (4 * ((WG_KEY_LEN + 2) / 3))
@@ -186,6 +192,29 @@ static esp_err_t esp_wireguard_netif_create(const wireguard_config_t *config)
     err = ESP_OK;
 fail:
     return err;
+}
+
+esp_err_t esp_wireguard_public_key(const char *private_key_b64, char *out, size_t outsz)
+{
+    uint8_t priv[WG_KEY_LEN];
+    uint8_t pub[WG_KEY_LEN];
+    size_t len = sizeof(priv);
+
+    if (!private_key_b64 || !out || outsz <= WG_B64_KEY_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!wireguard_base64_decode(private_key_b64, priv, &len) || len != WG_KEY_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!wireguard_public_key_from_private(priv, pub)) {
+        return ESP_FAIL;
+    }
+    size_t outlen = outsz;
+    if (!wireguard_base64_encode(pub, sizeof(pub), out, &outlen)) {
+        return ESP_FAIL;
+    }
+    out[outlen < outsz ? outlen : outsz - 1] = '\0';
+    return ESP_OK;
 }
 
 esp_err_t esp_wireguard_init(wireguard_config_t *config, wireguard_ctx_t *ctx)

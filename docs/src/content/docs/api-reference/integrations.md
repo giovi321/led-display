@@ -77,9 +77,13 @@ Open. Returns the tunnel configuration and live status; the private key is repor
   "address": "",
   "allowed_ips": "",
   "keepalive_s": 25,
-  "status": { "compiled_in": true, "up": false, "held": false, "last_handshake": 0 }
+  "status": { "compiled_in": true, "up": false, "held": false, "last_handshake": 0,
+              "public_key": "LHQ7g...uDc=", "endpoint_ip": "203.0.113.10",
+              "attempts": 1, "stage": 4 }
 }
 ```
+
+`status.public_key` is this device's own public key, derived from the stored private key - the value the peer at the other end has to list. `endpoint_ip`, `attempts` and `stage` are bring-up diagnostics, described in the [WireGuard guide](../../admin-guide/wireguard/#status).
 
 `last_handshake` is unix seconds, 0 until the first handshake. `compiled_in` is false when the firmware was built with `CONFIG_LEDDISP_WIREGUARD` off; every mutating call then returns 501. `held` is true when the [crash-loop guard](../../admin-guide/wireguard/#the-crash-loop-guard) is keeping an enabled tunnel down; re-saving the config lifts it.
 

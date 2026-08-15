@@ -28,6 +28,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "lwip/ip_addr.h"
 #include "nvs.h"
 
 #include "esp_wireguard.h"
@@ -211,6 +212,8 @@ RTC_NOINIT_ATTR static uint32_t s_rtc_tcpip_free_min;   // bytes, 0 = unsampled
 
 static uint8_t  s_last_crash_stage;
 static uint32_t s_last_crash_tcpip_free;   // carried over from the crashed run
+static uint32_t s_attempts;
+static char     s_public_key[WG_KEY_MAX + 1];   // derived once per config
 
 static void stage_set(wg_stage_t stage)
 {
@@ -225,6 +228,19 @@ static void note_tcpip_stack(void)
     uint32_t freeb = (uint32_t)uxTaskGetStackHighWaterMark(NULL);
     if (s_rtc_tcpip_free_min == 0 || freeb < s_rtc_tcpip_free_min) {
         s_rtc_tcpip_free_min = freeb;
+    }
+}
+
+// Derived once per config change rather than per status read: x25519 is not
+// free, and the answer only changes when the private key does.
+static void refresh_public_key(const wg_config_t *cfg)
+{
+    s_public_key[0] = '\0';
+    if (!cfg->private_key[0]) return;
+    if (esp_wireguard_public_key(cfg->private_key, s_public_key,
+                                 sizeof(s_public_key)) != ESP_OK) {
+        s_public_key[0] = '\0';
+        ESP_LOGW(TAG, "private key is not valid base64; public key unavailable");
     }
 }
 
@@ -252,6 +268,57 @@ static void split_cidr(const char *in, char *ip, size_t ipsz, int *prefix)
         int p = atoi(slash + 1);
         if (p >= 0 && p <= 32) *prefix = p;
     }
+}
+
+static bool ipv4_parse(const char *s, uint32_t *out)
+{
+    unsigned a, b, c, d;
+    if (sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) return false;
+    if (a > 255 || b > 255 || c > 255 || d > 255) return false;
+    *out = ((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)c << 8) | d;
+    return true;
+}
+
+// Which prefix the tunnel interface should carry.
+//
+// lwIP has no routing table: it picks an interface by matching the
+// destination against each interface's own subnet, then falls back to the
+// default interface. A tunnel address written the usual WireGuard way,
+// "10.6.0.2/32", therefore leaves the tunnel matching nothing at all - not
+// even the peer that is meant to be on the other end of it - so replies to
+// anything inside the tunnel go out over WiFi and vanish. The symptom is a
+// tunnel that handshakes but cannot be pinged.
+//
+// So the interface takes the widest allowed-IPs range that contains its own
+// address instead. That is the range the user already said belongs to the
+// tunnel, which makes it the honest netmask for it. 0.0.0.0/0 is skipped
+// here because full-tunnel is handled by making WireGuard the default
+// interface, which is a different mechanism.
+static int netif_prefix_for(const char *ip, const char *allowed, int fallback)
+{
+    uint32_t addr;
+    if (!ipv4_parse(ip, &addr)) return fallback;
+
+    char list[WG_ALLOWED_MAX + 1];
+    snprintf(list, sizeof(list), "%s", allowed);
+
+    int best = fallback;
+    char *save = NULL;
+    for (char *tok = strtok_r(list, ", ", &save); tok;
+         tok = strtok_r(NULL, ", ", &save)) {
+        char net[WG_ADDR_MAX + 1];
+        int prefix;
+        split_cidr(tok, net, sizeof(net), &prefix);
+        if (prefix < 1 || prefix > 31) continue;
+
+        uint32_t netaddr;
+        if (!ipv4_parse(net, &netaddr)) continue;
+
+        uint32_t mask = 0xFFFFFFFFu << (32 - prefix);
+        if ((addr & mask) != (netaddr & mask)) continue;   // does not contain us
+        if (prefix < best) best = prefix;
+    }
+    return best;
 }
 
 static void prefix_to_netmask(int prefix, char *out, size_t outsz)
@@ -341,7 +408,9 @@ static esp_err_t tunnel_start(void)
 {
     int prefix;
     split_cidr(s_active.address, s_active_ip, sizeof(s_active_ip), &prefix);
+    prefix = netif_prefix_for(s_active_ip, s_active.allowed_ips, prefix);
     prefix_to_netmask(prefix, s_active_mask, sizeof(s_active_mask));
+    s_attempts++;
 
     wireguard_config_t cfg = ESP_WIREGUARD_CONFIG_DEFAULT();
     cfg.private_key          = s_active.private_key;
@@ -547,6 +616,7 @@ esp_err_t wg_client_init(void)
     s_cfg    = cfg;
     s_active = cfg;
     unlock();
+    refresh_public_key(&cfg);
 
     // Keys never appear in logs (DESIGN.md section 10); the endpoint host is
     // fine, the component logs it during connect anyway.
@@ -611,6 +681,7 @@ esp_err_t wg_client_apply(const wg_config_t *cfg)
     s_cfg    = c;
     s_active = c;
     unlock();
+    refresh_public_key(&c);
 
     ESP_LOGI(TAG, "apply: enabled=%d endpoint=%s:%u", c.enabled,
              c.endpoint_host[0] ? c.endpoint_host : "(unset)",
@@ -646,6 +717,17 @@ void wg_client_get_status(wg_status_t *out)
     out->last_crash_stage      = s_last_crash_stage;
     out->last_crash_tcpip_free = s_last_crash_tcpip_free;
     out->tcpip_stack_free_min  = s_rtc_tcpip_free_min;
+    out->attempts              = s_attempts;
+    out->stage                 = (uint8_t)s_rtc_stage;
+    snprintf(out->public_key, sizeof(out->public_key), "%s", s_public_key);
+    // Filled in by the component's DNS callback; zero until it resolves, so
+    // a blank here means the endpoint hostname never came back.
+    if (s_tunnel_up_attempted) {
+        uint32_t a = lwip_ntohl(ip_2_ip4(&s_wg_cfg.endpoint_ip)->addr);
+        snprintf(out->endpoint_ip, sizeof(out->endpoint_ip), "%u.%u.%u.%u",
+                 (unsigned)(a >> 24) & 0xFF, (unsigned)(a >> 16) & 0xFF,
+                 (unsigned)(a >> 8) & 0xFF, (unsigned)a & 0xFF);
+    }
 
     lock();
     out->enabled = s_cfg.enabled;
