@@ -110,7 +110,7 @@ own keys:
 | `layout` | panel type + grid + cells (section 1) |
 | `colors` | array of `{name, r, g, b}`, max 12 |
 | `valuecfg` | prefix, suffix, decimals, thousands separator, stale_hours, stale_action, stale_text, default_text (integration-mode placeholder) |
-| `integr` | api_key, webhook url, webhook event mask, plus the legacy device-name copy `dname` superseded |
+| `integr` | api_key, webhook url, webhook event mask, the web UI login (`ui_auth`, `ui_user`, `ui_pass`), plus the legacy device-name copy `dname` superseded |
 | `wg` | WireGuard enable, private key, peer public key, endpoint, port, allowed IPs, keepalive |
 | `mqtt` | MQTT enable, broker URI, username, password, base topic, HA discovery flag + prefix |
 | `lsen` | light sensor: enabled, gpio, dark_raw, bright_raw, min_bri, max_bri, gamma |

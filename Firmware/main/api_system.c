@@ -428,6 +428,8 @@ static esp_err_t schedule_get(httpd_req_t *req)
     cJSON_AddNumberToObject(r, "off_hour", sc.off_hour);
     cJSON_AddNumberToObject(r, "off_min", sc.off_min);
     cJSON_AddNumberToObject(r, "days", sc.days);
+    cJSON_AddStringToObject(r, "other_days",
+                            sc.other_days == SCHED_OTHER_RUN ? "run" : "off");
     cJSON_AddNumberToObject(r, "utc_offset", sc.utc_offset);
     cJSON_AddStringToObject(r, "tz", sc.tz);
     // What the zone name actually resolved to, so a client can tell a
@@ -461,6 +463,7 @@ static esp_err_t schedule_post(httpd_req_t *req)
     const cJSON *tz = cJSON_GetObjectItem(json, "tz");
     const cJSON *oa = cJSON_GetObjectItem(json, "off_action");
     const cJSON *ob = cJSON_GetObjectItem(json, "off_brightness");
+    const cJSON *od = cJSON_GetObjectItem(json, "other_days");
 
     // Reject out-of-range values instead of letting the uint8/int16 casts
     // wrap: a stored on_hour of 300 -> 44 would persistently corrupt the
@@ -488,6 +491,14 @@ static esp_err_t schedule_post(httpd_req_t *req)
         }
     }
     if (cJSON_IsNumber(ob)) sc.off_brightness = (uint8_t)ob->valueint;
+    if (cJSON_IsString(od)) {
+        if      (!strcmp(od->valuestring, "off")) sc.other_days = SCHED_OTHER_OFF;
+        else if (!strcmp(od->valuestring, "run")) sc.other_days = SCHED_OTHER_RUN;
+        else {
+            cJSON_Delete(json);
+            return web_send_err(req, "other_days must be off or run", 400);
+        }
+    }
 
     // IANA zone name; "" clears it (back to the fixed utc_offset). A raw
     // POSIX rule is still accepted for anything the table does not carry, so
@@ -541,6 +552,6 @@ void api_system_register(httpd_handle_t srv)
         {.uri = "/api/schedule",             .method = HTTP_POST, .handler = schedule_post},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
-        httpd_register_uri_handler(srv, &uris[i]);
+        web_register_uri(srv, &uris[i]);
     }
 }

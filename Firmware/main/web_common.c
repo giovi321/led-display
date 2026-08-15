@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "mbedtls/base64.h"
 
 #include "devname.h"
 #include "integrations.h"
@@ -170,4 +171,112 @@ esp_err_t web_require_auth(httpd_req_t *req)
     }
     web_send_err(req, "missing or wrong X-Api-Key", 401);
     return ESP_FAIL;
+}
+
+// ---- browser login (HTTP Basic) --------------------------------------------
+
+#define BASIC_PREFIX     "Basic "
+#define BASIC_PREFIX_LEN (sizeof(BASIC_PREFIX) - 1)
+// "user:pass" at the configured maxima, base64'd (4 bytes out per 3 in),
+// plus the scheme prefix and room for the NUL and any padding.
+#define AUTH_HDR_MAX     (BASIC_PREFIX_LEN + \
+                          (((INTEGR_UI_USER_MAX + 1 + INTEGR_UI_PASS_MAX) + 2) / 3) * 4 + 8)
+
+// Whether the browser login is on AND applies to this request. AP mode is
+// exempt for the reasons in web_common.h.
+static bool login_applies(const integrations_cfg_t *cfg)
+{
+    if (!cfg->ui_auth || cfg->ui_pass[0] == '\0') return false;
+
+    wifi_mgr_status_t w;
+    wifi_manager_get_status(&w);
+    return w.mode == WIFI_MGR_MODE_STA;
+}
+
+static bool basic_credentials_ok(httpd_req_t *req, const integrations_cfg_t *cfg)
+{
+    char hdr[AUTH_HDR_MAX] = {0};
+    if (httpd_req_get_hdr_value_str(req, "Authorization", hdr, sizeof(hdr)) != ESP_OK) {
+        return false;
+    }
+    if (strncmp(hdr, BASIC_PREFIX, BASIC_PREFIX_LEN) != 0) {
+        return false;
+    }
+
+    unsigned char decoded[INTEGR_UI_USER_MAX + 1 + INTEGR_UI_PASS_MAX + 1] = {0};
+    size_t out_len = 0;
+    const unsigned char *b64 = (const unsigned char *)(hdr + BASIC_PREFIX_LEN);
+    if (mbedtls_base64_decode(decoded, sizeof(decoded) - 1, &out_len,
+                              b64, strlen((const char *)b64)) != 0) {
+        return false;   // not base64, or longer than any credential we accept
+    }
+    decoded[out_len] = '\0';
+
+    // "user:password"; the password may itself contain colons, the username
+    // may not, so split on the FIRST one.
+    char *sep = strchr((char *)decoded, ':');
+    if (!sep) return false;
+    *sep = '\0';
+
+    // Both halves compared in constant time, and both always compared, so a
+    // wrong username costs the same as a wrong password.
+    bool user_ok = key_equal((const char *)decoded, cfg->ui_user);
+    bool pass_ok = key_equal(sep + 1, cfg->ui_pass);
+    return user_ok && pass_ok;
+}
+
+// 401 with the challenge that makes a browser show its login sheet.
+static esp_err_t send_login_challenge(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate",
+                       "Basic realm=\"led-display\", charset=\"UTF-8\"");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req, "Authentication required\n");
+    // ESP_FAIL closes the session, which matters because the gate runs before
+    // the handler reads anything: a rejected POST still has its whole body
+    // sitting in the socket, and keeping the connection alive would have
+    // httpd parse those bytes as the next request.
+    return ESP_FAIL;
+}
+
+// One heap record per registered URI, holding what the trampoline needs to
+// call the real handler. Never freed: the server's URI table lives as long as
+// the server does.
+typedef struct {
+    esp_err_t (*handler)(httpd_req_t *);
+    void      *user_ctx;
+} gated_uri_t;
+
+static esp_err_t login_gate(httpd_req_t *req)
+{
+    const gated_uri_t *g = (const gated_uri_t *)req->user_ctx;
+
+    integrations_cfg_t cfg;
+    integrations_get(&cfg);
+    if (login_applies(&cfg) && !basic_credentials_ok(req, &cfg)) {
+        return send_login_challenge(req);
+    }
+
+    // Hand the real handler the user_ctx it was registered with, so anything
+    // that reads req->user_ctx (the static asset table) still works.
+    req->user_ctx = g->user_ctx;
+    return g->handler(req);
+}
+
+esp_err_t web_register_uri(httpd_handle_t srv, const httpd_uri_t *uri)
+{
+    gated_uri_t *g = malloc(sizeof(*g));
+    if (!g) return ESP_ERR_NO_MEM;
+    g->handler  = uri->handler;
+    g->user_ctx = uri->user_ctx;
+
+    httpd_uri_t gated = *uri;
+    gated.handler  = login_gate;
+    gated.user_ctx = g;
+
+    esp_err_t err = httpd_register_uri_handler(srv, &gated);
+    if (err != ESP_OK) free(g);
+    return err;
 }

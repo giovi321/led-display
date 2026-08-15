@@ -11,7 +11,8 @@
 //
 // Blob shapes (versioned for forward migration, DESIGN.md section 4):
 //   "integr"   {"v":1,"api_key":"..","webhook_url":"..",
-//               "webhook_events":<mask>,"device_name":".."}
+//               "webhook_events":<mask>,"device_name":"..",
+//               "ui_auth":false,"ui_user":"..","ui_pass":".."}
 //   "valuecfg" {"v":1,"prefix":"..","suffix":"..","decimals":-1,
 //               "thousands":"","stale_hours":0,"stale_action":"none",
 //               "stale_text":".."}
@@ -147,6 +148,13 @@ static void load_integr(integrations_cfg_t *out)
     const cJSON *ev = cJSON_GetObjectItem(root, "webhook_events");
     if (cJSON_IsNumber(ev)) out->webhook_events = (uint32_t)ev->valuedouble;
 
+    json_get_str(root, "ui_user", out->ui_user, sizeof(out->ui_user));
+    json_get_str(root, "ui_pass", out->ui_pass, sizeof(out->ui_pass));
+    const cJSON *ua = cJSON_GetObjectItem(root, "ui_auth");
+    // A blob written before 2.8.0 has no ui_auth, which must read as off:
+    // an update is not allowed to lock anyone out of their own display.
+    out->ui_auth = cJSON_IsTrue(ua) && out->ui_pass[0] != '\0';
+
     cJSON_Delete(root);
     resolve_device_name(out);
 }
@@ -198,6 +206,9 @@ static esp_err_t save_integr(const integrations_cfg_t *in)
     cJSON_AddStringToObject(root, "webhook_url", in->webhook_url);
     cJSON_AddNumberToObject(root, "webhook_events", in->webhook_events);
     cJSON_AddStringToObject(root, "device_name", in->device_name);
+    cJSON_AddBoolToObject(root, "ui_auth", in->ui_auth);
+    cJSON_AddStringToObject(root, "ui_user", in->ui_user);
+    cJSON_AddStringToObject(root, "ui_pass", in->ui_pass);
 
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

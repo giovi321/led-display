@@ -246,6 +246,7 @@ curl http://192.168.1.50/api/schedule
   "on_hour": 8, "on_min": 0,
   "off_hour": 22, "off_min": 30,
   "days": 31,
+  "other_days": "off",
   "utc_offset": 60,
   "tz": "Europe/Zurich",
   "tz_known": true,
@@ -258,6 +259,7 @@ curl http://192.168.1.50/api/schedule
 | Field | Meaning |
 |---|---|
 | `days` | Bitmask, bit 0 = Monday through bit 6 = Sunday; 127 = every day, 31 = weekdays |
+| `other_days` | What a day outside `days` does: `off` applies the off-action all day (the default), `run` ignores the schedule entirely on that day |
 | `utc_offset` | Minutes from UTC, for example 60 for CET. Used only while `tz` is empty |
 | `tz` | IANA zone name, e.g. `Europe/Zurich`. When set, the schedule follows that zone's rule (daylight-saving transitions included) and `utc_offset` is ignored. Empty = fixed offset |
 | `tz_known` | Whether the device recognises `tz`. False means it is running on UTC instead - a typo, or a zone newer than the firmware's table |
@@ -277,11 +279,15 @@ curl -X POST http://192.168.1.50/api/schedule \
        "off_action":"dim","off_brightness":16}'
 ```
 
+`days` and `other_days` decide the shape of the week between them. A day in `days` runs the on/off window. A day outside it is governed entirely by `other_days` — the on/off times never come into it — and is either one long off-window (`off`) or no schedule at all (`run`). So `{"days":31,"other_days":"off"}` lights the panel on weekday mornings and keeps it dark all weekend, while `{"days":31,"other_days":"run"}` governs weekdays and leaves the weekend at normal brightness around the clock. `other_days` defaults to `off`, which is how every build before 2.8.0 behaved.
+
+A window whose off time is at or before its on time wraps midnight, but it does not carry into the next day unless that day is in `days` too: `{"days":1,"on_hour":22,"off_hour":6}` lights Monday 22:00–24:00 and Monday 00:00–06:00, not Tuesday morning.
+
 Out-of-range values are rejected rather than wrapped: hours must be 0..23, minutes 0..59, `utc_offset` -840..840 and `off_brightness` 1..255. `days` is masked to its seven bits. `tz` accepts up to 48 printable ASCII characters; an empty string clears the override. A name the device's table does not carry is stored and passed to libc as-is, which is what makes a raw POSIX TZ string work too; check `tz_known` on the GET to tell the two apart.
 
 Response: `{"ok": true}`. A changed action or level is applied at once, not at the next 30 second tick. Schedule transitions fire the `schedule_on` / `schedule_off` [webhooks](../integrations/#outbound-webhook-payloads) whichever action is configured.
 
-Errors: 400 `"hours 0-23, minutes 0-59, utc_offset -840..840"`, 400 `"off_brightness 1-255"`, 400 `"off_action must be off or dim"`, 500 `"schedule applied but not saved"`.
+Errors: 400 `"hours 0-23, minutes 0-59, utc_offset -840..840"`, 400 `"off_brightness 1-255"`, 400 `"off_action must be off or dim"`, 400 `"other_days must be off or run"`, 500 `"schedule applied but not saved"`.
 
 The 500 is worth handling rather than retrying blindly: the schedule is applied before it is written, so a failed write leaves the new schedule running until the next reboot, after which the device is back on the previously stored one.
 
@@ -490,7 +496,8 @@ Top-level shape:
   "mqtt": {"v":1, "enabled": false, "uri": "", "username": "", "password": "...",
            "base_topic": "", "ha_discovery": false, "ha_prefix": "homeassistant"},
   "schedule": {"enabled": false, "on_hour": 8, "on_min": 0, "off_hour": 22,
-               "off_min": 0, "days": 127, "utc_offset": 0, "tz": "",
+               "off_min": 0, "days": 127, "other_days": "off",
+               "utc_offset": 0, "tz": "",
                "off_action": "off", "off_brightness": 16},
   "light_sensor": {"v":1, "enabled": false, "gpio": 0, "dark_raw": 200,
                    "bright_raw": 2800, "min_brightness": 8,

@@ -164,6 +164,9 @@ static cJSON *integrations_to_json(void)
     cJSON_AddStringToObject(r, "webhook_url", c.webhook_url);
     cJSON_AddNumberToObject(r, "webhook_events", c.webhook_events);
     cJSON_AddStringToObject(r, "device_name", c.device_name);
+    cJSON_AddBoolToObject(r, "ui_auth", c.ui_auth);
+    cJSON_AddStringToObject(r, "ui_user", c.ui_user);
+    cJSON_AddStringToObject(r, "ui_pass", c.ui_pass);   // secret: export is auth-gated
     return r;
 }
 
@@ -232,6 +235,8 @@ static cJSON *schedule_to_json(void)
     cJSON_AddNumberToObject(r, "off_hour", sc.off_hour);
     cJSON_AddNumberToObject(r, "off_min", sc.off_min);
     cJSON_AddNumberToObject(r, "days", sc.days);
+    cJSON_AddStringToObject(r, "other_days",
+                            sc.other_days == SCHED_OTHER_RUN ? "run" : "off");
     cJSON_AddNumberToObject(r, "utc_offset", sc.utc_offset);
     cJSON_AddStringToObject(r, "tz", sc.tz);
     cJSON_AddStringToObject(r, "off_action", OFF_ACT_NAMES[sc.off_action <= 1 ? sc.off_action : 0]);
@@ -572,6 +577,19 @@ static bool apply_integrations(const cJSON *sec)
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "webhook_events"))) {
         c.webhook_events = (uint32_t)it->valuedouble;
     }
+    // Browser login. Absent in a pre-2.8.0 backup, which leaves the stored
+    // setting alone; restoring one that enables it without carrying a
+    // password would lock the UI with no way in, so that combination is
+    // demoted to off rather than honoured.
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "ui_user"))) {
+        snprintf(c.ui_user, sizeof(c.ui_user), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "ui_pass"))) {
+        snprintf(c.ui_pass, sizeof(c.ui_pass), "%s", it->valuestring);
+    }
+    if ((it = cJSON_GetObjectItem(sec, "ui_auth")) != NULL && cJSON_IsBool(it)) {
+        c.ui_auth = cJSON_IsTrue(it) && c.ui_pass[0] != '\0';
+    }
     return integrations_set(&c) == ESP_OK;
 }
 
@@ -711,6 +729,12 @@ static bool apply_schedule(const cJSON *sec)
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "days"))) {
         sc.days = (uint8_t)(it->valueint & SCHED_DAYS_ALL);
     }
+    // Absent in a pre-2.8.0 backup, where an unticked day always held the
+    // off-action: leaving the stored value alone restores exactly that.
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "other_days"))) {
+        if      (!strcmp(it->valuestring, "off")) sc.other_days = SCHED_OTHER_OFF;
+        else if (!strcmp(it->valuestring, "run")) sc.other_days = SCHED_OTHER_RUN;
+    }
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "utc_offset"))) {
         sc.utc_offset = (int16_t)clampi(it->valueint, -14 * 60, 14 * 60);
     }
@@ -805,6 +829,6 @@ void api_config_register(httpd_handle_t srv)
         {.uri = "/api/config/import", .method = HTTP_POST, .handler = config_import},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
-        httpd_register_uri_handler(srv, &uris[i]);
+        web_register_uri(srv, &uris[i]);
     }
 }

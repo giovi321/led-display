@@ -84,6 +84,11 @@ static esp_err_t integrations_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(r, "webhook_url", cfg.webhook_url);
     cJSON_AddItemToObject(r, "webhook_events", events_to_json(cfg.webhook_events));
     cJSON_AddStringToObject(r, "device_name", cfg.device_name);
+    // The username is not a secret and the UI needs it to prefill the field;
+    // the password only ever reports whether one is set, like api_key above.
+    cJSON_AddBoolToObject(r, "ui_auth", cfg.ui_auth);
+    cJSON_AddStringToObject(r, "ui_user", cfg.ui_user);
+    cJSON_AddBoolToObject(r, "ui_pass_set", cfg.ui_pass[0] != '\0');
     return web_send_json(req, r);
 }
 
@@ -113,6 +118,35 @@ static esp_err_t integrations_post_handler(httpd_req_t *req)
             return web_send_err(req, "webhook_url too long (max 160)", 400);
         }
         snprintf(cfg.webhook_url, sizeof(cfg.webhook_url), "%s", it->valuestring);
+    }
+
+    // Browser login. An absent ui_pass keeps the stored one, so the UI can
+    // rename the user or toggle the login off and on without the password
+    // making a round trip through the browser each time.
+    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "ui_user"))) {
+        if (strlen(it->valuestring) > INTEGR_UI_USER_MAX) {
+            cJSON_Delete(body);
+            return web_send_err(req, "ui_user too long (max 32)", 400);
+        }
+        snprintf(cfg.ui_user, sizeof(cfg.ui_user), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "ui_pass"))) {
+        if (strlen(it->valuestring) > INTEGR_UI_PASS_MAX) {
+            cJSON_Delete(body);
+            return web_send_err(req, "ui_pass too long (max 64)", 400);
+        }
+        snprintf(cfg.ui_pass, sizeof(cfg.ui_pass), "%s", it->valuestring);
+    }
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(body, "ui_auth"))) {
+        cfg.ui_auth = cJSON_IsTrue(it);
+    }
+    // Refused rather than silently downgraded: a client that asked for a
+    // login and got {"ok":true} must not end up with an open device. The
+    // username is allowed to be empty (browsers accept an empty user), the
+    // password is not, or there would be nothing to check.
+    if (cfg.ui_auth && cfg.ui_pass[0] == '\0') {
+        cJSON_Delete(body);
+        return web_send_err(req, "ui_auth needs a ui_pass", 400);
     }
     // The device name moved to the System tab (POST /api/system/device_name),
     // where it is validated strictly - it is a hostname and an SSID now. This
@@ -382,6 +416,6 @@ void api_integrations_register(httpd_handle_t srv)
         {.uri = "/api/mqtt",         .method = HTTP_POST, .handler = mqtt_post_handler},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
-        httpd_register_uri_handler(srv, &uris[i]);
+        web_register_uri(srv, &uris[i]);
     }
 }

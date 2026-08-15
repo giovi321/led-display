@@ -8,7 +8,9 @@
 # re-sync never nukes them.
 #
 #   SRC=...   override the source checkout (default /mnt/z/git/led-display/Firmware)
-#   TESTS=1   also build+run the host unit tests
+#   TESTS=0   skip the host unit tests (they run by default: they take a couple
+#             of seconds, and an opt-in flag that silently does nothing when the
+#             caller's environment drops it is worse than no flag at all)
 set -e
 
 SRC="${SRC:-/mnt/z/git/led-display/Firmware}"
@@ -22,7 +24,9 @@ mkdir -p "$DST"
     --exclude=./sdkconfig --exclude=./sdkconfig.old \
     --exclude=./dependencies.lock .) | tar xf - -C "$DST"
 
-if [ "${TESTS:-0}" = "1" ]; then
+if [ "${TESTS:-1}" = "0" ]; then
+    echo "wsl_build: host tests SKIPPED (TESTS=0)"
+else
     (cd "$DST/test/host" && sh ./run_tests.sh)
 fi
 

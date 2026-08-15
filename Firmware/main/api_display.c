@@ -489,6 +489,6 @@ void api_display_register(httpd_handle_t srv)
         {.uri = "/api/display/source",         .method = HTTP_POST, .handler = display_source_post},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
-        httpd_register_uri_handler(srv, &uris[i]);
+        web_register_uri(srv, &uris[i]);
     }
 }

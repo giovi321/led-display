@@ -4,6 +4,20 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-08-15
+
+### Added
+
+- An optional login for the web UI, off by default and off after an update. Tick the box on the Integrations tab, set a username and password, and the browser asks for them before it will show anything. It covers every URI the device serves — pages, assets and the whole API, the open GETs included — because a login that leaves the configuration readable is not one. The API key is unchanged and still gates writes for scripts; the two compose. `ui_auth`, `ui_user` and `ui_pass` on `POST /api/integrations`, with `ui_auth` without a stored password refused rather than silently ignored
+- Two limits worth knowing before turning it on. It is HTTP Basic over plain HTTP, so it keeps casual visitors on your network out and does nothing against anyone who can watch the traffic. And it is not applied on the setup AP, where the panel carries the only copy of the setup address and the captive-portal probes have to answer normally — which is also the way back in if the password is lost, since the board has no reset button
+- The project icon is the web UI's favicon, so the tab is identifiable among a row of them. Served from the device at `/favicon.svg`, and at `/favicon.ico` too, since that is what a browser asks for unprompted
+- A choice for what an unticked day does, next to Active days. Until now a day outside the mask was one long off-window, so ticking only Monday left the panel dark for six days — correct if you wanted "lit on weekdays, dark all weekend", surprising if you meant "the schedule only governs Monday". Both are now sayable: "Apply the off-action all day" keeps the old behaviour and is the default, "Run normally, ignore the schedule" hands those days back to the normal brightness. `other_days` on `GET`/`POST /api/schedule` and in the backup, `off` or `run`; absent anywhere it stays `off`, so no device changes behaviour on update
+
+### Changed
+
+- The schedule's window decision moves into `sched_window.c`, free of NVS, SNTP and the LED driver, and gains host tests: the day-mask conversion, both edges of the window, the midnight wrap, the wrap not carrying into an unticked day, and each unticked-day rule. It is the part that is easy to get wrong and it had no coverage at all
+- The build helper runs the host tests by default; `TESTS=0` skips them. The old opt-in `TESTS=1` was being dropped somewhere between the Windows shell and WSL, so the suite had been quietly not running, and it now says so when it skips
+
 ## [2.7.0] - 2026-08-15
 
 ### Fixed

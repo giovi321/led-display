@@ -204,9 +204,9 @@ void api_ota_register(httpd_handle_t srv)
     static const httpd_uri_t check = {
         .uri = "/api/ota/check", .method = HTTP_GET, .handler = h_ota_check};
 
-    httpd_register_uri_handler(srv, &upload);
-    httpd_register_uri_handler(srv, &url);
-    httpd_register_uri_handler(srv, &check);
-    httpd_register_uri_handler(srv, &status);
+    web_register_uri(srv, &upload);
+    web_register_uri(srv, &url);
+    web_register_uri(srv, &check);
+    web_register_uri(srv, &status);
     ESP_LOGI(TAG, "OTA endpoints registered");
 }

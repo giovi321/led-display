@@ -574,6 +574,12 @@ async function refreshSchedule() {
     // Pre-2.2 firmware reports neither field: that build always turned off.
     const offAct = s.off_action === 'dim' ? 'dim' : 'off';
     $$('#sched-offact input[type=radio]').forEach(r => { r.checked = r.value === offAct; });
+    // Pre-2.8 firmware reports no other_days: that build always held the
+    // off-action on an unticked day.
+    const otherDays = s.other_days === 'run' ? 'run' : 'off';
+    $$('#sched-otherdays input[type=radio]').forEach(r => {
+      r.checked = r.value === otherDays;
+    });
     const cap = (lastStatus && lastStatus.system.brightness_cap) || 255;
     const dim = $('#sched-dim');
     dim.max = Math.max(1, cap);
@@ -596,6 +602,7 @@ $('#sched-save').onclick = () => act($('#sched-save'), async () => {
     on_hour: +on[0], on_min: +on[1],
     off_hour: +off[0], off_min: +off[1],
     days: days,
+    other_days: (document.querySelector('#sched-otherdays input:checked') || {}).value || 'off',
     off_action: schedOffAction(),
     off_brightness: +$('#sched-dim').value || 1,
     // IANA zone name; "" falls back to the fixed offset below.
@@ -1074,6 +1081,15 @@ async function refreshIntegrations() {
     $('#apikey-state').textContent = keySet
       ? 'A key is currently set.'
       : 'No key set - all requests are allowed.';
+    $('#uiauth-en').checked = !!j.ui_auth;
+    $('#uiauth-user').value = j.ui_user || '';
+    $('#uiauth-pass').value = '';
+    uiAuthPassStored = !!j.ui_pass_set;
+    $('#uiauth-state').textContent = j.ui_auth
+      ? 'The login is on.'
+      : (j.ui_pass_set ? 'The login is off; a password is stored.'
+                       : 'The login is off - anyone on the network can open this page.');
+    setUiAuthUi();
   } catch (e) {
     toast('Error: ' + e.message, true);
   }
@@ -1155,6 +1171,35 @@ $('#apikey-clear').onclick = () => act($('#apikey-clear'), async () => {
   await jpost('/api/integrations', { api_key: '' });
   localStorage.removeItem('apikey');
   toast('API key cleared');
+  refreshIntegrations();
+});
+
+// Whether the device already holds a password, so the save can tell "keep the
+// stored one" from "there is nothing to keep".
+let uiAuthPassStored = false;
+
+function setUiAuthUi() {
+  $('#uiauth-fields').classList.toggle('hidden', !$('#uiauth-en').checked);
+}
+$('#uiauth-en').onchange = setUiAuthUi;
+
+$('#uiauth-save').onclick = () => act($('#uiauth-save'), async () => {
+  const on = $('#uiauth-en').checked;
+  const pass = $('#uiauth-pass').value;
+  const body = { ui_auth: on, ui_user: $('#uiauth-user').value.trim() };
+  // An empty box means "keep the stored password", so it is left out of the
+  // body entirely rather than sent as "".
+  if (pass) body.ui_pass = pass;
+  if (on && !pass && !uiAuthPassStored) {
+    toast('Set a password first', true);
+    return;
+  }
+  await jpost('/api/integrations', body);
+  $('#uiauth-pass').value = '';
+  // The browser only sends credentials after a 401, so the next request is
+  // where it will ask - say so rather than letting the prompt surprise them.
+  toast(on ? 'Login on - your browser will ask on the next page load'
+           : 'Login off');
   refreshIntegrations();
 });
 

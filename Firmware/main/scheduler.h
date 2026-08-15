@@ -5,14 +5,8 @@
 
 #include "esp_err.h"
 
-#define SCHED_DAYS_MON  (1 << 0)
-#define SCHED_DAYS_TUE  (1 << 1)
-#define SCHED_DAYS_WED  (1 << 2)
-#define SCHED_DAYS_THU  (1 << 3)
-#define SCHED_DAYS_FRI  (1 << 4)
-#define SCHED_DAYS_SAT  (1 << 5)
-#define SCHED_DAYS_SUN  (1 << 6)
-#define SCHED_DAYS_ALL  0x7F
+// SCHED_DAYS_*, sched_other_days_t and the window decision itself.
+#include "sched_window.h"
 
 // What happens outside the on-window. Stored in NVS as a plain u8; keep the
 // values stable.
@@ -35,6 +29,10 @@ typedef struct {
     uint8_t off_hour;
     uint8_t off_min;
     uint8_t days;           // bitmask: bit0=Mon .. bit6=Sun
+    // What a day outside `days` does: hold the off-action all day
+    // (SCHED_OTHER_OFF, the default and the only pre-2.8.0 behaviour) or let
+    // the panel run as if there were no schedule (SCHED_OTHER_RUN).
+    uint8_t other_days;     // sched_other_days_t
     int16_t utc_offset;     // minutes from UTC (e.g. +60 for CET)
     uint8_t off_action;     // sched_off_action_t
     uint8_t off_brightness; // 1..255, applied when off_action = DIM

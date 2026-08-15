@@ -29,6 +29,7 @@ static const char *NS  = "sched";
 #define K_OFF_HOUR   "off_h"
 #define K_OFF_MIN    "off_m"
 #define K_DAYS       "days"
+#define K_OTHER_DAY  "oday"   // sched_other_days_t; absent = hold the off-action
 #define K_UTC_OFF    "utc"
 #define K_OFF_ACT    "oact"
 #define K_OFF_BRI    "obri"
@@ -57,6 +58,9 @@ static void apply_defaults(schedule_t *s)
     s->off_hour   = 23;
     s->off_min    = 0;
     s->days       = SCHED_DAYS_ALL;
+    // Absent on a device updating from an older build, so an unticked day
+    // goes on holding the panel down exactly as it did before.
+    s->other_days = SCHED_OTHER_OFF;
     s->utc_offset = 0;
     // Absent NVS keys (a device updating from an older build) land here, so
     // the off-window keeps blanking the panel exactly as before.
@@ -78,6 +82,9 @@ static esp_err_t load_from_nvs(schedule_t *out)
     nvs_get_u8(h, K_OFF_HOUR, &out->off_hour);
     nvs_get_u8(h, K_OFF_MIN,  &out->off_min);
     nvs_get_u8(h, K_DAYS,     &out->days);
+    if (nvs_get_u8(h, K_OTHER_DAY, &v) == ESP_OK && v <= SCHED_OTHER_RUN) {
+        out->other_days = v;
+    }
 
     int16_t utc;
     if (nvs_get_i16(h, K_UTC_OFF, &utc) == ESP_OK) out->utc_offset = utc;
@@ -126,6 +133,7 @@ static esp_err_t save_to_nvs(const schedule_t *in)
         {K_OFF_HOUR, in->off_hour},
         {K_OFF_MIN,  in->off_min},
         {K_DAYS,     in->days},
+        {K_OTHER_DAY, in->other_days},
         {K_OFF_ACT,  in->off_action},
         {K_OFF_BRI,  in->off_brightness},
     };
@@ -154,27 +162,19 @@ static bool time_synced(void)
     return now > 1700000000;
 }
 
-static int day_bit_from_tm(const struct tm *t)
+// The decision itself lives in sched_window.c so it can be tested on the
+// host; this only adapts the stored schedule to it.
+static sched_window_t window_of(const schedule_t *sc)
 {
-    // struct tm: tm_wday 0=Sun, 1=Mon ... 6=Sat
-    // our bitmask: bit0=Mon ... bit6=Sun
-    if (t->tm_wday == 0) return SCHED_DAYS_SUN;
-    return 1 << (t->tm_wday - 1);
-}
-
-static bool in_on_window(const schedule_t *sc, int hour, int min, int day_bit)
-{
-    if (!(sc->days & day_bit)) return false;
-
-    int on  = sc->on_hour  * 60 + sc->on_min;
-    int off = sc->off_hour * 60 + sc->off_min;
-    int now = hour * 60 + min;
-
-    if (on <= off) {
-        return now >= on && now < off;
-    }
-    // Wraps midnight: e.g. on=22:00 off=06:00
-    return now >= on || now < off;
+    sched_window_t w = {
+        .days       = sc->days,
+        .on_hour    = sc->on_hour,
+        .on_min     = sc->on_min,
+        .off_hour   = sc->off_hour,
+        .off_min    = sc->off_min,
+        .other_days = sc->other_days,
+    };
+    return w;
 }
 
 // Single place that decides how bright the panel runs. The schedule sets the
@@ -299,10 +299,11 @@ static void evaluate_window(void)
         gmtime_r(&now, &t);
     }
 
-    if (in_on_window(&sc, t.tm_hour, t.tm_min, day_bit_from_tm(&t))) {
-        leave_off_window();
-    } else {
+    const sched_window_t w2 = window_of(&sc);
+    if (sched_holds_panel_down(&w2, t.tm_wday, t.tm_hour, t.tm_min)) {
         enter_off_window();
+    } else {
+        leave_off_window();
     }
 }
 
@@ -442,10 +443,10 @@ esp_err_t scheduler_init(void)
     // 4 KB: the staleness path stacks a settings_t + value_cfg_t on top of
     // what the schedule check already used at 3 KB.
     xTaskCreate(scheduler_task, "scheduler", 4096, NULL, 2, NULL);
-    ESP_LOGI(TAG, "scheduler init (enabled=%d on=%02u:%02u off=%02u:%02u days=0x%02x utc=%+d "
-                  "off_action=%u off_bri=%u)",
+    ESP_LOGI(TAG, "scheduler init (enabled=%d on=%02u:%02u off=%02u:%02u days=0x%02x "
+                  "other_days=%u utc=%+d off_action=%u off_bri=%u)",
              s_sched.enabled, s_sched.on_hour, s_sched.on_min,
-             s_sched.off_hour, s_sched.off_min, s_sched.days,
+             s_sched.off_hour, s_sched.off_min, s_sched.days, s_sched.other_days,
              s_sched.utc_offset, s_sched.off_action, s_sched.off_brightness);
     return ESP_OK;
 }

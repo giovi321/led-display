@@ -7,6 +7,7 @@
 #include "esp_log.h"
 
 #include "api_handlers.h"
+#include "web_common.h"   // web_register_uri(): every URI goes behind the login gate
 
 static const char *TAG = "web_static";
 
@@ -18,6 +19,8 @@ extern const uint8_t app_js_gz_start[]     asm("_binary_app_js_gz_start");
 extern const uint8_t app_js_gz_end[]       asm("_binary_app_js_gz_end");
 extern const uint8_t editor_js_gz_start[]  asm("_binary_editor_js_gz_start");
 extern const uint8_t editor_js_gz_end[]    asm("_binary_editor_js_gz_end");
+extern const uint8_t favicon_svg_gz_start[] asm("_binary_favicon_svg_gz_start");
+extern const uint8_t favicon_svg_gz_end[]   asm("_binary_favicon_svg_gz_end");
 
 typedef struct {
     const char    *uri;
@@ -31,6 +34,10 @@ static const asset_t s_assets[] = {
     {"/style.css", style_css_gz_start,  style_css_gz_end,  "text/css"},
     {"/app.js",    app_js_gz_start,     app_js_gz_end,     "application/javascript"},
     {"/editor.js", editor_js_gz_start,  editor_js_gz_end,  "application/javascript"},
+    // Browsers ask for /favicon.ico unprompted when a page declares no icon,
+    // so both names are served rather than leaving a 404 in the log.
+    {"/favicon.svg", favicon_svg_gz_start, favicon_svg_gz_end, "image/svg+xml"},
+    {"/favicon.ico", favicon_svg_gz_start, favicon_svg_gz_end, "image/svg+xml"},
 };
 
 static esp_err_t asset_get(httpd_req_t *req)
@@ -65,7 +72,7 @@ void web_static_register(httpd_handle_t srv)
             .handler  = asset_get,
             .user_ctx = (void *)&s_assets[i],
         };
-        httpd_register_uri_handler(srv, &u);
+        web_register_uri(srv, &u);
     }
 
     // The UI puts a real path in the address bar for each tab, so those paths
@@ -79,7 +86,7 @@ void web_static_register(httpd_handle_t srv)
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
         httpd_uri_t u = {.uri = routes[i], .method = HTTP_GET,
                          .handler = captive_get};
-        httpd_register_uri_handler(srv, &u);
+        web_register_uri(srv, &u);
     }
 
     static const char *probes[] = {
@@ -93,7 +100,7 @@ void web_static_register(httpd_handle_t srv)
     };
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++) {
         httpd_uri_t u = {.uri = probes[i], .method = HTTP_GET, .handler = captive_get};
-        httpd_register_uri_handler(srv, &u);
+        web_register_uri(srv, &u);
     }
 
     ESP_LOGI(TAG, "static assets + captive probes registered");

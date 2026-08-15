@@ -28,7 +28,10 @@ set(_web_dir    ${COMPONENT_DIR}/web)
 set(_web_gz_dir ${CMAKE_CURRENT_BINARY_DIR}/webgz)
 file(MAKE_DIRECTORY ${_web_gz_dir})
 
-set(_web_assets index.html style.css app.js editor.js)
+## favicon.svg is a copy of docs/public/favicon.svg. It has to live here: the
+## WSL build helper mirrors only Firmware/, so a path reaching outside it would
+## not resolve. Keep the two in step by hand if the icon ever changes.
+set(_web_assets index.html style.css app.js editor.js favicon.svg)
 set(_web_gz_files "")
 foreach(_asset ${_web_assets})
     execute_process(
@@ -60,6 +63,7 @@ idf_component_register(
         "wifi_pick.c"
         "settings.c"
         "scheduler.c"
+        "sched_window.c"
         "integrations.c"
         "webhooks.c"
         "ota_update.c"

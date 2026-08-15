@@ -7,14 +7,17 @@ sidebar:
 
 ## GET /api/integrations
 
-Open. Returns the integration settings. Secrets never appear here: the API key is reported only as a boolean.
+Open. Returns the integration settings. Secrets never appear here: the API key and the web UI password are reported only as booleans.
 
 ```json
 {
   "api_key_set": false,
   "webhook_url": "http://192.168.10.5:5678/webhook/led-display",
   "webhook_events": ["boot", "value_stale"],
-  "device_name": "led-display"
+  "device_name": "led-display",
+  "ui_auth": false,
+  "ui_user": "",
+  "ui_pass_set": false
 }
 ```
 
@@ -28,6 +31,23 @@ Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep th
 | `webhook_url` | string | max 160 chars, empty disables webhooks |
 | `webhook_events` | array of strings | any of `boot`, `ip_change`, `ota_result`, `schedule_on`, `schedule_off`, `value_stale`; an unknown name is a 400 |
 | `device_name` | string | max 32 chars; kept for older clients, see below |
+| `ui_auth` | bool | turn the browser login on or off |
+| `ui_user` | string | max 32 chars, may be empty |
+| `ui_pass` | string | max 64 chars; absent keeps the stored password |
+
+### Web UI login
+
+`ui_auth` puts the whole interface behind HTTP Basic authentication — pages, assets and API alike, not only the endpoints that change something, because a login that leaves the configuration readable is not a login. It is off by default and stays off across updates.
+
+Enabling it with no stored password is a 400 (`"ui_auth needs a ui_pass"`) rather than a silent no-op, so a client that asked for a login and got `{"ok": true}` can trust that it has one. Sending no `ui_pass` keeps whatever is stored, so the username can be changed, or the login toggled, without the password travelling back through the browser.
+
+Once it is on, every request needs the `Authorization: Basic` header, including scripts that already send `X-Api-Key`:
+
+```sh
+curl -u admin:secret -H 'X-Api-Key: mysecret' http://<device-ip>/api/status
+```
+
+Two deliberate limits. The credentials go over plain HTTP — this device has no TLS server — so the login keeps casual visitors on your network out and does nothing against anyone who can watch the traffic. And it is not applied in [setup-AP mode](../../getting-started/wifi-setup/), where the panel carries the only copy of the setup address and the captive-portal probes have to answer normally; that also makes "forget the WiFi" the way back in if the password is lost.
 
 The device name is no longer webhook-specific: one name is the network hostname, the setup-AP SSID and the webhook `device` field, and it is set in the System tab through [`POST /api/system/device_name`](../system/#post-apisystemdevice_name). This endpoint still accepts `device_name` and writes the same stored value, cleaning it to the hostname charset (letters, digits, hyphens, max 24) instead of rejecting it, so a script written against an earlier firmware keeps working. The GET reports the resolved name, which is `led-display` while none is set.
 

@@ -40,3 +40,22 @@ bool web_auth_ok(httpd_req_t *req);
 // Handlers for mutating endpoints call this first:
 //   if (web_require_auth(req) != ESP_OK) return ESP_OK;  // response sent
 esp_err_t web_require_auth(httpd_req_t *req);
+
+// ---- browser login (HTTP Basic) --------------------------------------------
+//
+// Optional and off by default. When enabled it covers EVERY registered URI -
+// pages, assets and API alike - because a login that only guards the writes
+// leaves the whole configuration readable. It is deliberately not applied in
+// setup-AP mode: the panel there carries the only copy of the setup address,
+// the captive-portal probes have to answer 200/302 rather than 401, and a
+// device that has lost its network must stay recoverable. That also makes
+// "forget the WiFi" the documented way back in after a lost password.
+//
+// Basic over plain HTTP sends the credentials with every request. This device
+// has no TLS server, so the login is a barrier against casual access on a
+// trusted LAN, not against anyone who can watch the wire.
+
+// Register a URI behind the login gate. Same contract as
+// httpd_register_uri_handler(); every module uses this instead so no endpoint
+// can be added that quietly bypasses the check.
+esp_err_t web_register_uri(httpd_handle_t srv, const httpd_uri_t *uri);

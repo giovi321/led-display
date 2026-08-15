@@ -16,6 +16,8 @@
 #define INTEGR_API_KEY_MAX     64   // plus NUL
 #define INTEGR_URL_MAX         160  // plus NUL
 #define INTEGR_NAME_MAX        32   // plus NUL
+#define INTEGR_UI_USER_MAX     32   // plus NUL
+#define INTEGR_UI_PASS_MAX     64   // plus NUL
 
 // Outbound webhook event bits.
 #define WEBHOOK_EVT_BOOT         (1u << 0)
@@ -33,6 +35,13 @@ typedef struct {
     // setup-AP SSID. Stored under its own NVS key; this is the cached copy the
     // webhook worker reads.
     char     device_name[INTEGR_NAME_MAX + 1];
+    // Browser login for the web UI: HTTP Basic over the LAN, off by default.
+    // Separate from api_key, which gates machine callers by header and says
+    // nothing to a browser. Enabling needs a non-empty password; the pair is
+    // ignored while ui_auth is false so turning it off never loses it.
+    bool     ui_auth;
+    char     ui_user[INTEGR_UI_USER_MAX + 1];
+    char     ui_pass[INTEGR_UI_PASS_MAX + 1];
 } integrations_cfg_t;
 
 esp_err_t integrations_init(void);   // load blobs from NVS into the cache

@@ -36,6 +36,7 @@ Chain the panels in whatever order the connectors allow and mount them whichever
 - Optional MQTT client: feed the display over `<base>/value/set` or `<base>/text/set`, control brightness/power/content source, reboot, read a retained JSON state topic, with optional Home Assistant auto-discovery (light, text, select, button and sensor entities)
 - Saved colours (up to 12 named presets), per-weekday schedule that turns the display off or holds it at a dim level, on an IANA timezone the device applies itself so clock changes need no re-saving
 - Separate screens for the boot splash, for normal running, and for a lost WiFi link, the last of which can hold the content, show a message, go dark, or keep the content and mark one pixel in a position, colour and brightness you pick
+- Two optional locks, both off by default: an API key for scripts, and a browser login over the whole interface
 - Up to 5 saved WiFi networks: the strongest one in range wins at boot, a lost link is retried with a growing backoff, and the setup AP only comes back when nothing answers
 - Optional ambient light sensor: an LDR divider on an ADC pin sets the brightness from the room, calibrated against the live reading in the browser
 - One device name for the network hostname, the setup AP SSID and the webhook payloads

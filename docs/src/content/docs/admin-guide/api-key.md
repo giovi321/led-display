@@ -1,11 +1,13 @@
 ---
-title: API key
-description: An optional shared key that gates every mutating request, what it protects against, and what it deliberately does not
+title: API key and web UI login
+description: Two optional locks - a shared key that gates every mutating request, and a browser login over the whole interface - what they protect against, and what they deliberately do not
 sidebar:
   order: 4
 ---
 
-The device speaks plain HTTP and is designed for a trusted LAN. By default there is no authentication at all: anyone who can reach port 80 can change the text, reflash the firmware, or factory reset the device. Setting an API key changes that for mutating requests.
+The device speaks plain HTTP and is designed for a trusted LAN. By default there is no authentication at all: anyone who can reach port 80 can change the text, reflash the firmware, or factory reset the device.
+
+There are two independent locks, both optional and both off out of the box. The **API key** gates every mutating request and is meant for scripts. The **web UI login** puts a browser username and password over the whole interface and is meant for people. They compose: with both on, a script sends the key and the credentials, and a browser is asked to log in and then needs the key too for writes.
 
 ## Threat model, stated plainly
 
@@ -67,3 +69,34 @@ curl -X POST http://<device-ip>/api/display/text \
 The moment you press Set key, the same browser adopts the key and keeps working without interruption. Any other browser gets a prompt on its first rejected request; the entered key is remembered and the request retried.
 
 The UI stores the key in the browser's localStorage. That means the key is required again after setting it, even in the UI, on any browser that has not stored it yet, and it means anyone with access to a logged-in browser profile can read the key from localStorage. Keep that in mind on shared machines.
+
+## Web UI login
+
+The API key answers "may this request change something". It says nothing to a browser that simply loads the page, so with a key set and no login, anyone on the network can still read your configuration, your WiFi networks, your webhook URL and your schedule. The web UI login closes that: a username and password, asked by the browser itself, over everything the device serves.
+
+Turn it on in [advanced mode](../advanced-mode/), Integrations tab, Web UI login card: tick the box, set a username and password, press Save login. Your browser asks for them on the next page load. Leaving the password box empty on a later save keeps the stored one, so you can rename the user or toggle the login without retyping it.
+
+Via the API:
+
+```bash
+# turn on
+curl -X POST http://<device-ip>/api/integrations \
+  -d '{"ui_auth":true,"ui_user":"admin","ui_pass":"secret"}'
+
+# turn off (needs the credentials, since the login now covers this endpoint)
+curl -u admin:secret -X POST http://<device-ip>/api/integrations -d '{"ui_auth":false}'
+```
+
+Enabling it without a stored password is refused with `400 {"ok":false,"error":"ui_auth needs a ui_pass"}` rather than quietly doing nothing.
+
+### What it covers, and what it does not
+
+It covers every URI the device serves: the pages, the assets, and all of the API including the open GETs. A login that left `GET /api/status` readable would not be one.
+
+It is **HTTP Basic over plain HTTP**. The credentials are base64, not encrypted, and they go out with every single request. This keeps casual visitors on your network out of the interface. It is no defence against anyone who can watch the traffic — for that, reach the device through the [WireGuard tunnel](../wireguard/) rather than exposing it.
+
+It is **not applied on the setup AP**. In that mode the panel carries the only copy of the setup address, and the captive-portal probes have to answer normally rather than with a 401. So a device that has fallen back to its setup network is reachable without the login.
+
+That last point is the recovery path, and it cuts both ways. There is no reset button on the board, so if you lose the password the way back is to stop the device reaching its network — turn the access point off, change its password, or carry the display out of range. After 30 minutes offline it raises its own setup AP alongside the retries, and that AP is not gated. Slow, but it beats a USB reflash, which is what a lost API key costs you.
+
+The same door is open to anyone within radio range who can take your WiFi down, so treat the login as a lock on the front door of a trusted network, not as a boundary against a hostile one.

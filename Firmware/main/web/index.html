@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LED Display</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -164,6 +165,15 @@
       <label class="check"><input type="checkbox" data-day="4" checked> Fri</label>
       <label class="check"><input type="checkbox" data-day="5" checked> Sat</label>
       <label class="check"><input type="checkbox" data-day="6" checked> Sun</label>
+    </div>
+    <div class="flab">On the other days<button type="button" class="hlp"
+      data-help="What happens on a day you have not ticked. Apply the off-action all day is how you keep the display dark over a weekend: untick Sat and Sun and they behave as one long off-window. Run normally instead treats the schedule as if it did not exist on those days, so the panel stays at its usual brightness around the clock and only the ticked days are governed by the ON and OFF times."
+      aria-expanded="false" aria-label="Explain what unticked days do">?</button></div>
+    <div id="sched-otherdays">
+      <label class="check"><input type="radio" name="otherdays" value="off" checked>
+        Apply the off-action all day</label>
+      <label class="check"><input type="radio" name="otherdays" value="run">
+        Run normally, ignore the schedule</label>
     </div>
     <div class="flab">Outside those hours<button type="button" class="hlp"
       data-help="Between the OFF and the ON time the display either goes dark or stays readable at a lower brightness. A stale-value dim, if you configured one, halves whichever level is active."
@@ -372,6 +382,29 @@
       <button class="act" id="apikey-set">Set key</button>
       <button class="danger" id="apikey-clear">Clear key</button>
     </div>
+  </div>
+  <div class="card">
+    <h2>Web UI login</h2>
+    <p id="uiauth-state" class="note"></p>
+    <label class="check big"><input id="uiauth-en" type="checkbox"> Ask for a username and password</label>
+    <p class="note">The browser asks once and remembers it for the session.
+      This covers the whole interface, pages and API alike, not just the
+      buttons that change something. The API key above is separate and keeps
+      working for scripts.</p>
+    <div id="uiauth-fields" class="hidden">
+      <label for="uiauth-user">Username</label>
+      <input id="uiauth-user" type="text" maxlength="32" autocomplete="username"
+             autocapitalize="off" spellcheck="false">
+      <label for="uiauth-pass">Password</label>
+      <input id="uiauth-pass" type="password" maxlength="64" autocomplete="new-password"
+             placeholder="leave empty to keep the stored one">
+    </div>
+    <div class="row"><button class="act" id="uiauth-save">Save login</button></div>
+    <p class="note">Sent over plain HTTP: this keeps casual visitors on your
+      network out, and does not protect against anyone able to watch the
+      traffic. It is not applied on the setup network, so if you lose the
+      password, stopping the device from reaching your WiFi brings that
+      network back after 30 minutes and lets you in.</p>
   </div>
   <div class="card">
     <h2>Outbound webhook</h2>
