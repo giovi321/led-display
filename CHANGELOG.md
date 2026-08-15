@@ -4,6 +4,12 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2026-08-15
+
+### Changed
+
+- The Web UI login card moves from the Integrations tab to the System tab. It governs the whole interface rather than one integration, so it belongs with the other device-wide settings. Nothing about the login itself changes, and the card loads its own state, so it works whichever tab you land on
+
 ## [2.8.0] - 2026-08-15
 
 ### Added

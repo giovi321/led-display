@@ -384,29 +384,6 @@
     </div>
   </div>
   <div class="card">
-    <h2>Web UI login</h2>
-    <p id="uiauth-state" class="note"></p>
-    <label class="check big"><input id="uiauth-en" type="checkbox"> Ask for a username and password</label>
-    <p class="note">The browser asks once and remembers it for the session.
-      This covers the whole interface, pages and API alike, not just the
-      buttons that change something. The API key above is separate and keeps
-      working for scripts.</p>
-    <div id="uiauth-fields" class="hidden">
-      <label for="uiauth-user">Username</label>
-      <input id="uiauth-user" type="text" maxlength="32" autocomplete="username"
-             autocapitalize="off" spellcheck="false">
-      <label for="uiauth-pass">Password</label>
-      <input id="uiauth-pass" type="password" maxlength="64" autocomplete="new-password"
-             placeholder="leave empty to keep the stored one">
-    </div>
-    <div class="row"><button class="act" id="uiauth-save">Save login</button></div>
-    <p class="note">Sent over plain HTTP: this keeps casual visitors on your
-      network out, and does not protect against anyone able to watch the
-      traffic. It is not applied on the setup network, so if you lose the
-      password, stopping the device from reaching your WiFi brings that
-      network back after 30 minutes and lets you in.</p>
-  </div>
-  <div class="card">
     <h2>Outbound webhook</h2>
     <label for="whurl">URL (empty = disabled)</label>
     <input id="whurl" type="text" maxlength="160" placeholder="http://host/webhook/led-display"
@@ -515,6 +492,29 @@
   <div class="card">
     <h2>Status</h2>
     <div id="sys" class="kvs"></div>
+  </div>
+  <div class="card">
+    <h2>Web UI login</h2>
+    <p id="uiauth-state" class="note"></p>
+    <label class="check big"><input id="uiauth-en" type="checkbox"> Ask for a username and password</label>
+    <p class="note">The browser asks once and remembers it for the session.
+      This covers the whole interface, pages and API alike, not just the
+      buttons that change something. The API key on the Integrations tab is
+      separate and keeps working for scripts.</p>
+    <div id="uiauth-fields" class="hidden">
+      <label for="uiauth-user">Username</label>
+      <input id="uiauth-user" type="text" maxlength="32" autocomplete="username"
+             autocapitalize="off" spellcheck="false">
+      <label for="uiauth-pass">Password</label>
+      <input id="uiauth-pass" type="password" maxlength="64" autocomplete="new-password"
+             placeholder="leave empty to keep the stored one">
+    </div>
+    <div class="row"><button class="act" id="uiauth-save">Save login</button></div>
+    <p class="note">Sent over plain HTTP: this keeps casual visitors on your
+      network out, and does not protect against anyone able to watch the
+      traffic. It is not applied on the setup network, so if you lose the
+      password, stopping the device from reaching your WiFi brings that
+      network back after 30 minutes and lets you in.</p>
   </div>
   <div class="card">
     <h2>Device name</h2>

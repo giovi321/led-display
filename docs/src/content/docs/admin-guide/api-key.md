@@ -74,7 +74,7 @@ The UI stores the key in the browser's localStorage. That means the key is requi
 
 The API key answers "may this request change something". It says nothing to a browser that simply loads the page, so with a key set and no login, anyone on the network can still read your configuration, your WiFi networks, your webhook URL and your schedule. The web UI login closes that: a username and password, asked by the browser itself, over everything the device serves.
 
-Turn it on in [advanced mode](../advanced-mode/), Integrations tab, Web UI login card: tick the box, set a username and password, press Save login. Your browser asks for them on the next page load. Leaving the password box empty on a later save keeps the stored one, so you can rename the user or toggle the login without retyping it.
+Turn it on in [advanced mode](../advanced-mode/), System tab, Web UI login card: tick the box, set a username and password, press Save login. It sits with the other device-wide settings rather than with the integrations, because it governs the whole interface and not one of them. Your browser asks for them on the next page load. Leaving the password box empty on a later save keeps the stored one, so you can rename the user or toggle the login without retyping it.
 
 Via the API:
 

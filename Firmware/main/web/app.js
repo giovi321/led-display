@@ -233,7 +233,7 @@ function tab(name, push) {
   if (name === 'hardware') { openHardware(); lsPollStart(); }
   if (name === 'network') refreshNetwork();
   if (name === 'integrations') refreshIntegrations();
-  if (name === 'system') refreshSystem();
+  if (name === 'system') { refreshSystem(); refreshUiAuth(); }
 }
 
 $$('#tabs button').forEach(b => { b.onclick = () => tab(b.dataset.tab); });
@@ -1081,15 +1081,6 @@ async function refreshIntegrations() {
     $('#apikey-state').textContent = keySet
       ? 'A key is currently set.'
       : 'No key set - all requests are allowed.';
-    $('#uiauth-en').checked = !!j.ui_auth;
-    $('#uiauth-user').value = j.ui_user || '';
-    $('#uiauth-pass').value = '';
-    uiAuthPassStored = !!j.ui_pass_set;
-    $('#uiauth-state').textContent = j.ui_auth
-      ? 'The login is on.'
-      : (j.ui_pass_set ? 'The login is off; a password is stored.'
-                       : 'The login is off - anyone on the network can open this page.');
-    setUiAuthUi();
   } catch (e) {
     toast('Error: ' + e.message, true);
   }
@@ -1178,6 +1169,24 @@ $('#apikey-clear').onclick = () => act($('#apikey-clear'), async () => {
 // stored one" from "there is nothing to keep".
 let uiAuthPassStored = false;
 
+// The login card sits on the System tab but its state comes from
+// /api/integrations, so it loads itself rather than riding on either tab's
+// main refresh.
+async function refreshUiAuth() {
+  try {
+    const j = await jget('/api/integrations');
+    $('#uiauth-en').checked = !!j.ui_auth;
+    $('#uiauth-user').value = j.ui_user || '';
+    $('#uiauth-pass').value = '';
+    uiAuthPassStored = !!j.ui_pass_set;
+    $('#uiauth-state').textContent = j.ui_auth
+      ? 'The login is on.'
+      : (j.ui_pass_set ? 'The login is off; a password is stored.'
+                       : 'The login is off - anyone on the network can open this page.');
+    setUiAuthUi();
+  } catch (e) { /* the System tab is useful without this card loaded */ }
+}
+
 function setUiAuthUi() {
   $('#uiauth-fields').classList.toggle('hidden', !$('#uiauth-en').checked);
 }
@@ -1200,7 +1209,7 @@ $('#uiauth-save').onclick = () => act($('#uiauth-save'), async () => {
   // where it will ask - say so rather than letting the prompt surprise them.
   toast(on ? 'Login on - your browser will ask on the next page load'
            : 'Login off');
-  refreshIntegrations();
+  refreshUiAuth();
 });
 
 $('#wh-save').onclick = () => act($('#wh-save'), async () => {
