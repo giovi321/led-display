@@ -48,6 +48,18 @@ void display_show_text_static(const char *text, display_color_t color);
 void display_set_font(uint8_t font_id, bool prop);
 void display_get_font(uint8_t *font_id_out, bool *prop_out);
 
+// Trail left behind moving text: the percentage of its value each pixel keeps
+// from one scroll frame to the next, instead of being cleared. 0 is off (the
+// original behaviour); useful values are around 40-70. Only visible while
+// something is scrolling, since static text is rendered once.
+void display_set_fade(uint8_t keep_percent);
+uint8_t display_get_fade(void);
+
+// Light a single pixel in one corner of the panel and nothing else, for the
+// offline indicator. Corner is 0 top-left, 1 top-right, 2 bottom-left,
+// 3 bottom-right. Clears the stored text state like display_clear() does.
+void display_show_dot(uint8_t corner, display_color_t color);
+
 void display_clear(void);
 
 void display_get_state(char *text_out, size_t text_size,

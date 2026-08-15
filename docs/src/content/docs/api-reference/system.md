@@ -152,7 +152,7 @@ Chooses what settles on the display once the network is up. The two screens eith
 
 | Field | Type | Meaning |
 |---|---|---|
-| `mode` | string | `text` (the configured content, static or integration), `ip` (the device's IP address) or `none` |
+| `mode` | string | `text` (the configured content, static or integration), `ip_then_content` (the address for five seconds, then the content), `ip` or `none` |
 
 ```bash
 curl -X POST http://192.168.1.50/api/system/boot_screen \
@@ -168,8 +168,10 @@ The startup splash and what a lost WiFi link puts on the panel. Partial update: 
 | Field | Type | Meaning |
 |---|---|---|
 | `startup_screen` | string | `border` (1 s border test, the default), `blank`, or `content` to skip the splash entirely |
-| `offline_screen` | string | `keep` (leave the last content, the default), `text`, or `blank` |
+| `offline_screen` | string | `keep` (leave the last content, the default), `text`, `dot`, or `blank` |
 | `offline_text` | string | Up to 63 characters, shown when `offline_screen` is `text` |
+| `offline_color` | object | `{"r":0..255,"g":0..255,"b":0..255}`, the colour of the `dot` pixel |
+| `offline_corner` | number | 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right, for the `dot` pixel |
 
 The border default is deliberate: it lights every edge pixel, so a miswired or half-dead panel announces itself in the first second after power-on, before anything else can mask it.
 
@@ -181,7 +183,9 @@ curl -X POST http://192.168.1.50/api/system/screens \
   -d '{"startup_screen":"border","offline_screen":"text","offline_text":"OFFLINE"}'
 ```
 
-Errors: 400 `"startup_screen must be border|blank|content"`, 400 `"offline_screen must be keep|text|blank"`, 400 `"offline_text too long (max 63)"`, 500 `"saving screens failed"`.
+`dot` lights a single pixel and nothing else, which is the quietest way for a wall-mounted display to admit it has lost the network: visible if you look, invisible from across the room.
+
+Errors: 400 `"startup_screen must be border|blank|content"`, 400 `"offline_screen must be keep|text|blank|dot"`, 400 `"offline_text too long (max 63)"`, 400 `"offline_corner must be 0..3"`, 500 `"saving screens failed"`.
 
 ## POST /api/system/device_name
 

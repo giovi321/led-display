@@ -17,20 +17,25 @@
   </a>
 </p>
 
-You buy a stack of cheap WS2812B panels, glue them to a frame, chain the data line with short jumpers, and power the thing up. The text comes out shredded: the panels are chained in an order you didn't plan, and two of them are mounted upside down because that's where the connectors happened to land. With most matrix firmware that discovery costs you an evening of rewiring or recompiling. Here it's a 30 second fix in the browser: press Identify so every physical panel lights its own colour, drag the on-screen panels until the drawing matches the wall, apply.
+<p align="center">
+  <img src="docs/src/assets/display-render.svg" width="820" alt="The reference build: four WS2812B 32x8 panels behind a smoked grey plexiglass front, showing 1234">
+</p>
 
-led-display is ESP-IDF firmware for the ESP32-S3 that drives chained WS2812B matrix panels as one logical display, built for a single always-on readout: a revenue figure, a subscriber counter, a temperature, a countdown.
+ESP-IDF firmware for the ESP32-S3 that drives chained WS2812B panels as one display, for showing a single number that matters: a revenue figure, a subscriber count, a temperature, a countdown.
+
+Chain the panels in whatever order the connectors allow and mount them whichever way up they fit. Instead of rewiring or recompiling, press Identify: every physical panel lights its own colour, you drag the on-screen panels until the drawing matches the wall, and apply.
 
 ## What it does
 
 - Web UI with a simple mode (text, colour, brightness, schedule) and an advanced mode that unlocks hardware, network, integrations and system tabs; no frameworks, one page, served gzipped from flash
 - Graphical arrangement editor: describe your panel once (size, first-LED corner, row or column walk, serpentine), lay panels out on a grid up to 8x16 cells (32 panels, 8192 pixels), drag to swap, click to rotate, with identify mode to match the drawing to the physical wall
 - Three pixel fonts (5x7, a tiny 3x5, a tall 7x12 with real lowercase) at integer sizes, proportionally spaced with fixed-width digits so a ticking value never wobbles; monospace on request
-- Scrolling off, restart, or continuous as a marquee that repeats after a short gap
+- Scrolling off, restart, or continuous as a marquee that repeats after a short gap, with an optional trail that leaves a decaying smear behind moving text
 - Value endpoint for any webhook-capable system: `POST /api/value` with `{"value": 4210.5}` and the device formats it (prefix, suffix, decimals, thousands separator) and displays it; a staleness guard dims the display, blinks a corner pixel or swaps in a fallback text when no update arrives for a configured number of hours
 - Content source switch: static text you typed, or the live integration value with a configurable placeholder until the first value arrives
 - Optional MQTT client: feed the display over `<base>/value/set` or `<base>/text/set`, control brightness/power/content source, reboot, read a retained JSON state topic, with optional Home Assistant auto-discovery (light, text, select, button and sensor entities)
-- Saved colours (up to 12 named presets), per-weekday schedule that turns the display off or holds it at a dim level (with a DST-aware timezone override), configurable boot screen
+- Saved colours (up to 12 named presets), per-weekday schedule that turns the display off or holds it at a dim level, on an IANA timezone the device applies itself so clock changes need no re-saving
+- Separate screens for the boot splash, for normal running, and for a lost WiFi link, the last of which can hold the content, show a message, light a single pixel in a colour you pick, or go dark
 - Up to 5 saved WiFi networks: the strongest one in range wins at boot, a lost link is retried with a growing backoff, and the setup AP only comes back when nothing answers
 - Optional ambient light sensor: an LDR divider on an ADC pin sets the brightness from the room, calibrated against the live reading in the browser
 - One device name for the network hostname, the setup AP SSID and the webhook payloads
@@ -57,7 +62,7 @@ The reference build this firmware runs on:
 
 The PCB expects 5 V LED panels: the supply rail, the level shifter and the connectors are all laid out for 5 V WS2812B-class matrices. 12 V variants need a different power arrangement and are not supported by this board.
 
-Nothing about that grid is hardcoded anymore. The firmware takes any identical-panel grid: panel sizes 1..64 in each dimension, up to 8 rows by 16 columns, capped at 32 panels and 8192 pixels total. Hardware notes (parts, level shifter wiring, connectors) are in the [hardware guide](https://giovi321.github.io/led-display/getting-started/hardware/), the physical build in the [assembly guide](https://giovi321.github.io/led-display/getting-started/assembly/), and the measured power figures in the [power budget](https://giovi321.github.io/led-display/architecture/power/).
+None of that grid is fixed in the firmware. It takes any identical-panel grid: panel sizes 1..64 in each dimension, up to 8 rows by 16 columns, capped at 32 panels and 8192 pixels total. Hardware notes (parts, level shifter wiring, connectors) are in the [hardware guide](https://giovi321.github.io/led-display/getting-started/hardware/), the physical build in the [assembly guide](https://giovi321.github.io/led-display/getting-started/assembly/), and the measured power figures in the [power budget](https://giovi321.github.io/led-display/architecture/power/).
 
 ## Quick start
 

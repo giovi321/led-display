@@ -39,6 +39,12 @@ uint8_t led_driver_get_brightness_cap(void);
 void led_driver_clear(void);
 void led_driver_fill(uint8_t r, uint8_t g, uint8_t b);
 
+// Scale every pixel already in the frame buffer to `keep_percent` of its
+// value, instead of clearing it. Used in place of led_driver_clear() between
+// scroll frames to leave a short trail behind moving text, the way a slow
+// phosphor would. 0 is the same as clearing.
+void led_driver_fade(uint8_t keep_percent);
+
 void led_driver_set_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);
 bool led_driver_get_pixel(int x, int y, uint8_t *r, uint8_t *g, uint8_t *b);
 

@@ -29,6 +29,11 @@ static const char *NS  = "cfg";
 #define K_STARTUP    "scrs"   // startup_screen_t; absent = border splash
 #define K_OFFLINE    "scro"   // offline_screen_t; absent = keep content
 #define K_OFFLINE_TX "scrot"  // text for OFFLINE_TEXT
+#define K_OFF_COL_R  "ocr"    // OFFLINE_DOT colour
+#define K_OFF_COL_G  "ocg"
+#define K_OFF_COL_B  "ocb"
+#define K_OFF_CORNER "ocn"
+#define K_FADE       "fade"   // scroll trail, percent kept per frame
 #define K_DEVNAME    "dname"  // device name; absent = unset (defaults apply)
 
 static void apply_defaults(settings_t *s)
@@ -48,6 +53,9 @@ static void apply_defaults(settings_t *s)
     s->startup_screen  = STARTUP_BORDER;
     s->offline_screen  = OFFLINE_KEEP;
     s->offline_text[0] = '\0';
+    s->offline_color   = (display_color_t){80, 0, 0};   // dim red
+    s->offline_corner  = 0;
+    s->fade            = 0;                             // off
     s->legacy_map_mode = -1;     // absent
 }
 
@@ -100,13 +108,18 @@ esp_err_t settings_load(settings_t *out)
     if (nvs_get_u8(h, K_STARTUP, &v) == ESP_OK && v <= STARTUP_TEXT) {
         out->startup_screen = (startup_screen_t)v;
     }
-    if (nvs_get_u8(h, K_OFFLINE, &v) == ESP_OK && v <= OFFLINE_BLANK) {
+    if (nvs_get_u8(h, K_OFFLINE, &v) == ESP_OK && v <= OFFLINE_DOT) {
         out->offline_screen = (offline_screen_t)v;
     }
     len = sizeof(out->offline_text);
     if (nvs_get_str(h, K_OFFLINE_TX, out->offline_text, &len) != ESP_OK) {
         out->offline_text[0] = '\0';
     }
+    nvs_get_u8(h, K_OFF_COL_R, &out->offline_color.r);
+    nvs_get_u8(h, K_OFF_COL_G, &out->offline_color.g);
+    nvs_get_u8(h, K_OFF_COL_B, &out->offline_color.b);
+    if (nvs_get_u8(h, K_OFF_CORNER, &v) == ESP_OK && v <= 3) out->offline_corner = v;
+    if (nvs_get_u8(h, K_FADE, &v) == ESP_OK && v <= 95) out->fade = v;
 
     nvs_close(h);
     ESP_LOGI(TAG, "settings loaded: brightness=%u cap=%u scroll=%u speed=%u scale=%u font=%u prop=%d boot=%u text='%s'",
@@ -141,6 +154,11 @@ esp_err_t settings_save(const settings_t *in)
     nvs_set_u8 (h, K_STARTUP,    (uint8_t)in->startup_screen);
     nvs_set_u8 (h, K_OFFLINE,    (uint8_t)in->offline_screen);
     nvs_set_str(h, K_OFFLINE_TX, in->offline_text);
+    nvs_set_u8 (h, K_OFF_COL_R,  in->offline_color.r);
+    nvs_set_u8 (h, K_OFF_COL_G,  in->offline_color.g);
+    nvs_set_u8 (h, K_OFF_COL_B,  in->offline_color.b);
+    nvs_set_u8 (h, K_OFF_CORNER, in->offline_corner);
+    nvs_set_u8 (h, K_FADE,       in->fade);
 
     err = nvs_commit(h);
     nvs_close(h);
@@ -216,21 +234,27 @@ esp_err_t settings_save_source(display_source_t source)
     return save_u8(K_SOURCE, (uint8_t)source);
 }
 
-esp_err_t settings_save_screens(startup_screen_t startup,
-                                offline_screen_t offline,
-                                const char *offline_text)
+esp_err_t settings_save_screens(const settings_t *in)
 {
+    if (!in) return ESP_ERR_INVALID_ARG;
     nvs_handle_t h;
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
-    err = nvs_set_u8(h, K_STARTUP, (uint8_t)startup);
-    if (err == ESP_OK) err = nvs_set_u8(h, K_OFFLINE, (uint8_t)offline);
-    if (err == ESP_OK && offline_text) {
-        err = nvs_set_str(h, K_OFFLINE_TX, offline_text);
-    }
+    err = nvs_set_u8(h, K_STARTUP, (uint8_t)in->startup_screen);
+    if (err == ESP_OK) err = nvs_set_u8(h, K_OFFLINE, (uint8_t)in->offline_screen);
+    if (err == ESP_OK) err = nvs_set_str(h, K_OFFLINE_TX, in->offline_text);
+    if (err == ESP_OK) err = nvs_set_u8(h, K_OFF_COL_R, in->offline_color.r);
+    if (err == ESP_OK) err = nvs_set_u8(h, K_OFF_COL_G, in->offline_color.g);
+    if (err == ESP_OK) err = nvs_set_u8(h, K_OFF_COL_B, in->offline_color.b);
+    if (err == ESP_OK) err = nvs_set_u8(h, K_OFF_CORNER, in->offline_corner);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
+}
+
+esp_err_t settings_save_fade(uint8_t percent)
+{
+    return save_u8(K_FADE, percent > 95 ? 95 : percent);
 }
 
 esp_err_t settings_clear_text(void)

@@ -635,11 +635,15 @@ details[open] > summary { margin-bottom: 8px; }
 .toast.err { border-color: var(--err); }
 
 footer {
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  gap: 14px;
   color: var(--mut);
   font-size: 12px;
   padding: 6px 0 24px;
 }
+footer a { color: var(--mut); }
+footer a:hover { color: var(--accent); }
 
 /* ---- small screens ---------------------------------------------------- */
 

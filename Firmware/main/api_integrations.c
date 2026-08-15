@@ -196,6 +196,24 @@ static esp_err_t wireguard_post_handler(httpd_req_t *req)
     wg_client_get_config(&cfg);
 
     const cJSON *it;
+    // A full reset needs its own flag: every field here is "absent keeps the
+    // stored value", and the private key deliberately cannot be cleared by
+    // sending an empty string, so there is otherwise no way back to blank.
+    if (cJSON_IsTrue(cJSON_GetObjectItem(body, "reset"))) {
+        cJSON_Delete(body);
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.endpoint_port = 51820;
+        cfg.keepalive_s   = 25;
+        esp_err_t rerr = wg_client_apply(&cfg);
+        if (rerr == ESP_ERR_NOT_SUPPORTED) {
+            return web_send_err(req, "WireGuard support not compiled in", 501);
+        }
+        if (rerr != ESP_OK) {
+            ESP_LOGE(TAG, "wg reset failed: %s", esp_err_to_name(rerr));
+            return web_send_err(req, "clearing WireGuard config failed", 500);
+        }
+        return web_send_ok(req);
+    }
     if (cJSON_IsBool(it = cJSON_GetObjectItem(body, "enabled"))) {
         cfg.enabled = cJSON_IsTrue(it);
     }

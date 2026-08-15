@@ -12,10 +12,14 @@
 
 // What the panel shows once the network state is known ("after boot").
 typedef enum {
-    BOOT_SHOW_TEXT = 0,   // the configured content (static text or integration)
-    BOOT_SHOW_IP   = 1,   // scroll the assigned IP
-    BOOT_SHOW_NONE = 2,   // blank
+    BOOT_SHOW_TEXT    = 0,   // the configured content (static text or integration)
+    BOOT_SHOW_IP      = 1,   // scroll the assigned IP
+    BOOT_SHOW_NONE    = 2,   // blank
+    BOOT_SHOW_IP_THEN = 3,   // the IP for a few seconds, then the content
 } boot_screen_t;
+
+// How long BOOT_SHOW_IP_THEN leaves the address up before the content.
+#define BOOT_IP_SECONDS 5
 
 // The startup splash, before the network is up. The border is a deliberate
 // default: it lights every edge pixel, so a panel that is miswired or half
@@ -34,6 +38,7 @@ typedef enum {
     OFFLINE_KEEP  = 0,    // leave whatever is on the panel (default)
     OFFLINE_TEXT  = 1,    // show offline_text
     OFFLINE_BLANK = 2,    // blank the panel
+    OFFLINE_DOT   = 3,    // a single pixel, in offline_color, in a corner
 } offline_screen_t;
 
 #define OFFLINE_TEXT_MAX 63
@@ -61,6 +66,9 @@ typedef struct {
     startup_screen_t startup_screen;
     offline_screen_t offline_screen;
     char            offline_text[OFFLINE_TEXT_MAX + 1];
+    display_color_t offline_color;    // the OFFLINE_DOT pixel
+    uint8_t         offline_corner;   // 0 TL, 1 TR, 2 BL, 3 BR
+    uint8_t         fade;             // scroll trail, percent kept per frame
     // Legacy v1 pixel-mapping mode ("map" NVS key). -1 when absent. Only
     // used once, to migrate to the "layout" blob via mapping_from_legacy().
     int             legacy_map_mode;
@@ -85,9 +93,8 @@ esp_err_t settings_save_brightness(uint8_t brightness);
 esp_err_t settings_save_brightness_cap(uint8_t cap);
 esp_err_t settings_save_boot_screen(boot_screen_t which);
 esp_err_t settings_save_source(display_source_t source);
-esp_err_t settings_save_screens(startup_screen_t startup,
-                                offline_screen_t offline,
-                                const char *offline_text);
+esp_err_t settings_save_screens(const settings_t *in);
+esp_err_t settings_save_fade(uint8_t percent);
 esp_err_t settings_clear_text(void);
 
 // ---- device name ----------------------------------------------------------

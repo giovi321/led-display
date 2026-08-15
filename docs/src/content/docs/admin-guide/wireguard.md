@@ -29,6 +29,8 @@ Network tab ([advanced mode](../advanced-mode/)), WireGuard card, or `POST /api/
 | allowed_ips | comma-separated IPv4 CIDRs routed through the tunnel; 0.0.0.0/0 makes the tunnel the default route |
 | keepalive_s | persistent keepalive in seconds, default 25, 0 disables; keep it on when the device sits behind NAT |
 
+Reset config clears all of it, including the private key. That needs its own button because every field here keeps its stored value when left out of a save, and the private key deliberately cannot be cleared by sending an empty string, so there is otherwise no way back to blank. Through the API it is `POST /api/wireguard` with `{"reset": true}`.
+
 The device does not generate keys. Create the pair on any machine with WireGuard tools and paste the private key into the form:
 
 ```bash

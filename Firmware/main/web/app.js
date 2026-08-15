@@ -194,7 +194,27 @@ function setAdvanced(on) {
   if (!on && cur && ADV_TABS.indexOf(cur.dataset.tab) >= 0) tab('display');
 }
 
-function tab(name) {
+// A link straight to an advanced tab has to turn advanced mode on, or the tab
+// it names is hidden and the page silently shows something else.
+function openInitialTab() {
+  const want = tabFromPath();
+  if (ADV_TABS.indexOf(want) >= 0 && localStorage.getItem('advanced') !== '1') {
+    setAdvanced(true);
+  }
+  tab(want, false);
+}
+
+// Each tab has a real path, so a reload, a bookmark or the back button all
+// land where you were. The device serves the page for these paths too.
+function tabFromPath() {
+  const p = (location.pathname || '/').replace(/^\/+|\/+$/g, '');
+  return TAB_NAMES.indexOf(p) >= 0 ? p : 'display';
+}
+
+const TAB_NAMES = ['display', 'schedule', 'hardware', 'network', 'integrations',
+                   'system'];
+
+function tab(name, push) {
   // Leaving the Hardware tab must switch identify mode off, or the physical
   // panels stay frozen in the chain colours with no visible way back.
   const prev = $('#tabs button.active');
@@ -206,6 +226,9 @@ function tab(name) {
   }
   $$('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   $$('main > section').forEach(sec => sec.classList.toggle('hidden', sec.id !== 'tab-' + name));
+  if (push !== false && tabFromPath() !== name) {
+    history.pushState({ tab: name }, '', '/' + name);
+  }
   if (name === 'schedule') refreshSchedule();
   if (name === 'hardware') { openHardware(); lsPollStart(); }
   if (name === 'network') refreshNetwork();
@@ -215,6 +238,7 @@ function tab(name) {
 
 $$('#tabs button').forEach(b => { b.onclick = () => tab(b.dataset.tab); });
 $('#advtoggle').onchange = e => setAdvanced(e.target.checked);
+window.addEventListener('popstate', () => tab(tabFromPath(), false));
 
 // ---- Display tab -----------------------------------------------------------
 
@@ -271,6 +295,12 @@ setScrollUi();
 
 $('#brightness').oninput = e => { $('#brval').textContent = e.target.value; };
 $('#speed').oninput = e => { $('#spval').textContent = e.target.value; };
+function setFadeUi() {
+  const v = +$('#fade').value;
+  $('#fadeval').textContent = v ? v + '%' : 'off';
+}
+$('#fade').oninput = setFadeUi;
+setFadeUi();
 
 // The light sensor and the slider are the same brightness: while the sensor is
 // driving it, the slider reads out the level it picked and stops being an input.
@@ -338,6 +368,7 @@ $('#apply').onclick = () => act($('#apply'), async () => {
     font: size[0],
     scale: +size[1] || 1,
     spacing: $('#spacing').value,
+    fade: +$('#fade').value,
   };
   await jpost('/api/display/text', body);
   // Don't post the slider back while the sensor owns the brightness: that would
@@ -971,6 +1002,18 @@ function setWgFullTunnelUi() {
 }
 $('#wg-allowed').oninput = setWgFullTunnelUi;
 
+$('#wg-reset').onclick = () => act($('#wg-reset'), async () => {
+  if (!confirm('Clear the WireGuard configuration, including the private key?')) return;
+  await jpost('/api/wireguard', { reset: true });
+  ['#wg-priv', '#wg-pub', '#wg-host', '#wg-port', '#wg-addr', '#wg-allowed']
+    .forEach(s => { $(s).value = ''; });
+  $('#wg-en').checked = false;
+  $('#wg-keep').value = 25;
+  setWgFullTunnelUi();
+  toast('WireGuard configuration cleared');
+  refreshNetwork();
+});
+
 $('#wg-pub-copy').onclick = () => act($('#wg-pub-copy'), async () => {
   const txt = (lastStatus && lastStatus.wireguard && lastStatus.wireguard.public_key) || '';
   if (!txt) { toast('No key stored yet', true); return; }
@@ -1230,6 +1273,10 @@ async function refreshSystem() {
     if (s.system.startup_screen) $('#scr-startup').value = s.system.startup_screen;
     if (s.system.offline_screen) $('#scr-offline').value = s.system.offline_screen;
     $('#scr-offlinetext').value = s.system.offline_text || '';
+    if (s.system.offline_color) $('#scr-dotcolor').value = rgb2hex(s.system.offline_color);
+    if (s.system.offline_corner !== undefined) {
+      $('#scr-dotcorner').value = String(s.system.offline_corner);
+    }
     setScreensUi();
     // Empty when no name is stored: the placeholder then shows the default
     // rather than pre-filling a name the user never chose.
@@ -1246,7 +1293,9 @@ async function refreshSystem() {
 // The three screens save together: they are one decision about what the panel
 // shows, split across three moments.
 function setScreensUi() {
-  $('#scr-offlinetext').classList.toggle('hidden', $('#scr-offline').value !== 'text');
+  const v = $('#scr-offline').value;
+  $('#scr-offlinetext').classList.toggle('hidden', v !== 'text');
+  $('#scr-dotrow').classList.toggle('hidden', v !== 'dot');
 }
 $('#scr-offline').onchange = setScreensUi;
 setScreensUi();
@@ -1257,6 +1306,8 @@ $('#scr-save').onclick = () => act($('#scr-save'), async () => {
     startup_screen: $('#scr-startup').value,
     offline_screen: $('#scr-offline').value,
     offline_text: $('#scr-offlinetext').value,
+    offline_color: hex2rgb($('#scr-dotcolor').value),
+    offline_corner: +$('#scr-dotcorner').value,
   });
   toast('Screens saved');
 });
@@ -1749,6 +1800,7 @@ function applyStatus(s) {
     $('#spval').textContent = s.display.speed;
     if (wantSize) $('#size').value = wantSize;
     if (s.display.spacing) $('#spacing').value = s.display.spacing;
+    if (s.display.fade !== undefined) { $('#fade').value = s.display.fade; setFadeUi(); }
   }
   $('#brcap').value = cap;
   updateCurl();
@@ -1764,6 +1816,7 @@ async function init() {
 }
 
 setAdvanced(localStorage.getItem('advanced') === '1');
+openInitialTab();
 init();
 
 // Light background refresh: header state, plus the WireGuard status line when

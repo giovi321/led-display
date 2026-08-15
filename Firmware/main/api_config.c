@@ -71,6 +71,12 @@ static cJSON *display_to_json(const settings_t *s)
     cJSON_AddNumberToObject(d, "startup_screen", (int)s->startup_screen);
     cJSON_AddNumberToObject(d, "offline_screen", (int)s->offline_screen);
     cJSON_AddStringToObject(d, "offline_text", s->offline_text);
+    cJSON *ocol = cJSON_AddObjectToObject(d, "offline_color");
+    cJSON_AddNumberToObject(ocol, "r", s->offline_color.r);
+    cJSON_AddNumberToObject(ocol, "g", s->offline_color.g);
+    cJSON_AddNumberToObject(ocol, "b", s->offline_color.b);
+    cJSON_AddNumberToObject(d, "offline_corner", s->offline_corner);
+    cJSON_AddNumberToObject(d, "fade", s->fade);
     return d;
 }
 
@@ -415,6 +421,21 @@ static bool apply_display(const cJSON *sec)
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "offline_text"))) {
         snprintf(s.offline_text, sizeof(s.offline_text), "%s", it->valuestring);
     }
+    const cJSON *ocol = cJSON_GetObjectItem(sec, "offline_color");
+    if (cJSON_IsObject(ocol)) {
+        const cJSON *r = cJSON_GetObjectItem(ocol, "r");
+        const cJSON *g = cJSON_GetObjectItem(ocol, "g");
+        const cJSON *b = cJSON_GetObjectItem(ocol, "b");
+        if (cJSON_IsNumber(r)) s.offline_color.r = (uint8_t)clampi(r->valueint, 0, 255);
+        if (cJSON_IsNumber(g)) s.offline_color.g = (uint8_t)clampi(g->valueint, 0, 255);
+        if (cJSON_IsNumber(b)) s.offline_color.b = (uint8_t)clampi(b->valueint, 0, 255);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "offline_corner"))) {
+        s.offline_corner = (uint8_t)clampi(it->valueint, 0, 3);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "fade"))) {
+        s.fade = (uint8_t)clampi(it->valueint, 0, 95);
+    }
 
     if (settings_save(&s) != ESP_OK) return false;
 
@@ -425,6 +446,7 @@ static bool apply_display(const cJSON *sec)
     led_driver_set_brightness_cap(s.brightness_cap);
     scheduler_reapply_brightness();
     display_set_font(s.font, s.prop);
+    display_set_fade(s.fade);
     if (s.text[0] != '\0') {
         display_show_text(s.text, s.color, s.scroll_mode, s.speed, s.scale);
     } else {

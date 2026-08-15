@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
+#include "api_handlers.h"
 #include "display.h"
 #include "integrations.h"
 #include "led_driver.h"
@@ -57,9 +58,10 @@ static void show_network_banner(const settings_t *cfg, const wifi_mgr_status_t *
     char banner[DISPLAY_TEXT_MAX];
     if (s->mode == WIFI_MGR_MODE_AP) {
         // A device nobody can reach must still say how to reach it, so the AP
-        // name and address go on the panel verbatim. The SSID comes from the
+        // name and address go on the panel verbatim, and keep going round
+        // until somebody sets a text from the web UI. The SSID comes from the
         // WiFi status, never from a local copy of the constant.
-        snprintf(banner, sizeof(banner), "Setup AP: %s / %s",
+        snprintf(banner, sizeof(banner), "AP mode, SSID: %s, IP: %s",
                  s->ap_ssid[0] ? s->ap_ssid : s->ssid, s->ip);
     } else {
         snprintf(banner, sizeof(banner), "%s", s->ip);
@@ -68,6 +70,33 @@ static void show_network_banner(const settings_t *cfg, const wifi_mgr_status_t *
     // leaving the panel blank while the user is trying to read it.
     display_show_text(banner, cfg->color, DISPLAY_SCROLL_CONTINUOUS, 80,
                       cfg->scale);
+}
+
+// BOOT_SHOW_IP_THEN hands the panel over from the address to the content
+// after a few seconds. A task rather than a delay in the boot path, because
+// the boot path still has the HTTP server to start; and a generation counter
+// so a user who sets something in the meantime is not overwritten by a
+// handover they can no longer see coming.
+static volatile uint32_t s_handover_gen;
+
+static void ip_handover_task(void *arg)
+{
+    uint32_t mine = (uint32_t)(uintptr_t)arg;
+    vTaskDelay(pdMS_TO_TICKS(BOOT_IP_SECONDS * 1000));
+    if (s_handover_gen == mine) {
+        api_display_apply_source();
+    }
+    vTaskDelete(NULL);
+}
+
+static void start_ip_handover(void)
+{
+    uint32_t gen = ++s_handover_gen;
+    if (xTaskCreate(ip_handover_task, "boot_ip", 4096,
+                    (void *)(uintptr_t)gen, 4, NULL) != pdPASS) {
+        ESP_LOGW(TAG, "no room for the boot handover task; showing content now");
+        api_display_apply_source();
+    }
 }
 
 // What the panel shows once the network state is known. AP mode overrides the
@@ -85,6 +114,13 @@ static void show_boot_screen(const settings_t *cfg, const wifi_mgr_status_t *s)
             break;
         case BOOT_SHOW_IP:
             show_network_banner(cfg, s);
+            break;
+        case BOOT_SHOW_IP_THEN:
+            // The address first so it can be read off the panel, then the
+            // content. The handover is a short task rather than a delay here:
+            // this runs during boot, and the HTTP server must not wait on it.
+            show_network_banner(cfg, s);
+            start_ip_handover();
             break;
         case BOOT_SHOW_TEXT:
         default:
@@ -145,6 +181,8 @@ static void on_wifi_state(const wifi_mgr_status_t *s)
             if (cfg.offline_screen == OFFLINE_TEXT && cfg.offline_text[0]) {
                 display_show_text(cfg.offline_text, cfg.color, cfg.scroll_mode,
                                   cfg.speed, cfg.scale);
+            } else if (cfg.offline_screen == OFFLINE_DOT) {
+                display_show_dot(cfg.offline_corner, cfg.offline_color);
             } else {
                 display_clear();
             }
@@ -183,6 +221,7 @@ void app_main(void)
     led_driver_set_brightness(cfg.brightness);
     ESP_ERROR_CHECK(display_init());
     display_set_font(cfg.font, cfg.prop);
+    display_set_fade(cfg.fade);
 
     // 4. Startup splash. The border lights every edge pixel, so a miswired or
     //    half-dead panel says so within a second of power-on; that is why it

@@ -4,6 +4,24 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-08-15
+
+### Added
+
+- Every tab has its own address: `/display`, `/schedule`, `/hardware`, `/network`, `/integrations`, `/system`. A reload, a bookmark or the back button now land where you were, and a link to an advanced tab turns advanced mode on rather than silently showing something else
+- Trail, on the Display tab: how much of each frame is left behind as text moves, instead of the pixels going out at once. At 0 nothing changes; above that a scrolling value drags a decaying smear behind it the way a slow phosphor does. `fade` on `POST /api/display/text`
+- A lost WiFi link can now light a single pixel, in a colour and corner you choose, alongside the existing keep, message and blank. It is the quietest way for a wall-mounted display to admit it is offline: visible if you look, invisible from across the room
+- After boot the display can show its address for five seconds and then switch to the content, instead of choosing one or the other permanently. `ip_then_content` on `POST /api/system/boot_screen`
+- Reset button for the WireGuard configuration, and `{"reset": true}` on `POST /api/wireguard`. Every field there keeps its stored value when omitted, and the private key cannot be cleared with an empty string, so there was no way back to blank
+- A link to the project on GitHub in the web UI footer
+- A drawing of the reference build in the README and the hardware guide, generated from the cut sizes in `3D/8x32/` and the firmware's own font, so the lit pixels are the ones the device would light
+
+### Changed
+
+- Without WiFi the panel scrolls `AP mode, SSID: ..., IP: ...` instead of `Setup AP: ... / ...`, saying what it is rather than abbreviating it
+- The WireGuard key fields dropped the "put this ON THE SERVER" and "copy this FROM the server" suffixes from their labels; the explanation was already a tooltip away
+- README opens with the render and a shorter description
+
 ## [2.4.1] - 2026-08-15
 
 ### Changed

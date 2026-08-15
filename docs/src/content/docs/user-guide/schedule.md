@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-The Schedule tab turns the display off outside working hours and back on when they start. Off means dark, not gone: the content, the settings, and the web UI all keep working, only the brightness changes.
+The Schedule tab, at `/schedule` in the browser, turns the display off outside working hours and back on when they start. Off means dark, not gone: the content, the settings, and the web UI all keep working, only the brightness changes.
 
 Set a turn-on time, a turn-off time, tick the weekdays it should apply to, and enable the schedule. The device checks the schedule every 30 seconds, so switching happens within half a minute of the configured time.
 

@@ -44,7 +44,10 @@ static esp_err_t asset_get(httpd_req_t *req)
     return httpd_resp_send(req, (const char *)a->start, a->end - a->start);
 }
 
-// Common captive-portal probe targets that phones hit to detect a portal.
+// Serves the single page for anything that is not an asset: the captive
+// portal probes below, and the UI's own tab paths.
+//
+// Common captive-portal probe targets are what phones hit to detect a portal.
 // Returning the page (instead of redirecting) keeps the captive sheet on
 // the connection screen, which is what users expect.
 static esp_err_t captive_get(httpd_req_t *req)
@@ -62,6 +65,20 @@ void web_static_register(httpd_handle_t srv)
             .handler  = asset_get,
             .user_ctx = (void *)&s_assets[i],
         };
+        httpd_register_uri_handler(srv, &u);
+    }
+
+    // The UI puts a real path in the address bar for each tab, so those paths
+    // have to serve the page too - a reload or a bookmark hits the device
+    // directly. Registered individually rather than as a wildcard so nothing
+    // can shadow /api/*.
+    static const char *routes[] = {
+        "/display", "/schedule", "/hardware", "/network", "/integrations",
+        "/system",
+    };
+    for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
+        httpd_uri_t u = {.uri = routes[i], .method = HTTP_GET,
+                         .handler = captive_get};
         httpd_register_uri_handler(srv, &u);
     }
 

@@ -85,6 +85,7 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddNumberToObject(d, "scale", scale);
     cJSON_AddStringToObject(d, "font", font_name(font_id));
     cJSON_AddStringToObject(d, "spacing", prop ? "proportional" : "monospace");
+    cJSON_AddNumberToObject(d, "fade", display_get_fade());
     cJSON_AddNumberToObject(d, "brightness", led_driver_get_brightness());
     cJSON *c = cJSON_AddObjectToObject(d, "color");
     cJSON_AddNumberToObject(c, "r", col.r);
@@ -128,11 +129,12 @@ static esp_err_t status_get(httpd_req_t *req)
     // whatever is on screen - the pushed value in integration mode).
     cJSON_AddStringToObject(d, "text_stored", cfg.text);
     const char *bs = "text";
-    if      (cfg.boot_screen == BOOT_SHOW_IP)   bs = "ip";
-    else if (cfg.boot_screen == BOOT_SHOW_NONE) bs = "none";
+    if      (cfg.boot_screen == BOOT_SHOW_IP)      bs = "ip";
+    else if (cfg.boot_screen == BOOT_SHOW_NONE)    bs = "none";
+    else if (cfg.boot_screen == BOOT_SHOW_IP_THEN) bs = "ip_then_content";
     cJSON_AddStringToObject(s, "boot_screen", bs);
     static const char *STARTUP_NAMES[] = {"border", "blank", "content"};
-    static const char *OFFLINE_NAMES[] = {"keep", "text", "blank"};
+    static const char *OFFLINE_NAMES[] = {"keep", "text", "blank", "dot"};
     cJSON_AddStringToObject(s, "startup_screen",
                             STARTUP_NAMES[cfg.startup_screen <= STARTUP_TEXT
                                           ? cfg.startup_screen : 0]);
@@ -140,6 +142,11 @@ static esp_err_t status_get(httpd_req_t *req)
                             OFFLINE_NAMES[cfg.offline_screen <= OFFLINE_BLANK
                                           ? cfg.offline_screen : 0]);
     cJSON_AddStringToObject(s, "offline_text", cfg.offline_text);
+    cJSON *oc = cJSON_AddObjectToObject(s, "offline_color");
+    cJSON_AddNumberToObject(oc, "r", cfg.offline_color.r);
+    cJSON_AddNumberToObject(oc, "g", cfg.offline_color.g);
+    cJSON_AddNumberToObject(oc, "b", cfg.offline_color.b);
+    cJSON_AddNumberToObject(s, "offline_corner", cfg.offline_corner);
 
     // Active layout summary; the full config comes from GET /api/layout.
     mapping_config_t map;
@@ -234,6 +241,7 @@ static esp_err_t system_boot_screen_post(httpd_req_t *req)
     if      (!strcmp(name, "text")) which = BOOT_SHOW_TEXT;
     else if (!strcmp(name, "ip"))   which = BOOT_SHOW_IP;
     else if (!strcmp(name, "none")) which = BOOT_SHOW_NONE;
+    else if (!strcmp(name, "ip_then_content")) which = BOOT_SHOW_IP_THEN;
     else {
         cJSON_Delete(json);
         return web_send_err(req, "unknown mode", 400);
@@ -246,6 +254,13 @@ static esp_err_t system_boot_screen_post(httpd_req_t *req)
         return web_send_err(req, "saving boot screen failed", 500);
     }
     return web_send_ok(req);
+}
+
+static uint8_t clamp_u8(int v)
+{
+    if (v < 0)   return 0;
+    if (v > 255) return 255;
+    return (uint8_t)v;
 }
 
 // The two screens either side of the after-boot one: the startup splash, and
@@ -274,9 +289,10 @@ static esp_err_t system_screens_post(httpd_req_t *req)
         if      (!strcmp(it->valuestring, "keep"))  cfg.offline_screen = OFFLINE_KEEP;
         else if (!strcmp(it->valuestring, "text"))  cfg.offline_screen = OFFLINE_TEXT;
         else if (!strcmp(it->valuestring, "blank")) cfg.offline_screen = OFFLINE_BLANK;
+        else if (!strcmp(it->valuestring, "dot"))   cfg.offline_screen = OFFLINE_DOT;
         else {
             cJSON_Delete(json);
-            return web_send_err(req, "offline_screen must be keep|text|blank", 400);
+            return web_send_err(req, "offline_screen must be keep|text|blank|dot", 400);
         }
     }
     if (cJSON_IsString(it = cJSON_GetObjectItem(json, "offline_text"))) {
@@ -286,10 +302,25 @@ static esp_err_t system_screens_post(httpd_req_t *req)
         }
         snprintf(cfg.offline_text, sizeof(cfg.offline_text), "%s", it->valuestring);
     }
+    const cJSON *col = cJSON_GetObjectItem(json, "offline_color");
+    if (cJSON_IsObject(col)) {
+        const cJSON *cr = cJSON_GetObjectItem(col, "r");
+        const cJSON *cg = cJSON_GetObjectItem(col, "g");
+        const cJSON *cb = cJSON_GetObjectItem(col, "b");
+        if (cJSON_IsNumber(cr)) cfg.offline_color.r = clamp_u8(cr->valueint);
+        if (cJSON_IsNumber(cg)) cfg.offline_color.g = clamp_u8(cg->valueint);
+        if (cJSON_IsNumber(cb)) cfg.offline_color.b = clamp_u8(cb->valueint);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "offline_corner"))) {
+        if (it->valueint < 0 || it->valueint > 3) {
+            cJSON_Delete(json);
+            return web_send_err(req, "offline_corner must be 0..3", 400);
+        }
+        cfg.offline_corner = (uint8_t)it->valueint;
+    }
     cJSON_Delete(json);
 
-    esp_err_t err = settings_save_screens(cfg.startup_screen, cfg.offline_screen,
-                                          cfg.offline_text);
+    esp_err_t err = settings_save_screens(&cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "saving screens failed: %s", esp_err_to_name(err));
         return web_send_err(req, "saving screens failed", 500);

@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-The Display tab is the first tab of the web UI and controls what the display shows: the content source, the text, its colour, the brightness, whether it scrolls, and which font it uses at which size. Everything you apply here is saved to flash and comes back after a power cycle.
+The Display tab, at `/display` in the browser, is the first tab of the web UI. Every tab has its own address, so a reload, a bookmark or the back button all land where you were. It controls what the display shows: the content source, the text, its colour, the brightness, whether it scrolls, and which font it uses at which size. Everything you apply here is saved to flash and comes back after a power cycle.
 
 The header of the web UI carries a live preview of the panel: the same text in the same colour, scrolling if the panel scrolls. It is a simulation drawn from the device's reported state, not a screenshot, so it also works while the panel itself is out of sight.
 
@@ -63,6 +63,12 @@ Scrolling has three modes:
 | Continuous | repeats as a marquee: the next copy follows the tail after a gap of two character cells, so the display is never empty |
 
 The speed slider runs from 0 to 255. It maps to the time each one-pixel step takes: about 200 ms per step at 0 and about 15 ms per step at 255. The slider is disabled while scrolling is off.
+
+## Trail
+
+Trail decides how much of each frame is left behind as the text moves, instead of the pixels going out at once. At 0 the display behaves as it always has. Above that, every pixel keeps that percentage of its brightness into the next frame, so moving text drags a short smear behind it the way a slow phosphor does. Values around 40 to 60 read as a gentle motion blur; higher starts to look like a comet.
+
+It only shows while something is scrolling. Static text is drawn once and then left alone, so there is nothing to decay.
 
 The IP address or setup banner the device shows at boot always scrolls continuously, whatever this setting is, so an address you are trying to read comes back around.
 

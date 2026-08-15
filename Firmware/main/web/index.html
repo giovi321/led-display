@@ -137,6 +137,12 @@
     <label for="speed">Scroll speed <span id="spval" class="val">50</span></label>
     <input id="speed" type="range" min="0" max="255" value="50">
 
+    <div class="flab">Trail <span id="fadeval" class="val">off</span><button
+      type="button" class="hlp"
+      data-help="How much of each frame is left behind as the text moves, instead of the pixels going out at once - the way a slow phosphor smears a moving image. Only visible while something is scrolling. 0 is off."
+      aria-expanded="false" aria-label="Explain the trail setting">?</button></div>
+    <input id="fade" type="range" min="0" max="90" step="5" value="0">
+
     <div class="row">
       <button class="act" id="apply">Apply appearance</button>
     </div>
@@ -317,7 +323,7 @@
                placeholder="leave blank to keep current">
         <button class="sec" id="wg-reveal" aria-label="Show private key">Show</button>
       </div>
-      <div class="flab">Server public key - copy this FROM the server<button
+      <div class="flab">Server public key<button
         type="button" class="hlp"
         data-help="The public key of the VPN server this display connects to, not the display's own. You get it from the server's WireGuard configuration; it is the [Interface] PublicKey there."
         aria-expanded="false" aria-label="Explain the server public key">?</button></div>
@@ -341,7 +347,10 @@
         enough.</p>
       <label for="wg-keep">Persistent keepalive (seconds, 0 = off)</label>
       <input id="wg-keep" type="number" min="0" max="3600" value="25" class="num">
-      <div class="row"><button class="act" id="wg-save">Save WireGuard</button></div>
+      <div class="row">
+        <button class="act" id="wg-save">Save WireGuard</button>
+        <button class="danger" id="wg-reset">Reset config</button>
+      </div>
 
       <details id="wg-details">
         <summary>Connection details</summary>
@@ -510,9 +519,13 @@
       aria-expanded="false" aria-label="Explain the after-boot screen">?</button></div>
     <select id="bootscr">
       <option value="text">The configured content (default)</option>
+      <option value="ip_then_content">Network address for 5 seconds, then the content</option>
       <option value="ip">Network address</option>
       <option value="none">Blank</option>
     </select>
+    <p class="note">With no WiFi the device raises its own setup network and
+      scrolls "AP mode, SSID: ..., IP: ..." instead, over and over, until you
+      set something from this interface.</p>
 
     <div class="flab">When WiFi is lost<button type="button" class="hlp"
       data-help="Applies when the link to your network drops while the device keeps running. It does not apply to the setup network: there the panel carries the only copy of the setup address, so that banner always wins."
@@ -520,10 +533,20 @@
     <select id="scr-offline">
       <option value="keep">Keep showing the last content (default)</option>
       <option value="text">Show a message</option>
+      <option value="dot">Show a single pixel</option>
       <option value="blank">Blank the panel</option>
     </select>
     <input id="scr-offlinetext" class="hidden" type="text" maxlength="63"
            placeholder="e.g. OFFLINE" autocomplete="off">
+    <div id="scr-dotrow" class="row hidden">
+      <input id="scr-dotcolor" type="color" value="#500000" aria-label="Offline pixel colour">
+      <select id="scr-dotcorner" aria-label="Offline pixel corner">
+        <option value="0">Top left</option>
+        <option value="1">Top right</option>
+        <option value="2">Bottom left</option>
+        <option value="3">Bottom right</option>
+      </select>
+    </div>
 
     <div class="row"><button class="act" id="scr-save">Save screens</button></div>
   </div>
@@ -570,7 +593,10 @@
 
 </main>
 
-<footer id="foot">led-display</footer>
+<footer>
+  <span id="foot">led-display</span>
+  <a href="https://github.com/giovi321/led-display" target="_blank" rel="noopener">GitHub</a>
+</footer>
 <div id="toast" class="toast hidden" role="status"></div>
 
 <script src="/editor.js"></script>

@@ -124,10 +124,20 @@ static void draw_text_run(const font_def_t *f, int x_origin, const char *text,
     }
 }
 
+// Start a frame: clear, or leave a decaying trail of the previous one when
+// the fade is configured. Only the scrolling paths call this repeatedly, so
+// the trail follows moving text and nothing else.
+static uint8_t s_fade;   // percent each pixel keeps between frames, 0 = off
+
+static void frame_begin(void)
+{
+    if (s_fade) led_driver_fade(s_fade); else led_driver_clear();
+}
+
 static void render_text_at(const font_def_t *f, int x_origin, const char *text,
                            display_color_t col, uint8_t scale, bool prop)
 {
-    led_driver_clear();
+    frame_begin();
     draw_text_run(f, x_origin, text, col, scale, prop);
     led_driver_refresh();
 }
@@ -206,7 +216,7 @@ static void scroll_task(void *arg)
                 const int span = w + marquee_gap(f, scale);
                 int x = offset;
                 while (x + w > 0) x -= span;
-                led_driver_clear();
+                frame_begin();
                 for (x += span; x < led_driver_width(); x += span) {
                     draw_text_run(f, x, text, col, scale, prop);
                 }
@@ -512,6 +522,40 @@ void display_show_text(const char *text, display_color_t color,
 void display_show_text_static(const char *text, display_color_t color)
 {
     display_show_text(text, color, DISPLAY_SCROLL_OFF, 50, 0);
+}
+
+void display_set_fade(uint8_t keep_percent)
+{
+    s_fade = keep_percent > 95 ? 95 : keep_percent;
+    if (s_task) xTaskNotifyGive(s_task);
+}
+
+uint8_t display_get_fade(void)
+{
+    return s_fade;
+}
+
+void display_show_dot(uint8_t corner, display_color_t color)
+{
+    s_identify = false;
+    s_test_cancel = true;
+
+    xSemaphoreTake(s_state_lock, portMAX_DELAY);
+    s_state.text[0] = '\0';
+    s_state.scroll_mode = DISPLAY_SCROLL_OFF;
+    s_state_gen++;
+    xSemaphoreGive(s_state_lock);
+
+    const int x = (corner & 1) ? led_driver_width() - 1 : 0;
+    const int y = (corner & 2) ? led_driver_height() - 1 : 0;
+
+    led_driver_lock();
+    led_driver_clear();
+    led_driver_set_pixel(x, y, color.r, color.g, color.b);
+    led_driver_refresh();
+    led_driver_unlock();
+
+    if (s_task) xTaskNotifyGive(s_task);
 }
 
 void display_set_font(uint8_t font_id, bool prop)

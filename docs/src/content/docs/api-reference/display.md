@@ -34,6 +34,7 @@ Shows text and persists it, so it survives a reboot. Every field is optional; om
 | `font` | string | `5x7` (default), `3x5` (compact, uppercase letterforms) or `7x12` (tall, real lowercase) |
 | `spacing` | string | `proportional` (default, blank glyph columns trimmed) or `monospace` (fixed cell); digits are fixed-width either way |
 | `scale` | number | Integer font multiplier 1..8, clamped to what fits the display height; 0 or omitted keeps the current scale |
+| `fade` | number | 0..95, the percentage of its brightness each pixel keeps between scroll frames. 0 clears every frame, which is the original behaviour; higher values leave a trail behind moving text. Only visible while scrolling |
 
 `scroll_mode` wins when both spellings are sent. On its own, `scroll` only switches scrolling off or on, so a client that always sends `scroll: true` cannot downgrade a configured continuous scroll to `restart`.
 
