@@ -54,6 +54,37 @@ Everything on it is through-hole, so it is hand-solderable with no reflow and no
 
 The figures above come from the files themselves rather than from a datasheet: the outline from `RGB display_v3_contour.gm1`, the hole count and diameters from `RGB display_v3_drill.txt`, the layer count and the parts from the Fritzing sketch. The contour is stroked on its centreline, which leaves the finished size ambiguous by the 0.2 mm width of the outline aperture depending on how your fab interprets it.
 
+### Bill of materials
+
+Everything that goes on the board. Quantities are for one board, and every part is through-hole.
+
+| Designator | Qty | Part | Footprint | What it does |
+|---|---|---|---|---|
+| silkscreened `74AHCT125` | 1 | SN74HCT125N, quad three-state buffer | DIP-14, 0.3 in rows | Shifts the data line from 3.3 V to 5 V. Only channel 1 is used |
+| `R1` | 1 | 330 ohm, 0.25 W, 5 % | Axial, 400 mil (10.2 mm) lead spacing | Series damping between the buffer output and the panel |
+| `C1` | 1 | Polarised electrolytic, **value not specified** | Radial, 2.54 mm lead pitch | Bulk decoupling across the 5 V rail |
+| `C2` to `C6` | 5 | Non-polarised, **value not specified** | Radial, 5 mm lead pitch | Decoupling across the 5 V rail |
+| (unlabelled, two rows) | 2 | 22-way female header, 2.54 mm | THT, rows 25.4 mm apart | Socket the ESP32 dev board |
+| `PWR1` to `PWR4` | 4 | 2-way female header, 2.54 mm | THT | 5 V and GND out to each panel |
+| `5V` `GND` | 1 | 2-way header, 2.54 mm | THT | 5 V and GND in |
+| `GND` `D` `5V` | 1 | 3-way female header, 2.54 mm | THT | Data and power to the first panel |
+| Mounting holes | 4 | none | 2.2 mm, unplated | M2 clearance |
+
+The IC carries no reference designator in the design: what looks like one on the silkscreen is the part name. Note the mismatch with the table above, covered under [what the files do not tell you](#two-things-the-files-do-not-tell-you).
+
+These parts are **not** on the board and have to be wired to it: the ESP32-S3-DevKitC-1 itself, the USB-C breakout and its two 5.1 kohm CC resistors, the panels and their pigtails, and the optional light sensor. They are in the [parts table](#parts) at the top of this page.
+
+### What connects to what
+
+The whole circuit, read back out of the Fritzing sketch:
+
+- **5 V** reaches the `5V` `GND` input, all four `PWR` connectors, pin 3 of the data connector, the ESP32 socket, the buffer's pin 14 (VCC), and one leg of each of C1 to C6
+- **Data** leaves the ESP32 on GPIO 16, enters the buffer at pin 2 (1A), leaves at pin 3 (1Y), passes through R1, and arrives at `D` on the 3-pin connector
+- **Ground** is not routed as traces at all. It is carried by the copper pours on both layers, which tie together the connector grounds, the buffer's pins 1 and 7, the other leg of every capacitor, and the ESP32's ground pins
+- Buffer channel 1 is permanently enabled because pin 1 (1OE) sits in the ground pour. Channels 2, 3 and 4 have their enables tied to 5 V, which disables them, and their inputs and outputs are left unconnected
+
+That matches the [wiring table](#why-the-level-shifter) below pin for pin, which is worth saying because the table was written from the schematic intent and the board is the thing that got built.
+
 ### Connectors
 
 Six connectors along the bottom edge, all through-hole on 0.1 in (2.54 mm) pitch:
