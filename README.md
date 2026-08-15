@@ -18,7 +18,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/src/assets/display-render.svg" width="820" alt="The reference build: four WS2812B 32x8 panels behind a smoked grey plexiglass front, showing 1234">
+  <!-- ?v= busts GitHub's image proxy cache; bump it whenever the drawing changes. -->
+  <img src="docs/src/assets/display-render.svg?v=2" width="820" alt="The reference build: four WS2812B 32x8 panels behind a smoked grey plexiglass front, showing 1234">
 </p>
 
 ESP-IDF firmware for the ESP32-S3 that drives chained WS2812B panels as one display, for showing a single number that matters: a revenue figure, a subscriber count, a temperature, a countdown.
