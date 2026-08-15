@@ -13,7 +13,16 @@ Set a turn-on time, a turn-off time, tick the weekdays it should apply to, and e
 
 The window between the on time and the off time is when the display is lit. Windows that cross midnight work: on at 22:00 and off at 06:00 keeps the display lit through the night. For such a window, the hours after midnight count against the following day's checkbox, so a Friday 22:00 to 06:00 window needs Saturday ticked to stay lit past midnight.
 
-Days you leave unticked keep the display off for the whole day.
+## Days you leave unticked
+
+"On the other days" decides what an unticked day means, because there are two reasonable answers and they are not the same schedule:
+
+- **Apply the off-action all day** (the default) treats the day as one long off-window. This is how you keep a display dark over a weekend: untick Saturday and Sunday and they behave as if the on-time never arrived
+- **Run normally, ignore the schedule** hands those days back. The panel stays at its usual brightness around the clock and only the ticked days follow the on and off times
+
+The difference bites hardest with a single day ticked. With the first setting, ticking only Monday leaves the display dark for six days out of seven — correct if that is what you meant, surprising if you meant "the schedule only governs Mondays". With the second, the other six days are simply untouched.
+
+The default is the first, and it is what every build before 2.8.0 did, so updating never changes what a display already does.
 
 ## Timezone handling
 
