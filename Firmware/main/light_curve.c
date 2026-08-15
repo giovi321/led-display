@@ -23,11 +23,6 @@ bool light_curve_valid(const light_curve_t *c)
     return true;
 }
 
-bool light_curve_valid_gpio(int gpio)
-{
-    return gpio >= LIGHT_GPIO_MIN && gpio <= LIGHT_GPIO_MAX;
-}
-
 bool light_curve_valid_i2c_gpio(int gpio)
 {
     if (gpio < 0 || gpio > 48) return false;

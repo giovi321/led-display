@@ -1,23 +1,20 @@
 #pragma once
 
-// Ambient-light curve: one raw ADC reading -> one panel brightness. Pure
-// module (no ESP-IDF, no state) so the mapping, the smoothing and the
-// hysteresis rule are host-tested; light_sensor.c owns the hardware and the
+// Ambient-light curve: one lux reading -> one panel brightness. Pure module
+// (no ESP-IDF, no state) so the mapping, the smoothing, the hysteresis rule
+// and the pin rules are host-tested; light_sensor.c owns the hardware and the
 // task around it.
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LIGHT_RAW_MAX      4095   // 12-bit ADC full scale
+// Top of the reading scale. Inherited from the 12-bit ADC the sensor used to
+// be, and kept: BH1750 lux is clamped to it, and 4095 lx is already far
+// brighter than any room a display is readable in.
+#define LIGHT_RAW_MAX      4095
 #define LIGHT_GAMMA_MIN    5      // 0.5 in tenths
 #define LIGHT_GAMMA_MAX    40     // 4.0
 #define LIGHT_GAMMA_UNITY  10     // 1.0 = straight line between the two ends
-
-// ESP32-S3: ADC1 channels 0..9 sit on GPIO1..GPIO10. ADC2 shares hardware
-// with the WiFi radio and reads garbage (or fails) while connected, so only
-// ADC1 pins are offered.
-#define LIGHT_GPIO_MIN     1
-#define LIGHT_GPIO_MAX     10
 
 // Reference pins for the BH1750 on the v4 controller board's
 // "GND SDA SCL 5V" connector. Only defaults: both are configurable.
@@ -41,8 +38,6 @@ void light_curve_defaults(light_curve_t *c);
 // Range check for a stored/posted curve: the two calibration points must
 // differ (a zero-width window has no slope) and gamma must be in range.
 bool light_curve_valid(const light_curve_t *c);
-
-bool light_curve_valid_gpio(int gpio);
 
 // Whether `gpio` can carry an I2C line on the ESP32-S3-N16R8 this board is
 // built around. Rejects, in order: anything outside 0..48; GPIO22 to GPIO25,

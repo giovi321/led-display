@@ -247,11 +247,6 @@ static esp_err_t display_brightness_cap_post(httpd_req_t *req)
 static void light_sensor_json(cJSON *r, const light_sensor_cfg_t *c)
 {
     cJSON_AddBoolToObject(r, "enabled", c->enabled);
-    cJSON_AddStringToObject(r, "type",
-                            c->type == LIGHT_SRC_BH1750 ? "bh1750" : "analog");
-    // Both pin sets are reported whichever type is active, so the UI can keep
-    // the inactive one filled in rather than losing it on a switch.
-    cJSON_AddNumberToObject(r, "gpio", c->gpio);
     cJSON_AddNumberToObject(r, "sda", c->sda);
     cJSON_AddNumberToObject(r, "scl", c->scl);
     cJSON_AddNumberToObject(r, "dark_raw", c->curve.dark_raw);
@@ -275,10 +270,6 @@ static esp_err_t light_sensor_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(r, "raw", st.raw);       // -1 = nothing read yet
     cJSON_AddNumberToObject(r, "level", st.level);   // -1 = not driving
     cJSON_AddNumberToObject(r, "raw_max", LIGHT_RAW_MAX);
-    cJSON *pins = cJSON_AddArrayToObject(r, "valid_gpios");
-    for (int g = LIGHT_GPIO_MIN; g <= LIGHT_GPIO_MAX; g++) {
-        cJSON_AddItemToArray(pins, cJSON_CreateNumber(g));
-    }
     // Every pin the BH1750's SDA or SCL may use, so the UI never has to carry
     // its own copy of the strapping and flash-pin rules.
     cJSON *i2c = cJSON_AddArrayToObject(r, "valid_i2c_gpios");
@@ -304,24 +295,6 @@ static esp_err_t light_sensor_post(httpd_req_t *req)
     const cJSON *it;
     if (cJSON_IsBool(it = cJSON_GetObjectItem(json, "enabled"))) {
         cfg.enabled = cJSON_IsTrue(it);
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(json, "type"))) {
-        if (strcmp(it->valuestring, "analog") == 0) {
-            cfg.type = LIGHT_SRC_ANALOG;
-        } else if (strcmp(it->valuestring, "bh1750") == 0) {
-            cfg.type = LIGHT_SRC_BH1750;
-        } else {
-            cJSON_Delete(json);
-            return web_send_err(req, "type must be analog or bh1750", 400);
-        }
-    }
-    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "gpio"))) {
-        int g = it->valueint;
-        if (g != 0 && !light_curve_valid_gpio(g)) {
-            cJSON_Delete(json);
-            return web_send_err(req, "gpio must be 0 (none) or an ADC1 pin, GPIO1-GPIO10", 400);
-        }
-        cfg.gpio = (uint8_t)g;
     }
     struct { const char *key; uint8_t *dst; } i2c_pins[] = {
         {"sda", &cfg.sda},
@@ -374,9 +347,8 @@ static esp_err_t light_sensor_post(httpd_req_t *req)
     esp_err_t err = light_sensor_set(&cfg);
     if (err == ESP_ERR_INVALID_ARG) {
         return web_send_err(req,
-                            "dark_raw and bright_raw must differ, SDA and SCL "
-                            "must be different pins, and enabling an analog "
-                            "sensor needs a pin", 400);
+                            "dark_raw and bright_raw must differ, and SDA and "
+                            "SCL must be different pins", 400);
     }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "saving light sensor config failed: %s", esp_err_to_name(err));

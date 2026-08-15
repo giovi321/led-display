@@ -654,10 +654,7 @@ let lsLive = null;       // last polled {sampling, raw, level}
 const LS_I2C_FALLBACK = [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
                          18, 19, 20, 21, 38, 39, 40, 41, 42, 47, 48];
 
-function lsGpioOptions(analog, i2c) {
-  lsPinOptions('#ls-gpio', (analog && analog.length) ? analog
-                                                    : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-               'Not connected');
+function lsGpioOptions(i2c) {
   const pins = (i2c && i2c.length) ? i2c : LS_I2C_FALLBACK;
   lsPinOptions('#ls-sda', pins, null);
   lsPinOptions('#ls-scl', pins, null);
@@ -683,53 +680,26 @@ function lsPinOptions(sel, pins, noneLabel) {
   if (prev && el.querySelector('option[value="' + prev + '"]')) el.value = prev;
 }
 
-function lsType() {
-  return $('#ls-type').value === 'bh1750' ? 'bh1750' : 'analog';
-}
-
-// The BH1750 needs no pin choice to be "connected" - the connector is on the
-// board - so only the analog path can be in the "no sensor yet" state.
-function lsConfigured() {
-  return lsType() === 'bh1750' || +$('#ls-gpio').value > 0;
-}
-
 function setLsUi() {
-  const bh = lsType() === 'bh1750';
-  $('#ls-analogrow').classList.toggle('hidden', bh);
-  $('#ls-i2crow').classList.toggle('hidden', !bh);
-
-  const ready = lsConfigured();
-  ['#ls-en', '#ls-dark', '#ls-bright', '#ls-min', '#ls-max', '#ls-gamma',
-   '#ls-usedark', '#ls-usebright'].forEach(s => {
-    $(s).disabled = !ready;
-  });
-  if (!ready) $('#ls-en').checked = false;
   $('#ls-minval').textContent = $('#ls-min').value;
   $('#ls-maxval').textContent = $('#ls-max').value;
   $('#ls-gammaval').textContent = (+$('#ls-gamma').value / 10).toFixed(1);
-  $('#ls-hint').textContent = ready
-    ? 'Cover the sensor and press Use current for the dark reading, then light '
-      + 'it and do the same for the bright one.'
-    : 'Pick the pin your sensor is wired to, then save. The device samples it '
-      + 'once a second and the live reading appears here.';
+  $('#ls-hint').textContent =
+    'Cover the sensor and press Use current for the dark reading, then light '
+    + 'it and do the same for the bright one.';
 }
 
 function renderLsLive(j) {
   lsLive = j || null;
   const box = $('#ls-live');
   if (!j || !j.sampling) {
-    // A BH1750 that was saved but is not answering is a different problem from
-    // never having configured anything, and the fix is different too.
-    box.innerHTML = kv('Live reading',
-      (j && j.type === 'bh1750') ? 'no BH1750 answering on those pins'
-                                 : 'no sensor pin saved');
+    box.innerHTML = kv('Live reading', 'no BH1750 answering on those pins');
     return;
   }
   const level = j.level >= 0 ? String(j.level)
               : (j.enabled ? 'waiting for a reading' : 'sensor off');
-  const unit = j.type === 'bh1750' ? ' lx' : (' of ' + lsRawMax);
   box.innerHTML =
-    kv('Live reading', j.raw < 0 ? 'waiting...' : j.raw + unit) +
+    kv('Live reading', j.raw < 0 ? 'waiting...' : j.raw + ' lx') +
     kv('Brightness now', level);
 }
 
@@ -737,9 +707,7 @@ async function refreshLightSensor() {
   try {
     const j = await jget('/api/display/light_sensor');
     if (j.raw_max) lsRawMax = j.raw_max;
-    lsGpioOptions(j.valid_gpios, j.valid_i2c_gpios);
-    $('#ls-type').value = j.type === 'bh1750' ? 'bh1750' : 'analog';
-    $('#ls-gpio').value = String(j.gpio || 0);
+    lsGpioOptions(j.valid_i2c_gpios);
     $('#ls-sda').value = String(j.sda || 8);
     $('#ls-scl').value = String(j.scl || 9);
     $('#ls-en').checked = !!j.enabled;
@@ -751,7 +719,7 @@ async function refreshLightSensor() {
     setLsUi();
     renderLsLive(j);
   } catch (e) {
-    lsGpioOptions(null, null);
+    lsGpioOptions(null);
     setLsUi();
     renderLsLive(null);
   }
@@ -771,17 +739,13 @@ function lsPollStart() {
 
 function useLiveReading(sel) {
   if (!lsLive || !lsLive.sampling || lsLive.raw < 0) {
-    toast(lsType() === 'bh1750'
-      ? 'No reading yet - save the sensor and check it is answering'
-      : 'No reading yet - save a sensor pin first', true);
+    toast('No reading yet - save the sensor and check it is answering', true);
     return;
   }
   $(sel).value = lsLive.raw;
   toast('Captured ' + lsLive.raw);
 }
 
-$('#ls-type').onchange = setLsUi;
-$('#ls-gpio').onchange = setLsUi;
 $('#ls-min').oninput = setLsUi;
 $('#ls-max').oninput = setLsUi;
 $('#ls-gamma').oninput = setLsUi;
@@ -789,23 +753,16 @@ $('#ls-usedark').onclick = () => useLiveReading('#ls-dark');
 $('#ls-usebright').onclick = () => useLiveReading('#ls-bright');
 
 $('#ls-save').onclick = () => act($('#ls-save'), async () => {
-  const type = lsType();
-  const gpio = +$('#ls-gpio').value;
   const sda = +$('#ls-sda').value;
   const scl = +$('#ls-scl').value;
   const dark = Math.round(+$('#ls-dark').value);
   const bright = Math.round(+$('#ls-bright').value);
-  if (type === 'analog' && $('#ls-en').checked && !gpio) {
-    toast('Pick a sensor pin first', true); return;
-  }
-  if (type === 'bh1750' && sda === scl) {
+  if (sda === scl) {
     toast('SDA and SCL must be different pins', true); return;
   }
   if (dark === bright) { toast('Dark and bright readings must differ', true); return; }
   await jpost('/api/display/light_sensor', {
     enabled: $('#ls-en').checked,
-    type: type,
-    gpio: gpio,
     sda: sda,
     scl: scl,
     dark_raw: dark,

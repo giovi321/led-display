@@ -21,7 +21,7 @@ The PCB expects **5 V LED panels**: the power rail, the level shifter reference 
 | Series resistor | 330 ohm | Damps reflections on the data run between board and first panel |
 | Power input | USB-C breakout, CC1 and CC2 each pulled to GND through 5.1 kohm | Advertises a plain 5 V / 3 A sink, no PD chip needed |
 | Connectors | JST-SM on the panels, JST-XH 2.54 mm on the PCB | The board's pads are plain 0.1 in through-hole headers, and JST-XH 2.54 mm connectors go in all seven positions. JST-SM to JST-XH pigtails bridge to the panels |
-| Light sensor | Optional: BH1750 module (GY-302), or an LDR plus a 10 kOhm to 100 kOhm resistor | The v4 board has a connector for the BH1750; the analog option wires to an ADC1 pin. See the [light sensor guide](../../admin-guide/light-sensor/) |
+| Light sensor | Optional: BH1750 module (GY-302) | Plugs into the v4 board's `GND SDA SCL 5V` connector. See the [light sensor guide](../../admin-guide/light-sensor/) |
 
 The `PCB/` directory holds the Fritzing source and Gerbers for the controller board (revision v4), described in [the controller board](#the-controller-board) below. `3D/` holds the enclosure parts:
 
@@ -117,7 +117,7 @@ The bottom layer carries the power distribution on visibly wider traces and the 
 Three things the parts table lists that this PCB has no footprint for, and that have to be wired to it:
 
 - **The USB-C power input.** There is no USB-C footprint and no 5.1 kohm CC resistors here. That is a separate breakout module, wired into the `5V` `GND` pads. R1 (330 ohm) is the only resistor on the board
-- **The analog light sensor.** The v4 connector is for the digital BH1750. An LDR divider still has no footprint here and wires to an ADC1 pin on the ESP32 header directly
+- **The light sensor itself.** The v4 board has the connector, not the sensor. The BH1750 is a separate module that plugs into it
 - **The ESP32 itself.** It is socketed in two 22-way female headers with their rows 25.4 mm apart, not soldered down. Check that spacing against the dev board you intend to use before ordering: some ESP32-S3 boards are 0.9 in rather than 1.0 in wide
 
 ### Two things the files do not tell you

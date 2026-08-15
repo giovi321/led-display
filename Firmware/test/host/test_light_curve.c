@@ -196,22 +196,10 @@ static void test_valid_i2c_gpio(void)
     printf("test_valid_i2c_gpio ok\n");
 }
 
-static void test_i2c_and_adc_pin_rules_are_separate(void)
-{
-    // GPIO3 is a legal ADC1 pin and an illegal I2C pin. Sharing one validator
-    // between the two sensor types would break one of them.
-    assert(light_curve_valid_gpio(3));
-    assert(!light_curve_valid_i2c_gpio(3));
-    // And the other way: GPIO21 carries I2C fine but is not on ADC1.
-    assert(!light_curve_valid_gpio(21));
-    assert(light_curve_valid_i2c_gpio(21));
-    printf("test_i2c_and_adc_pin_rules_are_separate ok\n");
-}
-
 static void test_bh1750_lux_maps_onto_the_curve(void)
 {
-    // The BH1750 path feeds lux (raw / 1.2, clamped) into the same curve, so
-    // the calibration flow has to behave identically to the analog one.
+    // Lux (raw / 1.2, clamped) goes through the same curve the ADC reading
+    // used to, so the two-point calibration behaves the same way.
     light_curve_t c = base();
     c.dark_raw   = 10;      // a dim room, in lux
     c.bright_raw = 500;     // office daylight
@@ -227,16 +215,6 @@ static void test_bh1750_lux_maps_onto_the_curve(void)
     printf("test_bh1750_lux_maps_onto_the_curve ok\n");
 }
 
-static void test_valid_gpio(void)
-{
-    assert(!light_curve_valid_gpio(0));
-    assert(light_curve_valid_gpio(1));
-    assert(light_curve_valid_gpio(10));
-    assert(!light_curve_valid_gpio(11));
-    assert(!light_curve_valid_gpio(16));   // the LED data pin
-    assert(!light_curve_valid_gpio(-3));
-    printf("test_valid_gpio ok\n");
-}
 
 static void test_smoothing(void)
 {
@@ -308,9 +286,7 @@ int main(void)
     test_gamma_shape();
     test_monotonic();
     test_validation();
-    test_valid_gpio();
     test_valid_i2c_gpio();
-    test_i2c_and_adc_pin_rules_are_separate();
     test_bh1750_lux_maps_onto_the_curve();
     test_smoothing();
     test_hysteresis();

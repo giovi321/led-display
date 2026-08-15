@@ -4,6 +4,19 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-08-15
+
+### Removed
+
+- The analog light sensor. The BH1750 added in 2.9.0 is now the only source, and the ADC path, the `type` selector, the `gpio` field and `valid_gpios` are gone with it. 2.9.0 kept both for one release; this drops the one the board has no connector for
+- A stored analog configuration is discarded rather than migrated, and the sensor comes up switched off, so the display returns to your saved brightness instead of to a reading it cannot take. The calibration points could not be carried over: they are ADC counts from one particular divider, and nothing turns those into lux. Fit a BH1750 and run the two-point calibration again
+- A backup taken before this release has the same problem and its `light_sensor` section is reported as skipped on restore rather than applied
+
+### Changed
+
+- The `lsen` config blob is v3: `enabled`, `sda`, `scl` and the curve. A v1 or v2 blob is refused on load for the reason above
+- The Hardware tab's Light sensor card loses the sensor selector and the ADC pin row, leaving SDA, SCL and the same two-point calibration. The live reading is labelled in lux
+
 ## [2.9.0] - 2026-08-15
 
 ### Added

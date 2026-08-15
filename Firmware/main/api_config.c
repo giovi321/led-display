@@ -212,11 +212,8 @@ static cJSON *light_sensor_to_json(void)
     light_sensor_get(&c);
 
     cJSON *r = cJSON_CreateObject();
-    cJSON_AddNumberToObject(r, "v", 2);
+    cJSON_AddNumberToObject(r, "v", 3);
     cJSON_AddBoolToObject(r, "enabled", c.enabled);
-    cJSON_AddStringToObject(r, "type",
-                            c.type == LIGHT_SRC_BH1750 ? "bh1750" : "analog");
-    cJSON_AddNumberToObject(r, "gpio", c.gpio);
     cJSON_AddNumberToObject(r, "sda", c.sda);
     cJSON_AddNumberToObject(r, "scl", c.scl);
     cJSON_AddNumberToObject(r, "dark_raw", c.curve.dark_raw);
@@ -679,28 +676,11 @@ static bool apply_light_sensor(const cJSON *sec)
     if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "enabled"))) {
         c.enabled = cJSON_IsTrue(it);
     }
-    // A pre-2.9.0 backup has no "type"; it could only have been analog, and
-    // leaving the stored value alone would apply its pin to whatever type this
-    // device is on now.
-    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "type"))) {
-        if (strcmp(it->valuestring, "analog") == 0) {
-            c.type = LIGHT_SRC_ANALOG;
-        } else if (strcmp(it->valuestring, "bh1750") == 0) {
-            c.type = LIGHT_SRC_BH1750;
-        } else {
-            return false;
-        }
-    } else {
-        c.type = LIGHT_SRC_ANALOG;
-    }
-    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "gpio"))) {
-        // Validated, not clamped: clamping would silently move the sensor to
-        // GPIO10, and a file naming a pin this board cannot read belongs in
-        // "skipped".
-        int g = it->valueint;
-        if (g != 0 && !light_curve_valid_gpio(g)) return false;
-        c.gpio = (uint8_t)g;
-    }
+    // A section written before the analog sensor was dropped describes an ADC
+    // pin and calibration points in ADC counts, neither of which means
+    // anything now. It lands in "skipped" rather than being half-applied.
+    const cJSON *ver = cJSON_GetObjectItem(sec, "v");
+    if (!cJSON_IsNumber(ver) || ver->valueint < 3) return false;
     struct { const char *key; uint8_t *dst; } i2c_pins[] = {
         {"sda", &c.sda},
         {"scl", &c.scl},
