@@ -54,6 +54,18 @@ typedef struct {
     char     endpoint_ip[16];             // what the endpoint host resolved to
     uint32_t attempts;                    // tunnel bring-ups since boot
     uint8_t  stage;                       // wg_stage_t, where bring-up is now
+    // The tunnel interface as lwIP actually configured it. The netmask is the
+    // one that decides which tunnel addresses are routable at all, so it is
+    // the first thing to check when a tunnel is up but unreachable.
+    char     netif_ip[16];
+    char     netif_netmask[16];
+    bool     netif_up;
+    bool     netif_link_up;
+    // Inner packets that came out of the tunnel. Zero while the handshake is
+    // fresh means traffic is not reaching the device at all, which is a
+    // routing question at the other end rather than anything here.
+    uint32_t rx_accepted;
+    uint32_t rx_dropped;
 } wg_status_t;
 
 // Load config from NVS; if enabled, bring the tunnel up (needs WiFi STA).

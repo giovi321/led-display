@@ -26,6 +26,9 @@ static const char *NS  = "cfg";
 #define K_MAP_MODE   "map"    // legacy v1 key, read-only (migration)
 #define K_BOOT_SCR   "boot"
 #define K_SOURCE     "dsrc"   // display_source_t; absent = static
+#define K_STARTUP    "scrs"   // startup_screen_t; absent = border splash
+#define K_OFFLINE    "scro"   // offline_screen_t; absent = keep content
+#define K_OFFLINE_TX "scrot"  // text for OFFLINE_TEXT
 #define K_DEVNAME    "dname"  // device name; absent = unset (defaults apply)
 
 static void apply_defaults(settings_t *s)
@@ -42,6 +45,9 @@ static void apply_defaults(settings_t *s)
     s->prop            = true;
     s->boot_screen     = BOOT_SHOW_TEXT;
     s->source          = DISPLAY_SRC_STATIC;
+    s->startup_screen  = STARTUP_BORDER;
+    s->offline_screen  = OFFLINE_KEEP;
+    s->offline_text[0] = '\0';
     s->legacy_map_mode = -1;     // absent
 }
 
@@ -91,6 +97,16 @@ esp_err_t settings_load(settings_t *out)
     if (nvs_get_u8(h, K_SOURCE, &v) == ESP_OK && v <= DISPLAY_SRC_INTEGRATION) {
         out->source = (display_source_t)v;
     }
+    if (nvs_get_u8(h, K_STARTUP, &v) == ESP_OK && v <= STARTUP_TEXT) {
+        out->startup_screen = (startup_screen_t)v;
+    }
+    if (nvs_get_u8(h, K_OFFLINE, &v) == ESP_OK && v <= OFFLINE_BLANK) {
+        out->offline_screen = (offline_screen_t)v;
+    }
+    len = sizeof(out->offline_text);
+    if (nvs_get_str(h, K_OFFLINE_TX, out->offline_text, &len) != ESP_OK) {
+        out->offline_text[0] = '\0';
+    }
 
     nvs_close(h);
     ESP_LOGI(TAG, "settings loaded: brightness=%u cap=%u scroll=%u speed=%u scale=%u font=%u prop=%d boot=%u text='%s'",
@@ -122,6 +138,9 @@ esp_err_t settings_save(const settings_t *in)
     nvs_set_u8 (h, K_PROP,       in->prop ? 1 : 0);
     nvs_set_u8 (h, K_BOOT_SCR,   (uint8_t)in->boot_screen);
     nvs_set_u8 (h, K_SOURCE,     (uint8_t)in->source);
+    nvs_set_u8 (h, K_STARTUP,    (uint8_t)in->startup_screen);
+    nvs_set_u8 (h, K_OFFLINE,    (uint8_t)in->offline_screen);
+    nvs_set_str(h, K_OFFLINE_TX, in->offline_text);
 
     err = nvs_commit(h);
     nvs_close(h);
@@ -195,6 +214,23 @@ esp_err_t settings_save_boot_screen(boot_screen_t which)
 esp_err_t settings_save_source(display_source_t source)
 {
     return save_u8(K_SOURCE, (uint8_t)source);
+}
+
+esp_err_t settings_save_screens(startup_screen_t startup,
+                                offline_screen_t offline,
+                                const char *offline_text)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, K_STARTUP, (uint8_t)startup);
+    if (err == ESP_OK) err = nvs_set_u8(h, K_OFFLINE, (uint8_t)offline);
+    if (err == ESP_OK && offline_text) {
+        err = nvs_set_str(h, K_OFFLINE_TX, offline_text);
+    }
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
 }
 
 esp_err_t settings_clear_text(void)

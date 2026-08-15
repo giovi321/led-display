@@ -131,6 +131,15 @@ static esp_err_t status_get(httpd_req_t *req)
     if      (cfg.boot_screen == BOOT_SHOW_IP)   bs = "ip";
     else if (cfg.boot_screen == BOOT_SHOW_NONE) bs = "none";
     cJSON_AddStringToObject(s, "boot_screen", bs);
+    static const char *STARTUP_NAMES[] = {"border", "blank", "content"};
+    static const char *OFFLINE_NAMES[] = {"keep", "text", "blank"};
+    cJSON_AddStringToObject(s, "startup_screen",
+                            STARTUP_NAMES[cfg.startup_screen <= STARTUP_TEXT
+                                          ? cfg.startup_screen : 0]);
+    cJSON_AddStringToObject(s, "offline_screen",
+                            OFFLINE_NAMES[cfg.offline_screen <= OFFLINE_BLANK
+                                          ? cfg.offline_screen : 0]);
+    cJSON_AddStringToObject(s, "offline_text", cfg.offline_text);
 
     // Active layout summary; the full config comes from GET /api/layout.
     mapping_config_t map;
@@ -160,6 +169,8 @@ static esp_err_t status_get(httpd_req_t *req)
     // overflowing its stack.
     cJSON_AddStringToObject(wgj, "public_key", wg.public_key);
     cJSON_AddStringToObject(wgj, "endpoint_ip", wg.endpoint_ip);
+    cJSON_AddStringToObject(wgj, "netif_ip", wg.netif_ip);
+    cJSON_AddStringToObject(wgj, "netif_netmask", wg.netif_netmask);
     cJSON_AddNumberToObject(wgj, "attempts", wg.attempts);
     cJSON_AddNumberToObject(wgj, "stage", wg.stage);
     cJSON_AddNumberToObject(wgj, "last_crash_stage", wg.last_crash_stage);
@@ -233,6 +244,55 @@ static esp_err_t system_boot_screen_post(httpd_req_t *req)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "saving boot screen failed: %s", esp_err_to_name(err));
         return web_send_err(req, "saving boot screen failed", 500);
+    }
+    return web_send_ok(req);
+}
+
+// The two screens either side of the after-boot one: the startup splash, and
+// what a lost WiFi link puts on the panel.
+static esp_err_t system_screens_post(httpd_req_t *req)
+{
+    if (web_require_auth(req) != ESP_OK) return ESP_OK;
+
+    cJSON *json = web_read_json(req, BODY_MAX);
+    if (!json) return web_send_err(req, "bad json", 400);
+
+    settings_t cfg;
+    settings_load(&cfg);
+
+    const cJSON *it;
+    if (cJSON_IsString(it = cJSON_GetObjectItem(json, "startup_screen"))) {
+        if      (!strcmp(it->valuestring, "border"))  cfg.startup_screen = STARTUP_BORDER;
+        else if (!strcmp(it->valuestring, "blank"))   cfg.startup_screen = STARTUP_BLANK;
+        else if (!strcmp(it->valuestring, "content")) cfg.startup_screen = STARTUP_TEXT;
+        else {
+            cJSON_Delete(json);
+            return web_send_err(req, "startup_screen must be border|blank|content", 400);
+        }
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(json, "offline_screen"))) {
+        if      (!strcmp(it->valuestring, "keep"))  cfg.offline_screen = OFFLINE_KEEP;
+        else if (!strcmp(it->valuestring, "text"))  cfg.offline_screen = OFFLINE_TEXT;
+        else if (!strcmp(it->valuestring, "blank")) cfg.offline_screen = OFFLINE_BLANK;
+        else {
+            cJSON_Delete(json);
+            return web_send_err(req, "offline_screen must be keep|text|blank", 400);
+        }
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(json, "offline_text"))) {
+        if (strlen(it->valuestring) > OFFLINE_TEXT_MAX) {
+            cJSON_Delete(json);
+            return web_send_err(req, "offline_text too long (max 63)", 400);
+        }
+        snprintf(cfg.offline_text, sizeof(cfg.offline_text), "%s", it->valuestring);
+    }
+    cJSON_Delete(json);
+
+    esp_err_t err = settings_save_screens(cfg.startup_screen, cfg.offline_screen,
+                                          cfg.offline_text);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "saving screens failed: %s", esp_err_to_name(err));
+        return web_send_err(req, "saving screens failed", 500);
     }
     return web_send_ok(req);
 }
@@ -424,6 +484,7 @@ void api_system_register(httpd_handle_t srv)
         {.uri = "/api/status",               .method = HTTP_GET,  .handler = status_get},
         {.uri = "/api/system/reboot",        .method = HTTP_POST, .handler = system_reboot_post},
         {.uri = "/api/system/boot_screen",   .method = HTTP_POST, .handler = system_boot_screen_post},
+        {.uri = "/api/system/screens",       .method = HTTP_POST, .handler = system_screens_post},
         {.uri = "/api/system/device_name",   .method = HTTP_POST, .handler = system_device_name_post},
         {.uri = "/api/system/factory_reset", .method = HTTP_POST, .handler = system_factory_reset_post},
         {.uri = "/api/schedule",             .method = HTTP_GET,  .handler = schedule_get},

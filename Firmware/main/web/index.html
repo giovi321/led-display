@@ -41,6 +41,18 @@
         <span id="hdrip"></span>
       </span>
     </div>
+    <div id="hdrvpn" class="conn hidden" role="status">
+      <svg id="hdrvpnicon" class="wifi" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"
+              d="M12 2.8 4.6 6v6.1c0 4.6 3.1 7.6 7.4 9.1 4.3-1.5 7.4-4.5 7.4-9.1V6z"/>
+        <path id="hdrvpnmark" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" d="M8.7 12.2l2.3 2.3 4.3-4.6"/>
+      </svg>
+      <span class="conn-txt">
+        <span id="hdrvpnstate">VPN</span>
+        <span id="hdrvpnip"></span>
+      </span>
+    </div>
     <label class="switch" title="Show advanced tabs">
       <input type="checkbox" id="advtoggle">
       <span>Advanced</span>
@@ -297,8 +309,9 @@
     <div id="wg-body">
       <p id="wg-status" class="note"></p>
       <div id="wg-pubrow" class="hidden">
-        <div class="flab">This device's public key<button type="button" class="hlp"
-          data-help="Give this to the peer at the other end: it is the key the server must list for this device. It is derived from the private key below and is not secret."
+        <div class="flab">This device's public key - put this ON THE SERVER<button
+          type="button" class="hlp"
+          data-help="Two different keypairs are involved. This one belongs to the display: copy it into your VPN server as this device's [Peer] entry, with AllowedIPs set to the tunnel address below. It is derived from the private key below and is not secret. The server's own public key goes in the 'Server public key' field further down."
           aria-expanded="false" aria-label="Explain the public key">?</button></div>
         <div class="row">
           <code id="wg-pub-self" class="code"></code>
@@ -306,13 +319,18 @@
         </div>
       </div>
       <label class="check big"><input id="wg-en" type="checkbox"> Enable tunnel</label>
-      <label for="wg-priv">Private key</label>
+      <div class="flab">This device's private key<button type="button" class="hlp"
+        data-help="The display's own private key, the half the public key above is derived from. It never leaves the device except in a config export. Leave blank when saving to keep the stored one."
+        aria-expanded="false" aria-label="Explain the private key">?</button></div>
       <div class="row">
         <input id="wg-priv" type="password" autocomplete="off" spellcheck="false"
                placeholder="leave blank to keep current">
         <button class="sec" id="wg-reveal" aria-label="Show private key">Show</button>
       </div>
-      <label for="wg-pub">Peer public key</label>
+      <div class="flab">Server public key - copy this FROM the server<button
+        type="button" class="hlp"
+        data-help="The public key of the VPN server this display connects to, not the display's own. You get it from the server's WireGuard configuration; it is the [Interface] PublicKey there."
+        aria-expanded="false" aria-label="Explain the server public key">?</button></div>
       <input id="wg-pub" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
       <label for="wg-host">Endpoint host / port</label>
       <div class="row">
@@ -476,15 +494,38 @@
       is renamed the next time it appears - so saving will not disconnect you.</p>
   </div>
   <div class="card">
-    <h2>Boot screen</h2>
-    <div class="row">
-      <select id="bootscr">
-        <option value="text">Last stored text (default)</option>
-        <option value="ip">Network address</option>
-        <option value="none">Blank</option>
-      </select>
-      <button class="act" id="bootscr-save">Apply</button>
-    </div>
+    <h2>What the display shows</h2>
+
+    <div class="flab">At boot<button type="button" class="hlp"
+      data-help="The first second after power-on, before the network is up. The border lights every edge pixel, so a miswired or half-dead panel shows itself immediately - which is why it is the default."
+      aria-expanded="false" aria-label="Explain the startup screen">?</button></div>
+    <select id="scr-startup">
+      <option value="border">Border test, 1 second (default)</option>
+      <option value="blank">Nothing</option>
+      <option value="content">Go straight to the content</option>
+    </select>
+
+    <div class="flab">After boot<button type="button" class="hlp"
+      data-help="What settles on the panel once the network is up. Content is whatever the Display tab is set to: the static text or the integration value."
+      aria-expanded="false" aria-label="Explain the after-boot screen">?</button></div>
+    <select id="bootscr">
+      <option value="text">The configured content (default)</option>
+      <option value="ip">Network address</option>
+      <option value="none">Blank</option>
+    </select>
+
+    <div class="flab">When WiFi is lost<button type="button" class="hlp"
+      data-help="Applies when the link to your network drops while the device keeps running. It does not apply to the setup network: there the panel carries the only copy of the setup address, so that banner always wins."
+      aria-expanded="false" aria-label="Explain the offline screen">?</button></div>
+    <select id="scr-offline">
+      <option value="keep">Keep showing the last content (default)</option>
+      <option value="text">Show a message</option>
+      <option value="blank">Blank the panel</option>
+    </select>
+    <input id="scr-offlinetext" class="hidden" type="text" maxlength="63"
+           placeholder="e.g. OFFLINE" autocomplete="off">
+
+    <div class="row"><button class="act" id="scr-save">Save screens</button></div>
   </div>
   <div class="card">
     <h2>Firmware update</h2>

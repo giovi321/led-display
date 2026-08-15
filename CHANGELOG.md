@@ -4,6 +4,18 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-08-15
+
+### Added
+
+- The header shows VPN state next to WiFi, with its own icon: connecting, up (with the tunnel address and the handshake age), or suspended. It only appears when the tunnel is switched on
+- Separate settings for what the display shows **at boot**, **after boot**, and **when WiFi is lost**, replacing the single boot-screen choice. The startup splash can stay the border test (the default, because it lights every edge pixel and exposes a miswired panel in the first second), go blank, or be skipped in favour of the content. A lost WiFi link can keep the last content, show a message of your own, or blank the panel. Setup-AP mode deliberately overrides all of it, since there the panel carries the only copy of the setup address. `POST /api/system/screens`, and all three are in the config backup
+- WireGuard status reports the tunnel interface as lwIP actually configured it (`netif_ip`, `netif_netmask`, `netif_up`, `netif_link_up`) and counts the inner packets that came out of the tunnel (`rx_accepted`, `rx_dropped`). A live handshake with zero accepted packets is the signature of traffic never being routed to the device, which is a question for the far end rather than the display
+
+### Changed
+
+- The two WireGuard key fields said "public key" in both directions and were easy to mix up. They are now "This device's public key - put this ON THE SERVER" and "Server public key - copy this FROM the server", each with a note explaining which keypair it belongs to
+
 ## [2.3.2] - 2026-08-15
 
 ### Fixed

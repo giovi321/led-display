@@ -176,6 +176,12 @@ static esp_err_t wireguard_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(status, "endpoint_ip", st.endpoint_ip);
     cJSON_AddNumberToObject(status, "attempts", st.attempts);
     cJSON_AddNumberToObject(status, "stage", st.stage);
+    cJSON_AddStringToObject(status, "netif_ip", st.netif_ip);
+    cJSON_AddStringToObject(status, "netif_netmask", st.netif_netmask);
+    cJSON_AddBoolToObject(status, "netif_up", st.netif_up);
+    cJSON_AddBoolToObject(status, "netif_link_up", st.netif_link_up);
+    cJSON_AddNumberToObject(status, "rx_accepted", st.rx_accepted);
+    cJSON_AddNumberToObject(status, "rx_dropped", st.rx_dropped);
     return web_send_json(req, r);
 }
 

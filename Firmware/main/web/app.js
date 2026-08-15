@@ -1212,6 +1212,10 @@ async function refreshSystem() {
       kv('IP', s.wifi.ip || '-') +
       kv('RSSI', (s.wifi.rssi || '-') + ' dBm');
     if (s.system.boot_screen) $('#bootscr').value = s.system.boot_screen;
+    if (s.system.startup_screen) $('#scr-startup').value = s.system.startup_screen;
+    if (s.system.offline_screen) $('#scr-offline').value = s.system.offline_screen;
+    $('#scr-offlinetext').value = s.system.offline_text || '';
+    setScreensUi();
     // Empty when no name is stored: the placeholder then shows the default
     // rather than pre-filling a name the user never chose.
     $('#devname').value = s.system.device_name_stored || '';
@@ -1224,9 +1228,22 @@ async function refreshSystem() {
   }
 }
 
-$('#bootscr-save').onclick = () => act($('#bootscr-save'), async () => {
+// The three screens save together: they are one decision about what the panel
+// shows, split across three moments.
+function setScreensUi() {
+  $('#scr-offlinetext').classList.toggle('hidden', $('#scr-offline').value !== 'text');
+}
+$('#scr-offline').onchange = setScreensUi;
+setScreensUi();
+
+$('#scr-save').onclick = () => act($('#scr-save'), async () => {
   await jpost('/api/system/boot_screen', { mode: $('#bootscr').value });
-  toast('Boot screen: ' + $('#bootscr').value);
+  await jpost('/api/system/screens', {
+    startup_screen: $('#scr-startup').value,
+    offline_screen: $('#scr-offline').value,
+    offline_text: $('#scr-offlinetext').value,
+  });
+  toast('Screens saved');
 });
 
 $('#reboot').onclick = () => act($('#reboot'), async () => {
@@ -1644,9 +1661,43 @@ function renderHeader(s) {
   }
 }
 
+// VPN state in the header, next to WiFi. Hidden entirely when the tunnel is
+// switched off, so it only takes space on devices that actually use it.
+function renderHeaderVpn(wg) {
+  const box = $('#hdrvpn');
+  if (!wg || !wg.compiled_in || !wg.enabled) {
+    box.classList.add('hidden');
+    return;
+  }
+  box.classList.remove('hidden');
+  const icon = $('#hdrvpnicon'), state = $('#hdrvpnstate'), ip = $('#hdrvpnip');
+  const set = c => icon.setAttribute('class', 'wifi ' + c);
+  if (wg.held) {
+    set('bad');
+    state.textContent = 'VPN suspended';
+    ip.textContent = '';
+    box.title = 'The tunnel was suspended after repeated reboots - re-save the WireGuard config to retry';
+  } else if (wg.up) {
+    set('ok');
+    state.textContent = 'VPN up';
+    ip.textContent = wg.netif_ip || '';
+    box.title = 'Tunnel connected'
+      + (wg.last_handshake ? ', last handshake '
+         + fmtAge(Math.max(0, Math.floor(Date.now() / 1000) - wg.last_handshake)) + ' ago' : '');
+  } else {
+    set('ap');
+    state.textContent = 'VPN connecting';
+    ip.textContent = '';
+    box.title = wg.endpoint_ip
+      ? 'Handshakes sent to ' + wg.endpoint_ip + ', no reply yet'
+      : 'Waiting for the endpoint hostname to resolve';
+  }
+}
+
 function applyStatus(s) {
   lastStatus = s;
   renderHeader(s);
+  renderHeaderVpn(s.wireguard);
   simUpdateFromStatus(s);
   setDeviceTitle(s.system.device_name, !!s.system.device_name_stored);
   setBrightnessAuto(sensorDriven(s));
@@ -1707,6 +1758,7 @@ setInterval(async () => {
     const s = await jget('/api/status');
     lastStatus = s;
     renderHeader(s);
+    renderHeaderVpn(s.wireguard);
     simUpdateFromStatus(s);
     setDeviceTitle(s.system.device_name, !!s.system.device_name_stored);
     if (s.display && s.display.scale) {

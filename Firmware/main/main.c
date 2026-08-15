@@ -120,6 +120,10 @@ static void show_boot_screen(const settings_t *cfg, const wifi_mgr_status_t *s)
 // else is on the panel - a pushed value, a test pattern - stays untouched.
 static bool s_ap_banner;
 
+// Whether the offline screen is currently on the panel, so the configured
+// content only has to be restored once, on the transition back.
+static bool s_offline_screen;
+
 static void on_wifi_state(const wifi_mgr_status_t *s)
 {
     settings_t cfg;
@@ -127,9 +131,26 @@ static void on_wifi_state(const wifi_mgr_status_t *s)
 
     if (s->mode == WIFI_MGR_MODE_AP) {
         s_ap_banner = true;
+        s_offline_screen = false;
         show_network_banner(&cfg, s);
     } else if (s_ap_banner && s->connected) {
         s_ap_banner = false;
+        show_boot_screen(&cfg, s);
+    } else if (!s->connected && cfg.offline_screen != OFFLINE_KEEP) {
+        // Link lost while still in station mode. AP mode is handled above and
+        // deliberately overrides this: there the panel is the only place the
+        // setup address appears.
+        if (!s_offline_screen) {
+            s_offline_screen = true;
+            if (cfg.offline_screen == OFFLINE_TEXT && cfg.offline_text[0]) {
+                display_show_text(cfg.offline_text, cfg.color, cfg.scroll_mode,
+                                  cfg.speed, cfg.scale);
+            } else {
+                display_clear();
+            }
+        }
+    } else if (s->connected && s_offline_screen) {
+        s_offline_screen = false;
         show_boot_screen(&cfg, s);
     }
 
@@ -163,10 +184,15 @@ void app_main(void)
     ESP_ERROR_CHECK(display_init());
     display_set_font(cfg.font, cfg.prop);
 
-    // 4. Boot splash: 1 s border so we can confirm the LEDs are alive
-    //    before anything fancier renders.
-    display_draw_border(cfg.color);
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // 4. Startup splash. The border lights every edge pixel, so a miswired or
+    //    half-dead panel says so within a second of power-on; that is why it
+    //    is the default. The other choices skip it.
+    if (cfg.startup_screen == STARTUP_BORDER) {
+        display_draw_border(cfg.color);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    } else if (cfg.startup_screen == STARTUP_BLANK) {
+        display_clear();
+    }
 
     // 5. WiFi (scan, then the saved networks strongest-first; falls back to
     //    the captive-portal AP when none of them answers).

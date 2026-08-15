@@ -68,6 +68,9 @@ static cJSON *display_to_json(const settings_t *s)
     cJSON_AddStringToObject(d, "source",
                             s->source == DISPLAY_SRC_INTEGRATION ? "integration"
                                                                  : "static");
+    cJSON_AddNumberToObject(d, "startup_screen", (int)s->startup_screen);
+    cJSON_AddNumberToObject(d, "offline_screen", (int)s->offline_screen);
+    cJSON_AddStringToObject(d, "offline_text", s->offline_text);
     return d;
 }
 
@@ -402,6 +405,15 @@ static bool apply_display(const cJSON *sec)
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "source"))) {
         if      (strcmp(it->valuestring, "integration") == 0) s.source = DISPLAY_SRC_INTEGRATION;
         else if (strcmp(it->valuestring, "static") == 0)      s.source = DISPLAY_SRC_STATIC;
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "startup_screen"))) {
+        s.startup_screen = (startup_screen_t)clampi(it->valueint, 0, STARTUP_TEXT);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "offline_screen"))) {
+        s.offline_screen = (offline_screen_t)clampi(it->valueint, 0, OFFLINE_BLANK);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "offline_text"))) {
+        snprintf(s.offline_text, sizeof(s.offline_text), "%s", it->valuestring);
     }
 
     if (settings_save(&s) != ESP_OK) return false;

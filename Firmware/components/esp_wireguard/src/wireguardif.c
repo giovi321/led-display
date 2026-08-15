@@ -47,6 +47,13 @@
 #include "lwip/timeouts.h"
 
 #include "esp_wireguard.h"      /* local addition: ESP_WG_TRACE, see PORTING.md */
+
+/* Local addition (see PORTING.md): how many decrypted inner packets were
+ * handed to lwIP, and how many were dropped by the cryptokey-routing check.
+ * "Tunnel up but unreachable" is otherwise indistinguishable from "nothing is
+ * arriving", and those have completely different causes. */
+uint32_t wireguardif_rx_accepted;
+uint32_t wireguardif_rx_dropped;
 #include "esp_wireguard_log.h"
 #include "esp_wireguard_err.h"
 
@@ -358,10 +365,14 @@ static void wireguardif_process_data_message(struct wireguard_device *device, st
 
 								// 5. If the plaintext packet has not been dropped, it is inserted into the receive queue of the wg0 interface.
 								if (dest_ok) {
+									/* local addition, see PORTING.md */
+									wireguardif_rx_accepted++;
 									// Send packet to be process by LWIP
 									ip_input(pbuf, device->netif);
 									// pbuf is owned by IP layer now
 									pbuf = NULL;
+								} else {
+									wireguardif_rx_dropped++;
 								}
 							} else {
 								// IP header is corrupt or lied about packet size
@@ -956,6 +967,8 @@ err_t wireguardif_init(struct netif *netif) {
 	struct netif* underlying_netif = NULL;
 
 	ESP_WG_TRACE(ESP_WG_STEP_IFINIT_ENTER);
+	wireguardif_rx_accepted = 0;
+	wireguardif_rx_dropped = 0;
 
 #if (!defined(ESP8266) || defined(IDF_VER)) && !defined(LIBRETINY)
 	char lwip_netif_name[8] = {0,};

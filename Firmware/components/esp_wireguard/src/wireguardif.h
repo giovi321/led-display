@@ -39,6 +39,11 @@
 extern "C" {
 #endif
 
+/* Local addition, see PORTING.md: inbound tunnel packet counters. */
+#include <stdint.h>
+extern uint32_t wireguardif_rx_accepted;
+extern uint32_t wireguardif_rx_dropped;
+
 #include <time.h>
 #include "lwip/arch.h"
 #include "lwip/netif.h"

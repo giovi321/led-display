@@ -67,8 +67,18 @@ The rest exist to make a tunnel that never comes up diagnosable without a serial
 | `endpoint_ip` | What the endpoint hostname resolved to. Empty means DNS never answered, which is a device-side network problem |
 | `attempts` | Tunnel bring-ups since boot. Climbing steadily means it keeps retrying and failing early; staying at 1 or 2 means it got up and is waiting |
 | `stage` | How far bring-up got: 0 idle, 1 resolving and initialising, 2 creating the interface, 3 applying routes, 4 running |
+| `netif_ip`, `netif_netmask` | The tunnel interface as lwIP actually configured it. The netmask is the one described under [Tunnel address](#tunnel-address-and-what-it-can-reach), and the first thing to check when a tunnel is up but unreachable |
+| `rx_accepted`, `rx_dropped` | Inner packets that came out of the tunnel, and ones refused by the cryptokey-routing check |
 
 A resolved `endpoint_ip`, `stage` 4 and `last_handshake` 0 together mean the device is sending handshakes into the void: the packets are leaving and nothing is answering. That points at the peer configuration on the server or a firewall in between, not at the display.
+
+A **fresh handshake with `rx_accepted` stuck at 0** is the next case along, and the one that looks most like a device fault while being nothing of the kind: the tunnel is established, the interface is up, and not one packet has ever come down it. Nothing is being sent to the device. Three things to check, in order:
+
+1. The server's `[Peer]` entry for the display needs `AllowedIPs` covering the display's tunnel address, typically `10.6.0.2/32`. WireGuard identifies a peer by its key during the handshake, so the handshake succeeds even when this is missing or wrong - but the server then has no route back down the tunnel and never sends anything
+2. Whatever you are pinging *from* has to route the display's address into the VPN. On another WireGuard client that means its own `AllowedIPs` must include the tunnel subnet, not just the server
+3. If you are reaching the display from a client rather than from the server itself, the server has to forward between peers: `net.ipv4.ip_forward=1` and no firewall rule in the way
+
+If `rx_accepted` climbs while pings still fail, the packets are arriving and the problem is on the display side after all - `rx_dropped` climbing alongside it means they are being refused by the allowed-IPs check.
 
 ## Why the tunnel used to crash
 

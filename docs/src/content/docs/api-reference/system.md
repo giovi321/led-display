@@ -12,6 +12,7 @@ Everything that keeps the device running: the status tree the web UI polls, powe
 | GET | `/api/status` | no | Full device status |
 | POST | `/api/system/reboot` | yes | Reboot |
 | POST | `/api/system/boot_screen` | yes | What to show right after boot |
+| POST | `/api/system/screens` | yes | The startup splash and the WiFi-lost screen |
 | POST | `/api/system/device_name` | yes | Set the one name used for hostname, setup AP and webhooks |
 | POST | `/api/system/factory_reset` | yes | Wipe settings, keep WiFi |
 | GET | `/api/schedule` | no | Read the on/off schedule |
@@ -70,7 +71,10 @@ curl http://192.168.1.50/api/status
     "brightness_cap": 128,
     "device_name": "led-display",
     "device_name_stored": "",
-    "boot_screen": "ip"
+    "boot_screen": "ip",
+    "startup_screen": "border",
+    "offline_screen": "keep",
+    "offline_text": ""
   },
   "layout": {
     "rows": 2, "cols": 2,
@@ -121,7 +125,10 @@ curl http://192.168.1.50/api/status
 | `system.uptime` | Seconds since boot |
 | `system.device_name` | The resolved name, so a client never has to know the default |
 | `system.device_name_stored` | The name you set, empty when none is stored |
-| `system.boot_screen` | `text`, `ip` or `none` |
+| `system.boot_screen` | What settles on the panel after boot: `text` (the configured content), `ip` or `none` |
+| `system.startup_screen` | The splash before the network is up: `border`, `blank` or `content` |
+| `system.offline_screen` | What a lost WiFi link puts on the panel: `keep`, `text` or `blank` |
+| `system.offline_text` | The message shown when `offline_screen` is `text` |
 | `layout.*` | Summary of the active layout; the full config comes from [`GET /api/layout`](../layout/) |
 | `value_age_s` | Seconds since the last `POST /api/value`; -1 means never |
 | `wireguard.last_handshake` | Unix seconds, 0 means never |
@@ -141,11 +148,11 @@ curl -X POST http://192.168.1.50/api/system/reboot -H "X-Api-Key: mysecret"
 
 ## POST /api/system/boot_screen
 
-Chooses what the display shows right after boot.
+Chooses what settles on the display once the network is up. The two screens either side of this one - the startup splash and the WiFi-lost screen - are set through `/api/system/screens` below.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `mode` | string | `text` (the stored text), `ip` (the device's IP address) or `none` |
+| `mode` | string | `text` (the configured content, static or integration), `ip` (the device's IP address) or `none` |
 
 ```bash
 curl -X POST http://192.168.1.50/api/system/boot_screen \
@@ -153,6 +160,28 @@ curl -X POST http://192.168.1.50/api/system/boot_screen \
 ```
 
 Errors: 400 `"unknown mode"`, 500 `"saving boot screen failed"` when the write to flash fails.
+
+## POST /api/system/screens
+
+The startup splash and what a lost WiFi link puts on the panel. Partial update: absent fields keep their stored value.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `startup_screen` | string | `border` (1 s border test, the default), `blank`, or `content` to skip the splash entirely |
+| `offline_screen` | string | `keep` (leave the last content, the default), `text`, or `blank` |
+| `offline_text` | string | Up to 63 characters, shown when `offline_screen` is `text` |
+
+The border default is deliberate: it lights every edge pixel, so a miswired or half-dead panel announces itself in the first second after power-on, before anything else can mask it.
+
+`offline_screen` applies when the station link drops while the device keeps running. It does **not** apply in [setup-AP mode](../../getting-started/wifi-setup/), where the panel carries the only copy of the setup SSID and address and that banner always wins.
+
+```bash
+curl -X POST http://192.168.1.50/api/system/screens \
+  -H "X-Api-Key: mysecret" -H "Content-Type: application/json" \
+  -d '{"startup_screen":"border","offline_screen":"text","offline_text":"OFFLINE"}'
+```
+
+Errors: 400 `"startup_screen must be border|blank|content"`, 400 `"offline_screen must be keep|text|blank"`, 400 `"offline_text too long (max 63)"`, 500 `"saving screens failed"`.
 
 ## POST /api/system/device_name
 

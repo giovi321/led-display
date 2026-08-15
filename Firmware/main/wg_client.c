@@ -32,6 +32,7 @@
 #include "nvs.h"
 
 #include "esp_wireguard.h"
+#include "wireguardif.h"
 #include "settings.h"
 
 static const char *TAG = "wg";
@@ -367,6 +368,29 @@ static esp_err_t tcpip_wg_peer_up(void *arg)
 static esp_err_t tcpip_wg_handshake(void *arg)
 {
     return esp_wireguard_latest_handshake(&s_wg_ctx, (time_t *)arg);
+}
+
+// Read back how lwIP actually configured the tunnel interface. Runs on the
+// lwIP thread because the netif list is only safe to walk there.
+static esp_err_t tcpip_wg_netif_info(void *arg)
+{
+    wg_status_t *out = (wg_status_t *)arg;
+    struct netif *n = s_wg_ctx.netif;
+    if (!n) return ESP_ERR_INVALID_STATE;
+
+    uint32_t ip   = lwip_ntohl(netif_ip4_addr(n)->addr);
+    uint32_t mask = lwip_ntohl(netif_ip4_netmask(n)->addr);
+    snprintf(out->netif_ip, sizeof(out->netif_ip), "%u.%u.%u.%u",
+             (unsigned)(ip >> 24) & 0xFF, (unsigned)(ip >> 16) & 0xFF,
+             (unsigned)(ip >> 8) & 0xFF, (unsigned)ip & 0xFF);
+    snprintf(out->netif_netmask, sizeof(out->netif_netmask), "%u.%u.%u.%u",
+             (unsigned)(mask >> 24) & 0xFF, (unsigned)(mask >> 16) & 0xFF,
+             (unsigned)(mask >> 8) & 0xFF, (unsigned)mask & 0xFF);
+    out->netif_up      = netif_is_up(n);
+    out->netif_link_up = netif_is_link_up(n);
+    out->rx_accepted   = wireguardif_rx_accepted;
+    out->rx_dropped    = wireguardif_rx_dropped;
+    return ESP_OK;
 }
 
 typedef struct {
@@ -738,6 +762,7 @@ void wg_client_get_status(wg_status_t *out)
         if (esp_netif_tcpip_exec(tcpip_wg_handshake, &hs) == ESP_OK) {
             out->last_handshake = (int64_t)hs;
         }
+        (void)esp_netif_tcpip_exec(tcpip_wg_netif_info, out);
     }
     unlock();
 }
