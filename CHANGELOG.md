@@ -4,6 +4,21 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-08-15
+
+### Fixed
+
+- Disabling the schedule from inside an off-window left the panel dark. The off-window flag is what the brightness arbiter reads, and it was only ever cleared by the 30-second tick, so until that came round the display stayed at zero and every brightness change made in the meantime was stored and then thrown away on its way to the panel. Both the tick and a schedule save now re-evaluate the window immediately, in either direction
+
+### Removed
+
+- The scroll trail added in 2.5.0. It rendered badly and has been taken out rather than tuned: `fade` on `POST /api/display/text` is gone, and the stored value is ignored
+
+### Changed
+
+- The render of the reference build now carries the twelve perimeter fixings from the drawings, in both the front view and the section, and is drawn to the correct 670 by 190 mm sheet with its 5.25 mm corner radius. The section labels no longer overlap and the stray dimension beside it is gone
+- The render also appears on the documentation landing page and the overview, and the first web UI screenshots are in the README, the display guide, the arrangement editor guide, the MQTT guide and the WireGuard guide
+
 ## [2.5.2] - 2026-08-15
 
 ### Fixed

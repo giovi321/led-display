@@ -295,12 +295,6 @@ setScrollUi();
 
 $('#brightness').oninput = e => { $('#brval').textContent = e.target.value; };
 $('#speed').oninput = e => { $('#spval').textContent = e.target.value; };
-function setFadeUi() {
-  const v = +$('#fade').value;
-  $('#fadeval').textContent = v ? v + '%' : 'off';
-}
-$('#fade').oninput = setFadeUi;
-setFadeUi();
 
 // The light sensor and the slider are the same brightness: while the sensor is
 // driving it, the slider reads out the level it picked and stops being an input.
@@ -368,7 +362,6 @@ $('#apply').onclick = () => act($('#apply'), async () => {
     font: size[0],
     scale: +size[1] || 1,
     spacing: $('#spacing').value,
-    fade: +$('#fade').value,
   };
   await jpost('/api/display/text', body);
   // Don't post the slider back while the sensor owns the brightness: that would
@@ -1809,7 +1802,6 @@ function applyStatus(s) {
     $('#spval').textContent = s.display.speed;
     if (wantSize) $('#size').value = wantSize;
     if (s.display.spacing) $('#spacing').value = s.display.spacing;
-    if (s.display.fade !== undefined) { $('#fade').value = s.display.fade; setFadeUi(); }
   }
   $('#brcap').value = cap;
   updateCurl();

@@ -33,7 +33,6 @@ static const char *NS  = "cfg";
 #define K_OFF_COL_G  "ocg"
 #define K_OFF_COL_B  "ocb"
 #define K_OFF_CORNER "ocn"
-#define K_FADE       "fade"   // scroll trail, percent kept per frame
 #define K_DEVNAME    "dname"  // device name; absent = unset (defaults apply)
 
 static void apply_defaults(settings_t *s)
@@ -55,7 +54,6 @@ static void apply_defaults(settings_t *s)
     s->offline_text[0] = '\0';
     s->offline_color   = (display_color_t){80, 0, 0};   // dim red
     s->offline_corner  = 0;
-    s->fade            = 0;                             // off
     s->legacy_map_mode = -1;     // absent
 }
 
@@ -121,7 +119,6 @@ esp_err_t settings_load(settings_t *out)
     nvs_get_u8(h, K_OFF_COL_G, &out->offline_color.g);
     nvs_get_u8(h, K_OFF_COL_B, &out->offline_color.b);
     if (nvs_get_u8(h, K_OFF_CORNER, &v) == ESP_OK && v <= 3) out->offline_corner = v;
-    if (nvs_get_u8(h, K_FADE, &v) == ESP_OK && v <= 95) out->fade = v;
 
     nvs_close(h);
     ESP_LOGI(TAG, "settings loaded: brightness=%u cap=%u scroll=%u speed=%u scale=%u font=%u prop=%d boot=%u text='%s'",
@@ -160,7 +157,6 @@ esp_err_t settings_save(const settings_t *in)
     nvs_set_u8 (h, K_OFF_COL_G,  in->offline_color.g);
     nvs_set_u8 (h, K_OFF_COL_B,  in->offline_color.b);
     nvs_set_u8 (h, K_OFF_CORNER, in->offline_corner);
-    nvs_set_u8 (h, K_FADE,       in->fade);
 
     err = nvs_commit(h);
     nvs_close(h);
@@ -252,11 +248,6 @@ esp_err_t settings_save_screens(const settings_t *in)
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
-}
-
-esp_err_t settings_save_fade(uint8_t percent)
-{
-    return save_u8(K_FADE, percent > 95 ? 95 : percent);
 }
 
 esp_err_t settings_clear_text(void)

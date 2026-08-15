@@ -85,7 +85,6 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddNumberToObject(d, "scale", scale);
     cJSON_AddStringToObject(d, "font", font_name(font_id));
     cJSON_AddStringToObject(d, "spacing", prop ? "proportional" : "monospace");
-    cJSON_AddNumberToObject(d, "fade", display_get_fade());
     cJSON_AddNumberToObject(d, "brightness", led_driver_get_brightness());
     cJSON *c = cJSON_AddObjectToObject(d, "color");
     cJSON_AddNumberToObject(c, "r", col.r);

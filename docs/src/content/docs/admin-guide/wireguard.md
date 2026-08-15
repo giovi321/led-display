@@ -19,6 +19,8 @@ The WireGuard implementation is a vendored copy of the `esp_wireguard` component
 
 Network tab ([advanced mode](../advanced-mode/)), WireGuard card, or `POST /api/wireguard`. The fields:
 
+![The WireGuard card: enable switch, private key, server public key, endpoint, tunnel address, allowed IPs, keepalive, and the save and reset buttons](../../../assets/screenshots/wireguard.png)
+
 | Field | Meaning |
 |-------|---------|
 | enabled | starts or stops the tunnel; all other fields must be filled before enabling |

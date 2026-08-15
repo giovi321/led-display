@@ -9,6 +9,8 @@ The optional MQTT client makes the display a node on your broker: other systems 
 
 Everything lives on the Integrations tab (advanced mode) or via `GET`/`POST /api/mqtt`. The client stays down until you enable it and set a broker URI.
 
+![The Integrations tab: API key, outbound webhook events, and the MQTT card with broker URI, credentials, base topic and Home Assistant discovery](../../../assets/screenshots/integrations.png)
+
 ## Broker connection
 
 | Field | Meaning |

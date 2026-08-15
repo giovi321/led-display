@@ -7,11 +7,11 @@ sidebar:
 
 led-display is firmware for a wall display made of daisy-chained WS2812B matrix panels, driven by an ESP32-S3. The display shows one number or short message at a time, pushed to it over HTTP by whatever you like: a home automation flow, a cron job, a plain `curl`. Typical uses are a revenue figure, a subscriber counter, or a temperature that should always be visible somewhere.
 
-Firmware v2 (current version 2.2.0) replaces the compile-time panel configuration of v1 with a runtime model: you describe the physical build in a graphical editor and the firmware rebuilds its pixel mapping on the fly.
+Firmware v2 replaces the compile-time panel configuration of v1 with a runtime model: you describe the physical build in a graphical editor and the firmware rebuilds its pixel mapping on the fly.
 
-:::note[Photo pending]
-A photo of the reference build (four 32x8 panels in a 2x2 grid, 64x16 pixels) goes here once one is taken
-:::
+![The reference build: four WS2812B 32x8 panels behind a smoked grey plexiglass front, with a section through the layer stack](../../../assets/display-render.svg)
+
+The drawing is to the cut geometry in `3D/8x32/`: a 670 by 190 mm sheet with twelve perimeter fixings, a 10 mm LED pitch, and the wire cutouts through the support panel. The lit pixels are drawn with the firmware's own font, so they are the ones the device would light.
 
 ## What is in the repository
 

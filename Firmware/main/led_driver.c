@@ -210,24 +210,6 @@ void led_driver_clear(void)
     memset(s_frame, 0, (size_t)s_pixels * sizeof(pixel_t));
 }
 
-void led_driver_fade(uint8_t keep_percent)
-{
-    if (keep_percent == 0) {
-        led_driver_clear();
-        return;
-    }
-    if (keep_percent > 100) keep_percent = 100;
-    for (int i = 0; i < s_pixels; i++) {
-        // The -1 stops a trail from parking forever on a value the integer
-        // division can no longer reduce (at 99% that would be 100 for r=100).
-        unsigned r = (unsigned)s_frame[i].r * keep_percent / 100;
-        unsigned g = (unsigned)s_frame[i].g * keep_percent / 100;
-        unsigned b = (unsigned)s_frame[i].b * keep_percent / 100;
-        s_frame[i].r = (uint8_t)(r && r == s_frame[i].r ? r - 1 : r);
-        s_frame[i].g = (uint8_t)(g && g == s_frame[i].g ? g - 1 : g);
-        s_frame[i].b = (uint8_t)(b && b == s_frame[i].b ? b - 1 : b);
-    }
-}
 
 void led_driver_fill(uint8_t r, uint8_t g, uint8_t b)
 {

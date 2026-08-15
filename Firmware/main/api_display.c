@@ -94,7 +94,6 @@ static esp_err_t display_text_post(httpd_req_t *req)
     const cJSON *sc = cJSON_GetObjectItem(json, "scale");
     const cJSON *fo = cJSON_GetObjectItem(json, "font");
     const cJSON *sg = cJSON_GetObjectItem(json, "spacing");
-    const cJSON *fd = cJSON_GetObjectItem(json, "fade");
 
     // Missing fields preserve the current state so a partial request from
     // curl or a third-party client can't silently reset everything.
@@ -170,15 +169,6 @@ static esp_err_t display_text_post(httpd_req_t *req)
     // back, silently losing the text on the next boot. Truncate both paths.
     char text_buf[DISPLAY_TEXT_MAX];
     snprintf(text_buf, sizeof(text_buf), "%s", text);
-
-    if (cJSON_IsNumber(fd)) {
-        if (fd->valueint < 0 || fd->valueint > 95) {
-            cJSON_Delete(json);
-            return web_send_err(req, "fade must be 0..95 (percent kept per frame)", 400);
-        }
-        display_set_fade((uint8_t)fd->valueint);
-        settings_save_fade((uint8_t)fd->valueint);
-    }
 
     if ((uint8_t)font_id != prev_font || prop != prev_prop) {
         display_set_font((uint8_t)font_id, prop);

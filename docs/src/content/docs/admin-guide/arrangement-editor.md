@@ -7,6 +7,8 @@ sidebar:
 
 The arrangement editor is a graphical tool in the Hardware tab ([advanced mode](../advanced-mode/)) that describes the physical build to the firmware: how many panels there are, how each one is wired internally, which chain position hangs where, and which panels are mounted rotated.
 
+![The arrangement editor showing a 2x2 grid: each panel with its chain index, first-LED dot, rotation chip, and the cable path running between them](../../../assets/screenshots/hardware-arrangement.png)
+
 It exists because assembly rarely matches the plan. Panels get mounted in a different order than they were soldered, or upside down, and once the wiring is potted in silicone there is no cheap way to fix it physically. The wiring is fixed; the software adapts. Instead of editing mapping code and reflashing, you drag a drawing of the panels until it matches the wall, press Apply, and the firmware rebuilds its pixel mapping on the spot.
 
 ![Mapping pipeline from logical pixel to strip index](/led-display/assets/diagrams/mapping-pipeline.svg)

@@ -76,7 +76,6 @@ static cJSON *display_to_json(const settings_t *s)
     cJSON_AddNumberToObject(ocol, "g", s->offline_color.g);
     cJSON_AddNumberToObject(ocol, "b", s->offline_color.b);
     cJSON_AddNumberToObject(d, "offline_corner", s->offline_corner);
-    cJSON_AddNumberToObject(d, "fade", s->fade);
     return d;
 }
 
@@ -433,9 +432,6 @@ static bool apply_display(const cJSON *sec)
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "offline_corner"))) {
         s.offline_corner = (uint8_t)clampi(it->valueint, 0, 3);
     }
-    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "fade"))) {
-        s.fade = (uint8_t)clampi(it->valueint, 0, 95);
-    }
 
     if (settings_save(&s) != ESP_OK) return false;
 
@@ -446,7 +442,6 @@ static bool apply_display(const cJSON *sec)
     led_driver_set_brightness_cap(s.brightness_cap);
     scheduler_reapply_brightness();
     display_set_font(s.font, s.prop);
-    display_set_fade(s.fade);
     if (s.text[0] != '\0') {
         display_show_text(s.text, s.color, s.scroll_mode, s.speed, s.scale);
     } else {

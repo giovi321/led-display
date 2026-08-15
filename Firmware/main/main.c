@@ -221,7 +221,6 @@ void app_main(void)
     led_driver_set_brightness(cfg.brightness);
     ESP_ERROR_CHECK(display_init());
     display_set_font(cfg.font, cfg.prop);
-    display_set_fade(cfg.fade);
 
     // 4. Startup splash. The border lights every edge pixel, so a miswired or
     //    half-dead panel says so within a second of power-on; that is why it

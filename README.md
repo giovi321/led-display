@@ -30,7 +30,7 @@ Chain the panels in whatever order the connectors allow and mount them whichever
 - Web UI with a simple mode (text, colour, brightness, schedule) and an advanced mode that unlocks hardware, network, integrations and system tabs; no frameworks, one page, served gzipped from flash
 - Graphical arrangement editor: describe your panel once (size, first-LED corner, row or column walk, serpentine), lay panels out on a grid up to 8x16 cells (32 panels, 8192 pixels), drag to swap, click to rotate, with identify mode to match the drawing to the physical wall
 - Three pixel fonts (5x7, a tiny 3x5, a tall 7x12 with real lowercase) at integer sizes, proportionally spaced with fixed-width digits so a ticking value never wobbles; monospace on request
-- Scrolling off, restart, or continuous as a marquee that repeats after a short gap, with an optional trail that leaves a decaying smear behind moving text
+- Scrolling off, restart, or continuous as a marquee that repeats after a short gap
 - Value endpoint for any webhook-capable system: `POST /api/value` with `{"value": 4210.5}` and the device formats it (prefix, suffix, decimals, thousands separator) and displays it; a staleness guard dims the display, blinks a corner pixel or swaps in a fallback text when no update arrives for a configured number of hours
 - Content source switch: static text you typed, or the live integration value with a configurable placeholder until the first value arrives
 - Optional MQTT client: feed the display over `<base>/value/set` or `<base>/text/set`, control brightness/power/content source, reboot, read a retained JSON state topic, with optional Home Assistant auto-discovery (light, text, select, button and sensor entities)
@@ -83,10 +83,12 @@ None of that grid is fixed in the firmware. It takes any identical-panel grid: p
 
 ## Screenshots
 
-<!-- screenshot: web UI, Display tab (simple mode) -->
-<!-- screenshot: arrangement editor with identify mode active, next to a photo of the panels lit in their identify colours -->
-<!-- screenshot: Integrations tab with the value endpoint config -->
-<!-- photo: the assembled 64x16 display on the wall -->
+<p align="center">
+  <img src="docs/src/assets/screenshots/display-tab.png" width="420" alt="The Display tab: content source switch, text, colour chips, size, brightness and scrolling">
+  <img src="docs/src/assets/screenshots/hardware-arrangement.png" width="420" alt="The panel arrangement editor showing a 2x2 grid with chain order, rotation and the cable path">
+</p>
+
+The Display tab and the arrangement editor. The editor draws each panel with its chain index, the corner its first LED sits in, and how it is mounted; Identify lights the physical panels in the same colours so you can drag the drawing until it matches the wall.
 
 ## Security
 

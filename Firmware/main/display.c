@@ -124,20 +124,10 @@ static void draw_text_run(const font_def_t *f, int x_origin, const char *text,
     }
 }
 
-// Start a frame: clear, or leave a decaying trail of the previous one when
-// the fade is configured. Only the scrolling paths call this repeatedly, so
-// the trail follows moving text and nothing else.
-static uint8_t s_fade;   // percent each pixel keeps between frames, 0 = off
-
-static void frame_begin(void)
-{
-    if (s_fade) led_driver_fade(s_fade); else led_driver_clear();
-}
-
 static void render_text_at(const font_def_t *f, int x_origin, const char *text,
                            display_color_t col, uint8_t scale, bool prop)
 {
-    frame_begin();
+    led_driver_clear();
     draw_text_run(f, x_origin, text, col, scale, prop);
     led_driver_refresh();
 }
@@ -216,7 +206,7 @@ static void scroll_task(void *arg)
                 const int span = w + marquee_gap(f, scale);
                 int x = offset;
                 while (x + w > 0) x -= span;
-                frame_begin();
+                led_driver_clear();
                 for (x += span; x < led_driver_width(); x += span) {
                     draw_text_run(f, x, text, col, scale, prop);
                 }
@@ -522,17 +512,6 @@ void display_show_text(const char *text, display_color_t color,
 void display_show_text_static(const char *text, display_color_t color)
 {
     display_show_text(text, color, DISPLAY_SCROLL_OFF, 50, 0);
-}
-
-void display_set_fade(uint8_t keep_percent)
-{
-    s_fade = keep_percent > 95 ? 95 : keep_percent;
-    if (s_task) xTaskNotifyGive(s_task);
-}
-
-uint8_t display_get_fade(void)
-{
-    return s_fade;
 }
 
 void display_show_dot(uint8_t corner, display_color_t color)

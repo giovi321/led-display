@@ -266,6 +266,46 @@ static void leave_off_window(void)
     webhooks_fire(WEBHOOK_EVT_SCHEDULE_ON, NULL);
 }
 
+// Decide whether the on-window applies right now and publish the result.
+//
+// Shared by the 30 s tick and by scheduler_set(), because the off-window flag
+// is what the brightness arbiter reads: leaving it stale after a schedule
+// change means the panel stays dark and every brightness request in the gap
+// is swallowed on its way to the panel. Disabling the schedule from inside an
+// off-window has to light the display back up now, not at the next tick.
+static void evaluate_window(void)
+{
+    wifi_mgr_status_t w;
+    wifi_manager_get_status(&w);
+
+    schedule_t sc;
+    scheduler_get(&sc);
+
+    // No schedule, no clock, or setup-AP mode: nothing may hold the panel
+    // down. The AP case is the one where the panel carries the only copy of
+    // the setup address.
+    if (!sc.enabled || w.mode == WIFI_MGR_MODE_AP || !time_synced()) {
+        leave_off_window();
+        return;
+    }
+
+    time_t now;
+    time(&now);
+    struct tm t;
+    if (sc.tz[0] != '\0') {
+        localtime_r(&now, &t);       // TZ override, DST applied by libc
+    } else {
+        now += sc.utc_offset * 60;
+        gmtime_r(&now, &t);
+    }
+
+    if (in_on_window(&sc, t.tm_hour, t.tm_min, day_bit_from_tm(&t))) {
+        leave_off_window();
+    } else {
+        enter_off_window();
+    }
+}
+
 // ---- value staleness (DESIGN.md section 5) ---------------------------------
 //
 // Runs on the same 30 s tick as the schedule. The text action and the webhook
@@ -380,40 +420,9 @@ static void scheduler_task(void *arg)
         }
 
         // Staleness needs no wall-clock time (it works off uptime), so it
-        // runs even before SNTP sync.
-        if (!time_synced()) {
-            staleness_tick();
-            continue;
-        }
-
-        xSemaphoreTake(s_lock, portMAX_DELAY);
-        schedule_t sc = s_sched;
-        xSemaphoreGive(s_lock);
-
-        if (!sc.enabled || w.mode == WIFI_MGR_MODE_AP) {
-            leave_off_window();
-        } else {
-            time_t now;
-            time(&now);
-            struct tm t;
-            if (sc.tz[0] != '\0') {
-                // TZ override: libc applies the rule (set by apply_tz).
-                localtime_r(&now, &t);
-            } else {
-                now += sc.utc_offset * 60;
-                gmtime_r(&now, &t);
-            }
-
-            int day_bit = day_bit_from_tm(&t);
-            bool should_be_on = in_on_window(&sc, t.tm_hour, t.tm_min, day_bit);
-
-            if (should_be_on) {
-                leave_off_window();
-            } else {
-                enter_off_window();
-            }
-        }
-
+        // runs whether or not SNTP has synced; evaluate_window() handles the
+        // unsynced case by leaving the panel alone.
+        evaluate_window();
         staleness_tick();
     }
 }
@@ -460,8 +469,12 @@ esp_err_t scheduler_set(const schedule_t *in)
     xSemaphoreGive(s_lock);
     apply_tz(&sc);
     esp_err_t err = save_to_nvs(&sc);
-    // A changed off-window action or level has to show up now, not at the
-    // next 30 s tick. Outside the off-window this is a no-op re-apply.
+    // Both halves have to show up now rather than at the next 30 s tick:
+    // whether the off-window still applies at all, and then the level it
+    // implies. Without the first, disabling the schedule inside an off-window
+    // leaves the panel dark until the tick catches up, and any brightness set
+    // in between is stored but never reaches the panel.
+    evaluate_window();
     apply_brightness();
     return err;
 }
