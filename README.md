@@ -54,6 +54,7 @@ Everything is configured from one hand-written page served gzipped from flash, i
 
 - A per-weekday schedule turns the display off or holds it at a dim level, on an IANA timezone the device applies itself, so clock changes need no re-saving; unticked days either stay dark or ignore the schedule entirely
 - An optional BH1750 lux meter on the board's I2C connector sets the brightness from the room, calibrated against a live reading in the browser
+- The brightness slider says what a setting will draw before you apply it, because a colour and brightness past what the supply can give cuts it out and keeps cutting it out every time the text is redrawn. Switch the power limiter on and a frame over budget goes out dimmer instead, with the level you asked for kept and restored as soon as the content costs less
 - Separate screens cover the boot splash, normal running, and a lost WiFi link, which can hold the content, show a message, go dark, or mark one pixel at a position, colour and brightness you pick
 - Up to five saved WiFi networks: the strongest in range wins at boot, a lost link retries with a growing backoff, and the setup AP returns only when nothing answers
 
@@ -137,6 +138,7 @@ This is a LAN device speaking plain HTTP. Treat it that way.
 │   │   ├── main.c           boot order
 │   │   ├── mapping.[hc]     pure LUT builder for the panel arrangement (host-testable)
 │   │   ├── led_driver.[hc]  RMT/led_strip, brightness + cap, LUT application
+│   │   ├── power_model.[hc] pure WS2812B current model + budget solver (host-testable)
 │   │   ├── display.[hc]     frame buffer, scroll modes, test patterns, identify
 │   │   ├── fonts.[hc]       the three pixel fonts + spacing rules (pure, host-testable)
 │   │   ├── valuefmt.[hc]    value formatting (pure, host-testable)
@@ -168,7 +170,7 @@ The SketchUp sources the parts were modelled in are not tracked; the repository 
 
 ## Development
 
-The [documentation site](https://giovi321.github.io/led-display/) covers the API reference, the mapping model and the build setup in detail. The short version: ESP-IDF v6.0.1, `idf.py set-target esp32s3`, and if your toolchain lives in WSL, `Firmware/tools/wsl_build.sh` mirrors the tree and builds outside the network mount. The pure modules (`mapping.c`, `valuefmt.c`, `fonts.c`, `wifi_pick.c`, `devname.c`, `light_curve.c`) have host-side unit tests under `Firmware/test/host/`; they must pass before any PR. See [CONTRIBUTING.md](CONTRIBUTING.md).
+The [documentation site](https://giovi321.github.io/led-display/) covers the API reference, the mapping model and the build setup in detail. The short version: ESP-IDF v6.0.1, `idf.py set-target esp32s3`, and if your toolchain lives in WSL, `Firmware/tools/wsl_build.sh` mirrors the tree and builds outside the network mount. The pure modules (`mapping.c`, `valuefmt.c`, `fonts.c`, `wifi_pick.c`, `devname.c`, `light_curve.c`, `power_model.c`) have host-side unit tests under `Firmware/test/host/`; they must pass before any PR. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

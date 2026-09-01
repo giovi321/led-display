@@ -36,6 +36,10 @@ static const char *NS  = "cfg";
 #define K_OFF_X      "ox"     // OFFLINE_DOT position, absent = migrate from ocn
 #define K_OFF_Y      "oy"
 #define K_OFF_BRI    "obri"   // OFFLINE_DOT brightness, absent = full
+#define K_PWR_EN     "pwen"   // power limiter enabled; absent = off
+#define K_PWR_BUDGET "pwbg"   // budget_ma; absent = default
+#define K_PWR_CHAN   "pwch"   // ua_per_channel; absent = default
+#define K_PWR_IDLE   "pwq"    // ua_quiescent; absent = default
 #define K_DEVNAME    "dname"  // device name; absent = unset (defaults apply)
 
 static void apply_defaults(settings_t *s)
@@ -60,6 +64,7 @@ static void apply_defaults(settings_t *s)
     s->offline_y       = OFFLINE_POS_UNSET;
     s->offline_bright  = 255;                           // full, so it survives a dimmed panel
     s->offline_corner  = 0;
+    power_model_default(&s->power);                      // limiter off
     s->legacy_map_mode = -1;     // absent
 }
 
@@ -83,6 +88,22 @@ esp_err_t settings_load(settings_t *out)
     nvs_get_u8(h, K_COLOR_B,    &out->color.b);
     nvs_get_u8(h, K_BRIGHTNESS, &out->brightness);
     nvs_get_u8(h, K_BRI_CAP,    &out->brightness_cap);
+
+    // Power budget. Each key is independent and absent-means-default, so a
+    // device stored before the budget existed loads the defaults with the
+    // limiter off. A stored set that fails validation - a downgrade, a partial
+    // write - is discarded whole rather than half-applied.
+    power_cfg_t pw = out->power;
+    uint8_t pwen;
+    if (nvs_get_u8(h, K_PWR_EN, &pwen) == ESP_OK) pw.limit_enabled = pwen != 0;
+    nvs_get_u16(h, K_PWR_BUDGET, &pw.budget_ma);
+    nvs_get_u16(h, K_PWR_CHAN,   &pw.ua_per_channel);
+    nvs_get_u16(h, K_PWR_IDLE,   &pw.ua_quiescent);
+    if (power_model_valid(&pw)) {
+        out->power = pw;
+    } else {
+        ESP_LOGW(TAG, "stored power budget out of range, using defaults");
+    }
 
     uint8_t v;
     // Two keys describe one setting: the pre-2.2 on/off bool and the full
@@ -151,6 +172,10 @@ esp_err_t settings_save(const settings_t *in)
     nvs_set_u8 (h, K_COLOR_B,    in->color.b);
     nvs_set_u8 (h, K_BRIGHTNESS, in->brightness);
     nvs_set_u8 (h, K_BRI_CAP,    in->brightness_cap);
+    nvs_set_u8 (h, K_PWR_EN,     in->power.limit_enabled ? 1 : 0);
+    nvs_set_u16(h, K_PWR_BUDGET, in->power.budget_ma);
+    nvs_set_u16(h, K_PWR_CHAN,   in->power.ua_per_channel);
+    nvs_set_u16(h, K_PWR_IDLE,   in->power.ua_quiescent);
     // Both scroll keys are written so an OTA rollback to a scroll-bool
     // build still sees a sensible on/off value.
     nvs_set_u8 (h, K_SCROLL,     in->scroll_mode ? 1 : 0);
@@ -234,6 +259,24 @@ esp_err_t settings_save_brightness(uint8_t brightness)
 esp_err_t settings_save_brightness_cap(uint8_t cap)
 {
     return save_u8(K_BRI_CAP, cap);
+}
+
+// Four keys in one commit: a half-written model is a wrong model, and the
+// loader would rather see the whole old set than a mix of two.
+esp_err_t settings_save_power(const power_cfg_t *power)
+{
+    if (!power || !power_model_valid(power)) return ESP_ERR_INVALID_ARG;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(h, K_PWR_EN, power->limit_enabled ? 1 : 0);
+    if (err == ESP_OK) err = nvs_set_u16(h, K_PWR_BUDGET, power->budget_ma);
+    if (err == ESP_OK) err = nvs_set_u16(h, K_PWR_CHAN,   power->ua_per_channel);
+    if (err == ESP_OK) err = nvs_set_u16(h, K_PWR_IDLE,   power->ua_quiescent);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    return err;
 }
 
 esp_err_t settings_save_boot_screen(boot_screen_t which)

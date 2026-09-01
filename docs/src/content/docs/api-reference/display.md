@@ -12,6 +12,7 @@ Every POST on this page requires the `X-Api-Key` header when an API key is set (
 | POST | `/api/display/text` | Show text (partial update) |
 | POST | `/api/display/brightness` | Set brightness, clamped to the cap |
 | POST | `/api/display/brightness_cap` | Set the power-budget brightness cap |
+| POST | `/api/display/power` | Configure the calculated current budget and its limiter |
 | GET | `/api/display/light_sensor` | Ambient sensor config plus the live reading |
 | POST | `/api/display/light_sensor` | Configure the ambient sensor (partial update) |
 | POST | `/api/display/clear` | Blank the display and forget the stored text |
@@ -83,6 +84,26 @@ curl -X POST http://192.168.1.50/api/display/brightness_cap \
 ```
 
 Errors: 400 `"cap required"` when the field is missing or not a number.
+
+## POST /api/display/power
+
+Configures the [calculated power budget](../../architecture/power/): the constants that describe your panels, the current the LEDs may draw, and whether the driver enforces it. Every field is optional and omitted fields keep their stored value.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `limit_enabled` | bool | Enforce the budget. Off by default: with it off the figures are reported and nothing is changed |
+| `budget_ma` | number | 0..25000; how much the LEDs alone may draw. 0 means no budget, and nothing is limited or reported. Default 2600 |
+| `ua_per_channel` | number | 1..40000; microamps one colour channel draws at 255. Default 20000, the WS2812B datasheet nominal |
+| `ua_quiescent` | number | 0..5000; microamps one LED draws with every channel off. Default 1000 |
+
+```bash
+curl -X POST http://192.168.1.50/api/display/power \
+  -H "X-Api-Key: mysecret" -d '{"limit_enabled": true, "budget_ma": 2600}'
+```
+
+Errors: 400 when a field is out of range, and 400 `"budget_ma must be set before enabling the limiter"` for `limit_enabled` with a budget of 0, which would mean limiting the panel to nothing.
+
+The live estimate is not here: it changes every frame, so it rides along in `GET /api/status` under `power`, where the web UI is already polling.
 
 ## GET /api/display/light_sensor
 

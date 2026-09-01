@@ -233,10 +233,11 @@ void app_main(void)
     mapping_config_t layout;
     resolve_layout(&cfg, &layout);
 
-    // 3. Bring the LED stack up and apply persisted hardware state (cap
-    //    before brightness, so an over-cap value never reaches the panel)
-    //    before any pixel is drawn.
+    // 3. Bring the LED stack up and apply persisted hardware state (power
+    //    budget and cap before brightness, so a value over either one never
+    //    reaches the panel) before any pixel is drawn.
     ESP_ERROR_CHECK(led_driver_init(&layout));
+    led_driver_set_power_cfg(&cfg.power);
     led_driver_set_brightness_cap(cfg.brightness_cap);
     led_driver_set_brightness(cfg.brightness);
     ESP_ERROR_CHECK(display_init());

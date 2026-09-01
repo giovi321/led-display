@@ -9,6 +9,7 @@
 #include "devname.h"
 #include "display.h"
 #include "mapping.h"
+#include "power_model.h"
 
 // What the panel shows once the network state is known ("after boot").
 typedef enum {
@@ -79,6 +80,11 @@ typedef struct {
     uint16_t        offline_y;
     uint8_t         offline_bright;   // its own brightness, independent of the panel
     uint8_t         offline_corner;   // legacy 0 TL, 1 TR, 2 BL, 3 BR; migration source only
+    // Calculated power budget: the constants of the current model, the budget
+    // to hold to and whether the driver enforces it. Absent from NVS on a
+    // device that predates it, which loads as the defaults with enforcement
+    // off, so nothing about an existing display changes on update.
+    power_cfg_t     power;
     // Legacy v1 pixel-mapping mode ("map" NVS key). -1 when absent. Only
     // used once, to migrate to the "layout" blob via mapping_from_legacy().
     int             legacy_map_mode;
@@ -101,6 +107,7 @@ esp_err_t settings_save_text(const char *text,
 esp_err_t settings_save_font(uint8_t font, bool prop);
 esp_err_t settings_save_brightness(uint8_t brightness);
 esp_err_t settings_save_brightness_cap(uint8_t cap);
+esp_err_t settings_save_power(const power_cfg_t *power);
 esp_err_t settings_save_boot_screen(boot_screen_t which);
 esp_err_t settings_save_source(display_source_t source);
 esp_err_t settings_save_screens(const settings_t *in);

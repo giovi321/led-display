@@ -55,6 +55,14 @@ static cJSON *display_to_json(const settings_t *s)
     cJSON_AddNumberToObject(col, "b", s->color.b);
     cJSON_AddNumberToObject(d, "brightness", s->brightness);
     cJSON_AddNumberToObject(d, "brightness_cap", s->brightness_cap);
+    // The power budget travels with the display section: its constants describe
+    // the panels, so a backup restored onto the same hardware should not need
+    // recalibrating.
+    cJSON *pw = cJSON_AddObjectToObject(d, "power");
+    cJSON_AddBoolToObject(pw,   "limit_enabled", s->power.limit_enabled);
+    cJSON_AddNumberToObject(pw, "budget_ma", s->power.budget_ma);
+    cJSON_AddNumberToObject(pw, "ua_per_channel", s->power.ua_per_channel);
+    cJSON_AddNumberToObject(pw, "ua_quiescent", s->power.ua_quiescent);
     // The bool keeps old backups/firmware working; the mode string is the
     // full off/restart/continuous state.
     cJSON_AddBoolToObject(d, "scroll", s->scroll_mode != 0);
@@ -387,6 +395,30 @@ static bool apply_display(const cJSON *sec)
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "brightness_cap"))) {
         s.brightness_cap = (uint8_t)clampi(it->valueint, 0, 255);
     }
+    const cJSON *pw = cJSON_GetObjectItem(sec, "power");
+    if (cJSON_IsObject(pw)) {
+        // Clamped rather than rejected, like every other field here: a backup
+        // from a build with different limits still restores.
+        power_cfg_t p = s.power;
+        if (cJSON_IsBool(it = cJSON_GetObjectItem(pw, "limit_enabled"))) {
+            p.limit_enabled = cJSON_IsTrue(it);
+        }
+        if (cJSON_IsNumber(it = cJSON_GetObjectItem(pw, "budget_ma"))) {
+            p.budget_ma = (uint16_t)clampi(it->valueint, 0, POWER_BUDGET_MA_MAX);
+        }
+        if (cJSON_IsNumber(it = cJSON_GetObjectItem(pw, "ua_per_channel"))) {
+            p.ua_per_channel = (uint16_t)clampi(it->valueint,
+                                                POWER_UA_PER_CHANNEL_MIN,
+                                                POWER_UA_PER_CHANNEL_MAX);
+        }
+        if (cJSON_IsNumber(it = cJSON_GetObjectItem(pw, "ua_quiescent"))) {
+            p.ua_quiescent = (uint16_t)clampi(it->valueint, 0, POWER_UA_QUIESCENT_MAX);
+        }
+        // A restored "limit to 0 mA" would blank the panel and look like a
+        // dead device; drop the enable rather than the budget.
+        if (p.limit_enabled && p.budget_ma == 0) p.limit_enabled = false;
+        if (power_model_valid(&p)) s.power = p;
+    }
     if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "scroll"))) {
         // Pre-2.2 backups only carry the bool; mapped like the NVS key.
         s.scroll_mode = cJSON_IsTrue(it) ? 1 : 0;
@@ -455,10 +487,12 @@ static bool apply_display(const cJSON *sec)
 
     if (settings_save(&s) != ESP_OK) return false;
 
-    // Live-apply. The cap goes first so the brightness lands under it, then the
-    // arbiter picks the level: a scheduled-off window keeps the panel dark (the
-    // text still renders into the frame) and an enabled light sensor keeps
-    // driving it, with the imported value stored for when it stops.
+    // Live-apply. The power budget and the cap go first so the brightness lands
+    // under both, then the arbiter picks the level: a scheduled-off window
+    // keeps the panel dark (the text still renders into the frame) and an
+    // enabled light sensor keeps driving it, with the imported value stored for
+    // when it stops.
+    led_driver_set_power_cfg(&s.power);
     led_driver_set_brightness_cap(s.brightness_cap);
     scheduler_reapply_brightness();
     display_set_font(s.font, s.prop);

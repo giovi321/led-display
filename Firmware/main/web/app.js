@@ -293,8 +293,13 @@ function setScrollUi() {
 $('#scrollmode').onchange = setScrollUi;
 setScrollUi();
 
-$('#brightness').oninput = e => { $('#brval').textContent = e.target.value; };
+$('#brightness').oninput = e => {
+  $('#brval').textContent = e.target.value;
+  renderPower();
+};
 $('#speed').oninput = e => { $('#spval').textContent = e.target.value; };
+// The colour is half of what a frame costs, so the readout has to follow it.
+$('#color').oninput = () => renderPower();
 
 // The light sensor and the slider are the same brightness: while the sensor is
 // driving it, the slider reads out the level it picked and stops being an input.
@@ -311,6 +316,201 @@ function setBrightnessAuto(on) {
   $('#brightness').disabled = !!on;
   $('#br-auto').classList.toggle('hidden', !on);
 }
+
+// ---- power budget ----------------------------------------------------------
+// A mirror of Firmware/main/power_model.c, so moving the slider or picking a
+// colour is priced immediately instead of after a round trip. The device sends
+// the model's constants and the lit-pixel count of the last frame in
+// /api/status, which is what makes this honest: it prices the content actually
+// on the panel rather than an all-pixels-lit guess nobody would believe.
+//
+// Keep the arithmetic in step with the C. The largest intermediate is
+// 8192 * 765 * 255 * 40000, about 6e13, well inside a double's exact range.
+
+const PWR_NEAR = 0.8;      // fraction of the budget where the readout turns amber
+
+let pwrOver = false;       // the slider's position is over budget
+let pwrArmed = false;      // Apply has been pressed once and is asking again
+
+function fmtMa(ma) {
+  return ma >= 1000 ? (ma / 1000).toFixed(2) + ' A' : Math.round(ma) + ' mA';
+}
+
+function pwrFrameMa(pw, px, sumRaw, eff) {
+  const quiescent = px * pw.ua_quiescent;
+  const lit = Math.floor(sumRaw * eff * pw.ua_per_channel / (255 * 255));
+  return Math.ceil((quiescent + lit) / 1000);
+}
+
+// power_model_fit_brightness(). Needed here as well as on the device: with the
+// limiter on, "what will this slider position draw" is the clamped answer, and
+// a readout that quoted the unclamped one would contradict the panel.
+function pwrFitBrightness(pw, px, sumRaw, eff) {
+  if (!pw.budget_ma) return eff;
+  const budgetUa = pw.budget_ma * 1000;
+  const quiescent = px * pw.ua_quiescent;
+  if (quiescent >= budgetUa) return 0;
+  if (sumRaw === 0 || !pw.ua_per_channel) return eff;
+  const fit = Math.floor((budgetUa - quiescent) * 255 * 255
+                         / (sumRaw * pw.ua_per_channel));
+  return fit >= eff ? eff : fit;
+}
+
+function setApplyGuard() {
+  const btn = $('#apply');
+  // Only guard what the guard can prevent: with the limiter on, applying an
+  // over-budget level dims the frame instead of tripping the supply, so a
+  // second click would be theatre.
+  const guard = pwrOver && !(lastStatus && lastStatus.power
+                             && lastStatus.power.limit_enabled);
+  if (!guard) pwrArmed = false;
+  btn.textContent = pwrArmed ? 'Apply anyway?' : 'Apply appearance';
+  btn.classList.toggle('danger', pwrArmed);
+}
+
+function renderPower() {
+  const box = $('#pwr');
+  const pw = lastStatus && lastStatus.power;
+  const lay = lastStatus && lastStatus.layout;
+  // The driver reports the chain length once it has sent a frame; before that,
+  // the layout gives the same number.
+  const px = (pw && pw.px) || (lay ? lay.width * lay.height : 0);
+  // Hidden on a device with no budget configured, and on firmware that
+  // predates the power block: a readout with nothing to compare against would
+  // be a number without a meaning.
+  if (!pw || !pw.budget_ma || !px) {
+    box.classList.add('hidden');
+    pwrOver = false;
+    setApplyGuard();
+    return;
+  }
+  box.classList.remove('hidden');
+
+  const col = hex2rgb($('#color').value);
+  const sum = col.r + col.g + col.b;
+  const asked = +$('#brightness').value;
+  const lit = Math.min(pw.lit_px || 0, px);
+  const limiting = !!pw.limit_enabled;
+
+  // A blank panel has no operating point to price, so the figure becomes the
+  // worst case and says so. Otherwise the content on screen is the subject and
+  // the worst case is the caveat underneath.
+  const blank  = lit === 0;
+  const subject = blank ? px * sum : lit * sum;
+
+  // Two figures: what this slider position asks for, and what the panel would
+  // actually draw. They differ only when the limiter is on and clamping, and
+  // then the headline is the one the panel will really show.
+  const askedMa = pwrFrameMa(pw, px, subject, asked);
+  const eff = limiting ? pwrFitBrightness(pw, px, subject, asked) : asked;
+  const now = eff === asked ? askedMa : pwrFrameMa(pw, px, subject, eff);
+  const worst = pwrFrameMa(pw, px, px * sum, eff);
+  const frac = now / pw.budget_ma;
+
+  // The state is about what was asked for, not what survived the limiter: a
+  // clamped frame is inside the budget by construction, and colouring it green
+  // would hide that the setting is beyond what the supply can do.
+  const clamped = eff < asked;
+  pwrOver = askedMa > pw.budget_ma && !limiting;
+  box.classList.toggle('over', pwrOver);
+  box.classList.toggle('near', !pwrOver && (clamped || frac >= PWR_NEAR));
+  $('#pwr-fill').style.transform = 'scaleX(' + Math.min(frac, 1).toFixed(3) + ')';
+
+  $('#pwr-now').textContent = (blank ? 'If text appears: ' : 'Estimated draw ')
+    + fmtMa(now);
+  $('#pwr-of').textContent = 'budget ' + fmtMa(pw.budget_ma);
+
+  const pct = Math.round((lit / px) * 100);
+  $('#pwr-worst').textContent = blank
+    ? 'Nothing is lit right now, so this is every pixel at this colour and '
+      + 'brightness. Real content draws less.'
+    : lit + ' of ' + px + ' pixels lit (' + pct + '%). Every pixel lit at this '
+      + 'colour and brightness would be ' + fmtMa(worst) + ', so longer text '
+      + 'or a brighter colour costs more than the figure above.';
+
+  const idle = pwrFrameMa(pw, px, 0, 0);
+  $('#pwr-static').textContent = 'Estimated from a model of the panels, not '
+    + 'measured: set the constants under Hardware to match yours. ' + px
+    + ' LEDs draw about ' + fmtMa(idle) + ' with everything black. If the supply '
+    + 'does trip, unplug and plug back in - the fuse resets.';
+
+  // The alarm: only over budget, and only when nothing is stopping it.
+  $('#pwr-alarm').classList.toggle('hidden', !pwrOver);
+  $('#pwr-alarm-text').textContent = pw.floor_exceeded
+    ? 'These ' + px + ' LEDs draw about ' + fmtMa(idle) + ' with every colour '
+      + 'off, which is already over the ' + fmtMa(pw.budget_ma) + ' budget. No '
+      + 'brightness fixes that - raise the budget under Hardware if the supply '
+      + 'can take it, or drive fewer panels.'
+    : 'About ' + fmtMa(askedMa) + ', over the ' + fmtMa(pw.budget_ma)
+      + ' budget. The supply may cut out and the display go dark until you '
+      + 'unplug it, and it will cut out again as soon as the text comes back. '
+      + 'Lower the brightness, pick a dimmer colour, or let the device hold '
+      + 'itself to the budget.';
+
+  const lim = $('#pwr-limiting');
+  lim.classList.toggle('hidden', !clamped);
+  if (clamped) {
+    lim.textContent = 'The power limiter holds this at brightness ' + eff
+      + ' instead of ' + asked + ': ' + fmtMa(askedMa) + ' would be over the '
+      + fmtMa(pw.budget_ma) + ' budget. Your setting is kept and comes back on '
+      + 'its own when the content or the colour costs less.';
+  }
+  setApplyGuard();
+}
+
+// The Hardware tab's own card. Seeded from the status poll so it never shows a
+// value the device does not hold.
+function renderPowerCfg(pw) {
+  if (!pw || typeof pw.budget_ma !== 'number') return;
+  $('#pw-en').checked   = !!pw.limit_enabled;
+  $('#pw-budget').value = pw.budget_ma;
+  $('#pw-chan').value   = pw.ua_per_channel;
+  $('#pw-idle').value   = pw.ua_quiescent;
+  const st = $('#pw-state');
+  st.classList.toggle('warn', !!(pw.limited || pw.floor_exceeded));
+  if (pw.floor_exceeded) {
+    st.textContent = 'The chain draws more than the budget with every colour '
+      + 'off. Nothing can be shown inside this budget.';
+  } else if (pw.limited) {
+    st.textContent = 'Limiting now: brightness ' + pw.eff_brightness
+      + ' instead of ' + pw.req_brightness + '.';
+  } else if (pw.est_ma) {
+    st.textContent = 'Showing now: about ' + fmtMa(pw.est_ma) + ', peak '
+      + fmtMa(pw.peak_ma) + ' of ' + fmtMa(pw.budget_ma) + '.';
+  } else {
+    st.textContent = '';
+  }
+}
+
+async function savePower(patch) {
+  await jpost('/api/display/power', patch);
+  try { applyStatus(await jget('/api/status')); } catch (e) { /* poll catches up */ }
+}
+
+$('#pw-save').onclick = () => act($('#pw-save'), async () => {
+  const budget = Math.round(+$('#pw-budget').value);
+  if (!(budget >= 0 && budget <= 25000)) {
+    toast('Budget must be 0-25000 mA', true);
+    return;
+  }
+  if ($('#pw-en').checked && budget === 0) {
+    toast('Set a budget before switching the limiter on', true);
+    return;
+  }
+  await savePower({
+    limit_enabled: $('#pw-en').checked,
+    budget_ma: budget,
+    ua_per_channel: Math.round(+$('#pw-chan').value),
+    ua_quiescent: Math.round(+$('#pw-idle').value),
+  });
+  toast('Power budget saved');
+});
+
+// The shortcut inside the warning: one click, no trip to the Hardware tab.
+$('#pwr-enable').onclick = () => act($('#pwr-enable'), async () => {
+  await savePower({ limit_enabled: true });
+  toast('Power limiter on - frames over budget will be dimmed');
+});
 
 // The schedule's off-window level is a brightness too: it lives under the same
 // cap as the main slider.
@@ -352,6 +552,17 @@ $('#apply-text').onclick = () => act($('#apply-text'), async () => {
 });
 
 $('#apply').onclick = () => act($('#apply'), async () => {
+  // Over budget with nothing enforcing it: make the user say it twice. The
+  // cost of getting this wrong is a display that goes dark and stays dark
+  // until someone walks over and unplugs it.
+  if (pwrOver && !pwrArmed &&
+      !(lastStatus && lastStatus.power && lastStatus.power.limit_enabled)) {
+    pwrArmed = true;
+    setApplyGuard();
+    toast('Over the power budget - press again to apply anyway', true);
+    return;
+  }
+  pwrArmed = false;
   const raw = $('#size').value;
   if (!raw) { toast('Pick a text size first', true); return; }
   const size = raw.split(':');
@@ -446,6 +657,7 @@ function renderChips() {
 
 async function applyChip(c) {
   $('#color').value = rgb2hex(c);
+  renderPower();   // a programmatic value set fires no input event
   try {
     // Partial POST: the handler keeps text/scroll/speed when absent.
     await jpost('/api/display/text', { color: { r: c.r, g: c.g, b: c.b } });
@@ -1881,6 +2093,9 @@ function applyStatus(s) {
     if (s.display.spacing) $('#spacing').value = s.display.spacing;
   }
   $('#brcap').value = cap;
+  renderPowerCfg(s.power);
+  // Last, so it prices the slider and colour this call has just seeded.
+  renderPower();
   updateCurl();
 }
 
@@ -1919,6 +2134,10 @@ setInterval(async () => {
       $('#brightness').value = s.display.brightness;
       $('#brval').textContent = s.display.brightness;
     }
+    // The estimate tracks the panel, not just the slider: content that has
+    // scrolled or a value that has changed moves the figure on its own.
+    renderPowerCfg(s.power);
+    renderPower();
     if (!$('#tab-network').classList.contains('hidden')) {
       renderWgStatus(s.wireguard);
     }

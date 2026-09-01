@@ -16,7 +16,7 @@ Firmware v2 (current version 2.10.0, `fw_version.h`) is a single ESP-IDF applica
 1. Initialize NVS, erasing and retrying on version mismatch or full pages
 2. Load settings from the `cfg` NVS namespace (`settings_load`), defaults on first boot
 3. Resolve the layout: stored `layout` blob, else a one-time migration of the legacy v1 `map` key via `mapping_from_legacy` (persisted so the legacy key is never consulted again), else the factory default
-4. Bring up the LED stack: `led_driver_init` with the resolved layout, then brightness cap before brightness (an over-cap value never reaches the panels), then `display_init` and the stored font and spacing
+4. Bring up the LED stack: `led_driver_init` with the resolved layout, then the power budget and brightness cap before brightness (a value over either never reaches the panels), then `display_init` and the stored font and spacing
 5. Boot splash: a 1 s border in the stored color, visual confirmation the LEDs are alive
 6. Start WiFi (`wifi_manager_start`): set the hostname on both netifs before the radio starts so the first DHCP request carries it, then scan and walk the saved networks strongest-first with a 10 s timeout each, falling back to the captive-portal AP. Once boot ends in STA mode a reconnect task keeps retrying a lost link
 7. Load integration config and start the outbound webhook worker; both are non-fatal, a failure logs a warning and boot continues
@@ -34,17 +34,21 @@ Firmware v2 (current version 2.10.0, `fw_version.h`) is a single ESP-IDF applica
 
 `mapping.c` is the pixel-mapping engine: pure C11, no ESP-IDF, no allocation. It turns a layout (`mapping_config_t`) into a lookup table from logical coordinates to chain positions. Details in [pixel mapping](../pixel-mapping/).
 
-`led_driver.c` owns the WS2812B chain: the `espressif/led_strip` managed component over RMT (GRB, GPIO 16, 10 MHz RMT resolution, no DMA), a heap frame buffer, and the LUT built once by `mapping_build_lut`. Brightness is applied as a scale factor on refresh, clamped by a separate brightness cap (the power-budget guard, see [power](../power/)). `led_driver_reconfigure` swaps the layout at runtime: validate, reallocate frame buffer and LUT, resize the strip, clear. An invalid or missing layout at boot falls back to the factory default instead of bricking the device.
+`led_driver.c` owns the WS2812B chain: the `espressif/led_strip` managed component over RMT (GRB, GPIO 16, 10 MHz RMT resolution, no DMA), a heap frame buffer, and the LUT built once by `mapping_build_lut`. Brightness is applied as a scale factor on refresh, clamped by a separate brightness cap and, when the limiter is enabled, by the calculated power budget (see [power](../power/)). Refresh runs a read-only summing pass over the frame buffer first, which is what prices the frame: brightness scaling is uniform, so one raw sum is enough to cost any brightness, and `power_model.c` solves the same formula backwards for the highest brightness that fits the budget. `led_driver_reconfigure` swaps the layout at runtime: validate, reallocate frame buffer and LUT, resize the strip, clear. An invalid or missing layout at boot falls back to the factory default instead of bricking the device.
 
 `display.c` renders on top of the driver: text at an integer scale factor, static or scrolling in restart or continuous mode (FreeRTOS task), calibration test patterns (raw strip walk, logical (x,y) walk, corners, border, fill), and the identify mode that lights each panel in a color keyed by its chain index for the arrangement editor.
 
 `fonts.c` holds the glyph data and the spacing rules, pure C: three column-major ASCII fonts (`5x7`, `3x5`, `7x12`), proportional advance with tabular digits, monospace as the alternative, and `font_fit`, which substitutes the tallest font that fits when the stored one is too tall for the active layout.
 
+`led_driver_freeze()` pushes one frame at a fixed brightness and then stops transmitting until thawed. Both OTA paths call it before their first flash operation: the RMT interrupt is not IRAM-safe, so a flash write stalls it mid-frame and the strip re-latches out of alignment, scrambling the panel and spiking the current (see [power](../power/)). The frame buffer is untouched, so a failed update thaws and repaints; a successful one reboots with the frame still latched.
+
+`power_model.c` is the WS2812B current model and nothing else: per-LED quiescent draw plus a share of full-scale channel current, integer-only, no ESP-IDF, host-tested. It is called once per refresh by `led_driver.c` and mirrored in `app.js` so the web UI can price a slider move without a round trip.
+
 `light_sensor.c` reads a BH1750 lux meter over I2C at address 0x23 once a second and hands the level to the scheduler's brightness arbiter; `light_curve.c` is its pure half (reading to brightness, smoothing, hysteresis, pin rules). Lux is clamped onto a 0..4095 scale, which is already brighter than any readable room. Sampling runs whenever the sensor answers, so the UI can calibrate against a live reading before it is switched on, and a sensor that stops answering is reported rather than frozen.
 
 ### Settings and NVS
 
-`settings.c` persists everything under the NVS namespace `cfg`. Scalar values (text, color, brightness, brightness cap, scroll mode, speed, font, spacing, font scale, boot screen, device name) have individual keys with read-modify-write helpers per field, so HTTP handlers never need the full schema. The `scrl` on/off bool is kept in sync with the `scm` scroll mode so a rollback to an older image still finds a value it understands. Structured config is stored as JSON blobs (up to 2048 bytes each) in the same namespace:
+`settings.c` persists everything under the NVS namespace `cfg`. Scalar values (text, color, brightness, brightness cap, power budget and its two calibration constants, scroll mode, speed, font, spacing, font scale, boot screen, device name) have individual keys with read-modify-write helpers per field, so HTTP handlers never need the full schema. The `scrl` on/off bool is kept in sync with the `scm` scroll mode so a rollback to an older image still finds a value it understands. Structured config is stored as JSON blobs (up to 2048 bytes each) in the same namespace:
 
 | Blob key | Content |
 | --- | --- |
@@ -66,7 +70,7 @@ Two namespaces sit outside `cfg`: `sched` for the schedule scalars plus its off-
 
 | File | Endpoints |
 | --- | --- |
-| `api_display.c` | `/api/display/{text,brightness,brightness_cap,light_sensor,clear,test,map,identify}` |
+| `api_display.c` | `/api/display/{text,brightness,brightness_cap,power,light_sensor,clear,test,map,identify}` |
 | `api_layout.c` | `/api/layout` (GET/POST) |
 | `api_colors.c` | `/api/colors`, `/api/value`, `/api/value/config` |
 | `api_wifi.c` | `/api/wifi/{scan,networks,networks/delete,connect,reset}` |

@@ -79,6 +79,20 @@ curl http://192.168.1.50/api/status
     "offline_y": 0,
     "offline_brightness": 255
   },
+  "power": {
+    "limit_enabled": false,
+    "budget_ma": 2600,
+    "ua_per_channel": 20000,
+    "ua_quiescent": 1000,
+    "est_ma": 1262,
+    "peak_ma": 1301,
+    "lit_px": 210,
+    "px": 1024,
+    "req_brightness": 32,
+    "eff_brightness": 32,
+    "limited": false,
+    "floor_exceeded": false
+  },
   "layout": {
     "rows": 2, "cols": 2,
     "panel_w": 32, "panel_h": 8,
@@ -134,6 +148,14 @@ curl http://192.168.1.50/api/status
 | `system.offline_text` | The message shown when `offline_screen` is `text` |
 | `system.offline_x`, `system.offline_y` | Where the `dot` marker sits |
 | `system.offline_brightness` | The marker's own brightness, 0..255 |
+| `power.limit_enabled`, `power.budget_ma`, `power.ua_per_channel`, `power.ua_quiescent` | The stored [power budget](../../architecture/power/), set through [`POST /api/display/power`](../display/#post-apidisplaypower) |
+| `power.est_ma` | Estimated draw of the last frame sent, in mA. A model, not a measurement |
+| `power.peak_ma` | The highest estimate of the last two seconds, so a scrolling frame's worst moment is not averaged away |
+| `power.lit_px` | Non-black pixels in the last frame, out of `power.px`. What lets a client price a brightness or colour change for the content actually on the panel |
+| `power.req_brightness` | The brightness the frame asked for: your setting clamped by `system.brightness_cap` |
+| `power.eff_brightness` | The brightness it went out at, after the limiter |
+| `power.limited` | The limiter clamped the last frame. Per frame and presentation only; your stored brightness is untouched |
+| `power.floor_exceeded` | The chain draws more than the budget with every channel off. No brightness can fix that |
 | `layout.*` | Summary of the active layout; the full config comes from [`GET /api/layout`](../layout/) |
 | `value_age_s` | Seconds since the last `POST /api/value`; -1 means never |
 | `wireguard.last_handshake` | Unix seconds, 0 means never |

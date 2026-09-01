@@ -6,6 +6,7 @@
 #include "esp_err.h"
 
 #include "mapping.h"
+#include "power_model.h"
 
 #define LED_DATA_GPIO          16
 
@@ -35,6 +36,63 @@ uint8_t led_driver_get_brightness(void);
 // from the advanced UI). 255 = no cap. Persisted by the settings layer.
 void led_driver_set_brightness_cap(uint8_t cap);
 uint8_t led_driver_get_brightness_cap(void);
+
+// ---- power budget ---------------------------------------------------------
+//
+// The brightness cap is a blunt instrument: it scales RGB without knowing how
+// much current the frame will actually draw. The power budget is the calculated
+// version. Every refresh sums the frame's channel bytes and runs them through
+// power_model, which gives both a live estimate to report and, when the limiter
+// is enabled, the brightness that frame has to go out at to stay inside the
+// budget.
+//
+// The limiter is per-frame and presentation-only: the stored brightness is
+// never rewritten, so lowering the content's coverage or its colour restores
+// the level the user asked for without them touching the slider.
+
+typedef struct {
+    uint32_t est_ma;         // estimated draw of the last frame
+    uint32_t peak_ma;        // rolling peak, so a scrolling frame's worst
+                             // moment is visible and not averaged away
+    uint32_t lit_px;         // non-black pixels in the last frame
+    uint32_t px;             // chain length, for the UI's own what-if model
+    uint8_t  req_brightness; // brightness before the limiter (setting and cap)
+    uint8_t  eff_brightness; // brightness the last frame actually went out at
+    bool     limited;        // the limiter clamped the last frame
+    bool     floor_exceeded; // quiescent draw alone is over the budget
+} led_power_status_t;
+
+void led_driver_set_power_cfg(const power_cfg_t *cfg);
+void led_driver_get_power_cfg(power_cfg_t *out);
+void led_driver_get_power(led_power_status_t *out);
+
+// ---- freeze ---------------------------------------------------------------
+//
+// Push one frame at `fixed_brightness` (ignoring the brightness setting, the
+// cap and the power limiter) and then send nothing at all until thawed. The
+// WS2812B holds its last latched values, so whatever went out stays on the
+// panel - across a reboot too, since the LEDs keep their own power.
+//
+// This exists for firmware updates. The RMT channel runs without DMA and its
+// ISR is not IRAM-safe, so it cannot refill the 64-symbol buffer while a
+// flash erase or write has the cache disabled. A stall longer than the
+// WS2812B's ~50 us reset window makes the strip latch and start a new frame
+// mid-stream, so the rest of the bits land at the wrong LED and at the wrong
+// bit offset inside each byte - and misalignment turns small channel values
+// into large ones. That is both the garbage on the panel and a current spike
+// far above what the content should draw.
+//
+// A frame that is already black cannot be corrupted upward: misaligned zero
+// bits are still zero. Freezing is therefore the fix rather than merely a
+// mitigation, and it is stronger than lowering the brightness, which leaves
+// nonzero bytes to be misread.
+//
+// The frame buffer is untouched, so thawing and refreshing restores whatever
+// was on screen. The marker overlay is not stamped onto the frozen frame: a
+// firmware update is not the moment to add current for an indicator.
+void led_driver_freeze(uint8_t fixed_brightness);
+void led_driver_thaw(void);
+bool led_driver_frozen(void);
 
 void led_driver_clear(void);
 void led_driver_fill(uint8_t r, uint8_t g, uint8_t b);

@@ -128,6 +128,23 @@
       brightness. Switch it off under Hardware to move this slider yourself -
       your saved level is kept and comes back when you do.</p>
 
+    <!-- Power budget readout. Estimates, not measurements: the figures come
+         from a model of the panels whose constants are set under Hardware. -->
+    <div id="pwr" class="pwr hidden">
+      <div class="pwr-head">
+        <span id="pwr-now">Estimated draw</span>
+        <span id="pwr-of" class="mut"></span>
+      </div>
+      <div class="bar pwr-bar"><div id="pwr-fill" class="fill"></div></div>
+      <p id="pwr-worst" class="note"></p>
+      <p id="pwr-static" class="note"></p>
+      <div id="pwr-alarm" class="pwr-alarm hidden">
+        <p id="pwr-alarm-text"></p>
+        <button type="button" class="act" id="pwr-enable">Turn on the power limiter</button>
+      </div>
+      <p id="pwr-limiting" class="note warn hidden"></p>
+    </div>
+
     <label for="scrollmode">Scrolling</label>
     <select id="scrollmode">
       <option value="off">Off - text stays put</option>
@@ -225,7 +242,61 @@
       <button class="act" id="brcap-save">Save cap</button>
     </div>
     <p class="note warn">The cap limits maximum brightness to protect the power
-      supply. The brightness slider and API requests cannot exceed it.</p>
+      supply. The brightness slider and API requests cannot exceed it. It scales
+      colour without knowing what the frame will draw; the power budget below is
+      the calculated version.</p>
+  </div>
+  <div class="card">
+    <h2>Power budget</h2>
+    <p class="note">The device adds up the colour values in every frame it sends
+      and prices them, so the Appearance tab can tell you what a brightness will
+      draw before you apply it. Switch the limiter on and it also acts: a frame
+      over budget goes out dimmer instead of tripping the supply.</p>
+
+    <label class="check big"><input id="pw-en" type="checkbox"> Hold the display
+      to the budget</label>
+    <p class="note">Off by default. While it is off the figures are reported and
+      nothing is changed, which is what you want until the numbers below match
+      what your meter says.</p>
+
+    <div class="flab">Budget<button type="button" class="hlp"
+      data-help="How much current the LEDs alone may draw, in milliamps. Leave room for the controller: an ESP32-S3 wants a few hundred mA of its own. Standard USB-C without PD negotiation gives 3000 mA total at 5 V, which is where the 2600 mA default comes from. 0 means no budget, and nothing is limited or warned about."
+      aria-expanded="false" aria-label="Explain the current budget">?</button></div>
+    <div class="row">
+      <input id="pw-budget" type="number" min="0" max="25000" step="50" value="2600" class="num">
+      <span class="mut">mA for the LEDs</span>
+    </div>
+
+    <details id="pw-cal">
+      <summary>Calibration</summary>
+      <p class="note">Two constants describe your panels. The defaults are the
+        WS2812B datasheet figures, which over-predict on most panels sold - the
+        safe direction, because the alternative is a limiter that lets the
+        supply trip. To pin them down: lower the brightness, run Fill under
+        Diagnostics (it lights every LED at a fixed colour), and compare the
+        estimated draw on the Appearance tab against a meter in the supply lead.
+        Scale the per-channel figure by whatever ratio you find. The power
+        budget page has the version that separates the two constants
+        properly.</p>
+      <div class="grid2">
+        <div>
+          <label for="pw-chan">Per colour channel at full (uA)</label>
+          <input id="pw-chan" type="number" min="1" max="40000" step="100" value="20000" class="num">
+        </div>
+        <div>
+          <label for="pw-idle">Per LED when black (uA)</label>
+          <input id="pw-idle" type="number" min="0" max="5000" step="50" value="1000" class="num">
+        </div>
+      </div>
+      <p class="note">The idle figure is the one people forget: a WS2812B draws
+        about a milliamp with every channel off, so a 1024-LED chain wants
+        roughly 1000 mA before it shows anything at all.</p>
+    </details>
+
+    <div class="row">
+      <button class="act" id="pw-save">Save budget</button>
+    </div>
+    <p id="pw-state" class="note"></p>
   </div>
   <div class="card">
     <h2>Light sensor</h2>

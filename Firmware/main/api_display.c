@@ -237,6 +237,76 @@ static esp_err_t display_brightness_cap_post(httpd_req_t *req)
     return web_send_ok(req);
 }
 
+// ---- /api/display/power ----------------------------------------------------
+//
+// The calculated power budget: the model's constants, the budget to hold to and
+// whether the driver enforces it. Lives next to brightness_cap because it is
+// the same concern done properly - the cap scales RGB blind, this one prices
+// the frame first. The live estimate is reported in GET /api/status, where the
+// UI is already polling.
+
+static esp_err_t display_power_post(httpd_req_t *req)
+{
+    if (web_require_auth(req) != ESP_OK) return ESP_OK;
+
+    cJSON *json = web_read_json(req, BODY_MAX);
+    if (!json) return web_send_err(req, "bad json", 400);
+
+    // Absent fields keep their stored value, like the other POSTs here.
+    power_cfg_t cfg;
+    led_driver_get_power_cfg(&cfg);
+
+    const cJSON *it;
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(json, "limit_enabled"))) {
+        cfg.limit_enabled = cJSON_IsTrue(it);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "budget_ma"))) {
+        if (it->valueint < 0 || it->valueint > POWER_BUDGET_MA_MAX) {
+            cJSON_Delete(json);
+            return web_send_err(req, "budget_ma must be 0-25000 (0 = no budget)", 400);
+        }
+        cfg.budget_ma = (uint16_t)it->valueint;
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "ua_per_channel"))) {
+        if (it->valueint < POWER_UA_PER_CHANNEL_MIN ||
+            it->valueint > POWER_UA_PER_CHANNEL_MAX) {
+            cJSON_Delete(json);
+            return web_send_err(req, "ua_per_channel must be 1-40000", 400);
+        }
+        cfg.ua_per_channel = (uint16_t)it->valueint;
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(json, "ua_quiescent"))) {
+        if (it->valueint < 0 || it->valueint > POWER_UA_QUIESCENT_MAX) {
+            cJSON_Delete(json);
+            return web_send_err(req, "ua_quiescent must be 0-5000", 400);
+        }
+        cfg.ua_quiescent = (uint16_t)it->valueint;
+    }
+    cJSON_Delete(json);
+
+    // Enforcing a budget of 0 would mean "limit to nothing", which reads as a
+    // dark panel and is never what the caller wanted.
+    if (cfg.limit_enabled && cfg.budget_ma == 0) {
+        return web_send_err(req, "budget_ma must be set before enabling the limiter", 400);
+    }
+    if (!power_model_valid(&cfg)) {
+        return web_send_err(req, "power config out of range", 400);
+    }
+
+    led_driver_set_power_cfg(&cfg);
+    esp_err_t err = settings_save_power(&cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "saving power budget failed: %s", esp_err_to_name(err));
+        return web_send_err(req, "saving power budget failed", 500);
+    }
+    // The limiter acts per frame, so a new budget takes hold on the next
+    // refresh with no repaint needed. Re-derive the brightness anyway: the
+    // arbiter owns the level, and a released limiter should not wait for the
+    // next content change to give it back.
+    scheduler_reapply_brightness();
+    return web_send_ok(req);
+}
+
 // ---- /api/display/light_sensor ---------------------------------------------
 //
 // Lives under the display prefix next to brightness_cap: it is another input to
@@ -492,6 +562,7 @@ void api_display_register(httpd_handle_t srv)
         {.uri = "/api/display/text",           .method = HTTP_POST, .handler = display_text_post},
         {.uri = "/api/display/brightness",     .method = HTTP_POST, .handler = display_brightness_post},
         {.uri = "/api/display/brightness_cap", .method = HTTP_POST, .handler = display_brightness_cap_post},
+        {.uri = "/api/display/power",          .method = HTTP_POST, .handler = display_power_post},
         {.uri = "/api/display/light_sensor",   .method = HTTP_GET,  .handler = light_sensor_get_handler},
         {.uri = "/api/display/light_sensor",   .method = HTTP_POST, .handler = light_sensor_post},
         {.uri = "/api/display/clear",          .method = HTTP_POST, .handler = display_clear_post},

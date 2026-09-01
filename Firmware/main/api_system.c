@@ -150,6 +150,28 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddNumberToObject(s, "offline_y", cfg.offline_y);
     cJSON_AddNumberToObject(s, "offline_brightness", cfg.offline_bright);
 
+    // Power budget: the model's constants so the UI can price a slider move
+    // without a round trip, plus what the driver measured on the last frame.
+    // lit_px is what makes the UI's what-if honest - it prices the content
+    // that is actually on the panel instead of an all-pixels-lit guess.
+    power_cfg_t pwcfg;
+    led_power_status_t pwst;
+    led_driver_get_power_cfg(&pwcfg);
+    led_driver_get_power(&pwst);
+    cJSON *pw = cJSON_AddObjectToObject(r, "power");
+    cJSON_AddBoolToObject(pw,   "limit_enabled", pwcfg.limit_enabled);
+    cJSON_AddNumberToObject(pw, "budget_ma", pwcfg.budget_ma);
+    cJSON_AddNumberToObject(pw, "ua_per_channel", pwcfg.ua_per_channel);
+    cJSON_AddNumberToObject(pw, "ua_quiescent", pwcfg.ua_quiescent);
+    cJSON_AddNumberToObject(pw, "est_ma", pwst.est_ma);
+    cJSON_AddNumberToObject(pw, "peak_ma", pwst.peak_ma);
+    cJSON_AddNumberToObject(pw, "lit_px", pwst.lit_px);
+    cJSON_AddNumberToObject(pw, "px", pwst.px);
+    cJSON_AddNumberToObject(pw, "req_brightness", pwst.req_brightness);
+    cJSON_AddNumberToObject(pw, "eff_brightness", pwst.eff_brightness);
+    cJSON_AddBoolToObject(pw,   "limited", pwst.limited);
+    cJSON_AddBoolToObject(pw,   "floor_exceeded", pwst.floor_exceeded);
+
     // Active layout summary; the full config comes from GET /api/layout.
     mapping_config_t map;
     led_driver_get_config(&map);

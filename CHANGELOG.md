@@ -4,6 +4,26 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-09-01
+
+### Added
+
+- A calculated power budget. The driver adds up the colour values in every frame before it goes out and prices them against a model of the panels, so the current an arrangement will draw is known rather than guessed. `power_model.[hc]` is that model: integer-only, no ESP-IDF, host-tested
+- The Appearance tab prices the brightness slider live. It shows the estimated draw of the content actually on the panel at the slider's position with a bar against the budget, what every pixel lit at that colour would cost, and the fixed floor the chain draws with everything black. Crossing the budget turns the figure red, opens a warning naming both numbers and the consequence, and makes Apply ask a second time
+- An opt-in power limiter under Hardware. With it on, a frame over budget goes out at the highest brightness that fits instead of tripping the supply. The clamp is per frame and presentation only: the stored brightness is untouched and comes back on its own when the content or the colour costs less. Off by default, so an existing display behaves exactly as before after the update
+- `POST /api/display/power` sets the budget, the limiter and the two calibration constants (current per colour channel at full, and per LED when black). `GET /api/status` gains a `power` block with the live estimate, a two-second peak hold, the lit-pixel count and whether the limiter is clamping. The constants and the budget travel in the config backup's display section
+
+### Fixed
+
+- A firmware update no longer scrambles the panel or cuts the supply out. The strip is driven from a non-DMA RMT channel whose interrupt is not IRAM-safe, so it cannot refill its 64-symbol buffer while a flash erase or write has the cache disabled. A stall longer than the WS2812B's ~50 us reset window makes the strip latch and restart the frame mid-stream, so the remaining bits land at the wrong LED and at the wrong bit offset inside each byte - and misalignment turns small channel values into large ones, which is both the garbage on the panel and a current spike far above what the content should draw. `OTA_WITH_SEQUENTIAL_WRITES` erases throughout the transfer rather than once at the start, and nothing stopped the refresh loop, so this repeated for the whole update; a continuous scroll at high speed transmits almost without gaps and hits it every time
+- Both update paths now freeze the strip before the first flash operation: one static frame goes out at a fixed low brightness and then nothing at all, because a frame nobody retransmits cannot be torn. A frame that is already dark is also immune to the corruption itself - misaligned zero bits are still zero - which is why this is stronger than simply lowering the brightness. The panel shows a short notice, or goes dark on a display too narrow for one
+- The frozen frame is deliberately left latched through the reboot: the LEDs keep their own power across a restart, so the notice stays until the new image clears the strip, instead of bright garbage surviving into the next boot. A failed update (rejected image, dropped connection, no OTA slot) thaws and repaints instead
+
+### Changed
+
+- The brightness cap's help text now says what it is next to the budget: a ceiling that scales colour without knowing what the frame will draw. It is unchanged and still applies first
+- The power budget page documents the model, both defaults and why the per-channel default is the datasheet figure rather than the one fitted to the project's own measurement, plus how to calibrate against a meter
+
 ## [2.10.0] - 2026-08-15
 
 ### Removed

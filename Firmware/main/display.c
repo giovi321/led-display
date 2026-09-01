@@ -1,6 +1,7 @@
 #include "display.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -186,8 +187,13 @@ static void scroll_task(void *arg)
             offset = led_driver_width();
         }
 
-        if (s_identify || mode == DISPLAY_SCROLL_OFF || text[0] == '\0') {
-            // Idle: just wait for the next state change.
+        if (s_identify || led_driver_frozen() ||
+            mode == DISPLAY_SCROLL_OFF || text[0] == '\0') {
+            // Idle: just wait for the next state change. Frozen counts as idle
+            // so a firmware update is not racing this task for the frame
+            // buffer - refresh would drop the frame anyway, but clearing and
+            // redrawing underneath the notice would leave the wrong content
+            // latched if the update then failed.
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
             continue;
         }
@@ -547,6 +553,73 @@ void display_get_font(uint8_t *font_id_out, bool *prop_out)
     if (font_id_out) *font_id_out = s_state.font;
     if (prop_out)    *prop_out    = s_state.prop;
     xSemaphoreGive(s_state_lock);
+}
+
+// What the panel says while flash is being written, longest first. A clipped
+// half-word is worse than a dark panel, so the first one that fits wins and a
+// display too narrow for even the shortest gets nothing. Every lit pixel is
+// current drawn at the worst possible moment, which is the other reason these
+// are short.
+static const char *UPDATE_NOTICES[] = {"UPDATING", "UPD", "U"};
+
+void display_freeze_for_update(void)
+{
+    // Stop the walkers first. A test pattern painting into the frame buffer
+    // after the notice is drawn would leave the wrong thing latched.
+    s_identify    = false;
+    s_test_cancel = true;
+
+    display_color_t col;
+    xSemaphoreTake(s_state_lock, portMAX_DELAY);
+    col = s_state.color;
+    xSemaphoreGive(s_state_lock);
+
+    led_driver_lock();
+    led_driver_clear();
+
+    // The compact font at scale 1: this is the one frame the user will be
+    // looking at for the length of the update, so it should read, but not at
+    // the cost of lighting half the panel.
+    const font_def_t *f = font_get(font_fit(FONT_ID_3X5, led_driver_height()));
+    if (f->h <= led_driver_height()) {
+        for (unsigned i = 0; i < sizeof(UPDATE_NOTICES) / sizeof(UPDATE_NOTICES[0]); i++) {
+            const int w = font_text_width(f, UPDATE_NOTICES[i], true, 1);
+            if (w > led_driver_width()) continue;
+            draw_text_run(f, (led_driver_width() - w) / 2, UPDATE_NOTICES[i],
+                          col, 1, true);
+            break;
+        }
+    }
+    led_driver_unlock();
+
+    // Sends the frame and then stops the wire. Outside the driver lock:
+    // led_driver_freeze takes it itself and the mutex is not recursive.
+    led_driver_freeze(DISPLAY_UPDATE_BRIGHTNESS);
+}
+
+void display_resume_after_update(void)
+{
+    led_driver_thaw();
+
+    // Repaint through the normal mutation path so the scroll task picks its
+    // state up again. Copied out first: display_show_text writes into the same
+    // state it would be reading from.
+    char text[DISPLAY_TEXT_MAX];
+    display_color_t col;
+    uint8_t mode, speed, scale;
+    xSemaphoreTake(s_state_lock, portMAX_DELAY);
+    snprintf(text, sizeof(text), "%s", s_state.text);
+    col   = s_state.color;
+    mode  = s_state.scroll_mode;
+    speed = s_state.speed;
+    scale = s_state.scale;
+    xSemaphoreGive(s_state_lock);
+
+    if (text[0] == '\0') {
+        display_clear();
+    } else {
+        display_show_text(text, col, mode, speed, scale);
+    }
 }
 
 void display_clear(void)

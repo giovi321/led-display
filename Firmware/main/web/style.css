@@ -616,6 +616,61 @@ details[open] > summary { margin-bottom: 8px; }
   50% { opacity: 0.9; }
 }
 
+/* ---- power budget readout ------------------------------------------- */
+/* Sits under the brightness slider. Three levels of loudness: the bar and
+ * figure for the normal case, an amber tint approaching the budget, and a
+ * bordered block that only appears once the estimate is over it. The colour
+ * is never the only signal - every state also says the numbers in words,
+ * because the whole point is being believed. */
+
+.mut { color: var(--mut); }
+
+.pwr { margin: 10px 0 4px; }
+
+.pwr-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tighter than the OTA bar: this one is a gauge sitting under a slider, not
+ * the subject of the screen. */
+.pwr-bar {
+  height: 6px;
+  margin: 5px 0 6px;
+}
+.pwr-bar .fill {
+  transform-origin: left;
+  transition: transform 0.12s linear, background-color 0.12s linear;
+  background: var(--ok);
+}
+.pwr.near .pwr-bar .fill { background: var(--accent); }
+.pwr.over .pwr-bar .fill { background: var(--err); }
+
+.pwr.near #pwr-now { color: var(--accent); }
+.pwr.over #pwr-now { color: var(--err); }
+
+.pwr-alarm {
+  border: 1px solid var(--err);
+  border-radius: var(--radius);
+  background: rgba(227, 93, 106, 0.09);
+  padding: 10px 12px;
+  margin: 8px 0 2px;
+}
+.pwr-alarm p {
+  margin: 0 0 9px;
+  font-size: 13px;
+  color: var(--fg);
+}
+.pwr-alarm .act { min-height: 32px; padding: 4px 12px; font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pwr-bar .fill { transition: none; }
+}
+
 /* ---- toast + footer -------------------------------------------------- */
 
 .toast {

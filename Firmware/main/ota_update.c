@@ -28,6 +28,7 @@
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 
+#include "display.h"
 #include "fw_version.h"
 #include "integrations.h"
 #include "webhooks.h"
@@ -147,6 +148,14 @@ esp_err_t ota_begin(size_t image_size_or_zero)
         return ESP_ERR_INVALID_SIZE;
     }
 
+    // Stop driving the strip before the first flash operation, not after.
+    // Writing flash stalls the RMT interrupt that clocks the WS2812B chain
+    // mid-frame, which scrambles the panel and spikes the current far enough
+    // to cut the supply out - and with OTA_WITH_SEQUENTIAL_WRITES below,
+    // erases happen throughout the transfer rather than once at the start,
+    // so there is no safe window later on.
+    display_freeze_for_update();
+
     // Unknown size: OTA_WITH_SEQUENTIAL_WRITES erases flash as data arrives
     // instead of erasing the whole 6 MB slot up front, which would stall the
     // first chunk for seconds and can trip the sender's HTTP timeout.
@@ -156,6 +165,7 @@ esp_err_t ota_begin(size_t image_size_or_zero)
     if (err != ESP_OK) {
         set_result("esp_ota_begin failed: %s", esp_err_to_name(err));
         ESP_LOGE(TAG, "%s", s_last_result);
+        display_resume_after_update();
         ota_unlock();
         return err;
     }
@@ -250,6 +260,10 @@ fail:
     s_in_progress  = false;
     s_target       = NULL;
     s_progress_pct = -1;
+    // No reboot is coming, so give the panel back. On the success path above
+    // the freeze is deliberately left in place: the strip holds the notice
+    // through the restart until the new image clears it.
+    display_resume_after_update();
     fire_result_webhook(false, s_last_result);
     ota_unlock();
     return err;
@@ -272,6 +286,7 @@ void ota_abort_update(void)
         s_handle       = 0;
         s_target       = NULL;
         s_progress_pct = -1;
+        display_resume_after_update();
     }
     ota_unlock();
 }
@@ -286,6 +301,11 @@ static void url_worker(void *arg)
 {
     url_ctx_t *ctx = (url_ctx_t *)arg;
     char version[32] = "unknown";
+
+    // Same reason as the upload path: esp_https_ota writes flash as the
+    // download arrives, and a frame in flight while it does is what corrupts
+    // the panel and cuts the supply out.
+    display_freeze_for_update();
 
     esp_http_client_config_t http_cfg = {
         .url               = ctx->url,
@@ -371,6 +391,9 @@ done:
     } else {
         s_progress_pct = -1;
         ESP_LOGE(TAG, "%s", s_last_result);
+        // Nothing is going to reboot, so the panel comes back. Left frozen on
+        // the success path, so the notice survives into the restart.
+        display_resume_after_update();
         fire_result_webhook(false, s_last_result);
     }
     s_in_progress = false;

@@ -56,6 +56,7 @@ idf_component_register(
         "fonts.c"
         "devname.c"
         "light_curve.c"
+        "power_model.c"
         "light_sensor.c"
         "led_driver.c"
         "display.c"

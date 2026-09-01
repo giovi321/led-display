@@ -58,6 +58,26 @@ void display_set_offline_marker(bool on, int x, int y,
 
 void display_clear(void);
 
+// ---- firmware-update freeze ----------------------------------------------
+//
+// Called around a firmware update. Writing flash stalls the RMT interrupt
+// that clocks the strip, which corrupts any frame in flight badly enough to
+// both scramble the panel and spike the current (see led_driver_freeze for
+// the mechanism). So the panel is given one static frame and the refresh loop
+// stops: a frame nobody retransmits cannot be torn.
+//
+// The notice is a short static word at a fixed low brightness, or a black
+// panel when it does not fit the display. It stays latched for the whole
+// update and through the reboot, until the new image clears the strip.
+//
+// resume() is for the failure paths - a rejected image, a dropped connection.
+// After a successful update the device reboots, so the freeze is meant to
+// outlive it.
+#define DISPLAY_UPDATE_BRIGHTNESS  24
+
+void display_freeze_for_update(void);
+void display_resume_after_update(void);
+
 void display_get_state(char *text_out, size_t text_size,
                       display_color_t *color_out,
                       uint8_t *scroll_mode_out,
