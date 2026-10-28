@@ -359,8 +359,8 @@ static int parse_path(const char *path, step_t *steps, int *nsteps)
     return n > 0;
 }
 
-jsonpath_err_t jsonpath_extract(const char *json, const char *path,
-                                char *out, size_t outsz)
+static jsonpath_err_t extract_impl(const char *json, const char *path,
+                                   char *out, size_t outsz)
 {
     step_t steps[MAX_STEPS];
     int nsteps = 0;
@@ -382,6 +382,16 @@ jsonpath_err_t jsonpath_extract(const char *json, const char *path,
     }
     if (outsz == 0) return JSONPATH_TOO_LONG;
     return take_scalar(&s, out, outsz);
+}
+
+jsonpath_err_t jsonpath_extract(const char *json, const char *path,
+                                char *out, size_t outsz)
+{
+    jsonpath_err_t e = extract_impl(json, path, out, outsz);
+    // A failed scan may have written part of a string: never leave out
+    // unterminated or holding a partial value.
+    if (e != JSONPATH_OK && out && outsz) out[0] = '\0';
+    return e;
 }
 
 const char *jsonpath_err_str(jsonpath_err_t e)

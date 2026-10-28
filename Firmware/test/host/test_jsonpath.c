@@ -246,6 +246,27 @@ static void test_err_str(void)
     }
 }
 
+static void test_out_terminated_on_failure(void)
+{
+    static const struct { const char *json; size_t outsz; jsonpath_err_t want; } c[] = {
+        { "{\"a\":\"abcdefghij\"}", 4, JSONPATH_TOO_LONG },
+        { "{\"a\":\"abc", 16, JSONPATH_BAD_JSON },
+        { "{\"a\":\"abc\\ud83d\"}", 16, JSONPATH_BAD_JSON },
+        { "{\"a\":123456789}", 4, JSONPATH_TOO_LONG },
+        { "{\"a\":true}", 8, JSONPATH_NOT_SCALAR },
+        { "{\"a\":1}", 8, JSONPATH_NOT_FOUND },
+    };
+    for (size_t i = 0; i < sizeof(c) / sizeof(c[0]); i++) {
+        char out[16];
+        memset(out, 'Z', sizeof(out));
+        jsonpath_err_t e = jsonpath_extract(c[i].json, (c[i].want == JSONPATH_NOT_FOUND ? "b" : "a"), out, c[i].outsz);
+        if (e != c[i].want || memchr(out, 0, c[i].outsz) == NULL) {
+            fprintf(stderr, "FAIL out terminated case %zu: err %d\n", i, (int)e);
+            s_failures++;
+        }
+    }
+}
+
 int main(void)
 {
     test_paths();
@@ -258,6 +279,7 @@ int main(void)
     test_too_long();
     test_depth();
     test_err_str();
+    test_out_terminated_on_failure();
 
     if (s_failures) {
         fprintf(stderr, "test_jsonpath: %d FAILURE(S)\n", s_failures);
