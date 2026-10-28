@@ -26,6 +26,7 @@
 #include "mqtt_link.h"
 #include "scheduler.h"
 #include "settings.h"
+#include "value_poll.h"
 #include "web_common.h"
 #include "webhooks.h"
 #include "wg_client.h"
@@ -175,6 +176,25 @@ static cJSON *integrations_to_json(void)
     return r;
 }
 
+static cJSON *value_poll_to_json(void)
+{
+    value_poll_cfg_t c;
+    value_poll_get(&c);
+
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddNumberToObject(r, "v", 1);
+    cJSON_AddBoolToObject(r, "enabled", c.enabled);
+    cJSON_AddStringToObject(r, "url", c.url);
+    cJSON_AddNumberToObject(r, "interval_s", c.interval_s);
+    // Poll auth travels like api_key: secrets, export is auth-gated.
+    cJSON_AddStringToObject(r, "secret", c.secret);
+    cJSON_AddStringToObject(r, "hdr_name", c.hdr_name);
+    cJSON_AddStringToObject(r, "hdr_value", c.hdr_value);
+    cJSON_AddStringToObject(r, "path", c.path);
+    memset(&c, 0, sizeof(c));
+    return r;
+}
+
 static cJSON *wireguard_to_json(void)
 {
     wg_config_t c;
@@ -272,6 +292,7 @@ static esp_err_t config_export(httpd_req_t *req)
     cJSON_AddItemToObject(root, "colors", colors_to_json());
     cJSON_AddItemToObject(root, "value_config", value_cfg_to_json());
     cJSON_AddItemToObject(root, "integrations", integrations_to_json());
+    cJSON_AddItemToObject(root, "value_poll", value_poll_to_json());
     cJSON_AddItemToObject(root, "wireguard", wireguard_to_json());
     cJSON_AddItemToObject(root, "mqtt", mqtt_to_json());
     cJSON_AddItemToObject(root, "schedule", schedule_to_json());
@@ -620,6 +641,44 @@ static bool apply_integrations(const cJSON *sec)
     return true;
 }
 
+static bool apply_value_poll(const cJSON *sec)
+{
+    value_poll_cfg_t c;
+    value_poll_get(&c);
+
+    const cJSON *it;
+    if (cJSON_IsBool(it = cJSON_GetObjectItem(sec, "enabled"))) {
+        c.enabled = cJSON_IsTrue(it);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "interval_s"))) {
+        c.interval_s = (uint32_t)clampi(it->valueint, VPOLL_INTERVAL_MIN,
+                                        VPOLL_INTERVAL_MAX);
+    }
+    // Strings restore like api_key, secrets included. An overlong value
+    // fails the section rather than being truncated.
+    struct { const char *key; char *dst; size_t sz; } strs[] = {
+        {"url",       c.url,       sizeof(c.url)},
+        {"secret",    c.secret,    sizeof(c.secret)},
+        {"hdr_name",  c.hdr_name,  sizeof(c.hdr_name)},
+        {"hdr_value", c.hdr_value, sizeof(c.hdr_value)},
+        {"path",      c.path,      sizeof(c.path)},
+    };
+    bool ok = true;
+    for (unsigned i = 0; i < sizeof(strs) / sizeof(strs[0]); i++) {
+        if (!cJSON_IsString(it = cJSON_GetObjectItem(sec, strs[i].key))) continue;
+        if (strlen(it->valuestring) >= strs[i].sz) {
+            ok = false;
+            break;
+        }
+        snprintf(strs[i].dst, strs[i].sz, "%s", it->valuestring);
+    }
+    // value_poll_set validates (scheme, header token, ...) and wakes the
+    // poller for one poll with the restored config.
+    if (ok) ok = value_poll_set(&c) == ESP_OK;
+    memset(&c, 0, sizeof(c));
+    return ok;
+}
+
 static bool apply_wireguard(const cJSON *sec)
 {
     wg_config_t c;
@@ -813,6 +872,7 @@ static esp_err_t config_import(httpd_req_t *req)
         {"colors",       apply_colors},
         {"value_config", apply_value_config},
         {"integrations", apply_integrations},
+        {"value_poll",   apply_value_poll},
         {"wireguard",    apply_wireguard},
         {"mqtt",         apply_mqtt},
         {"schedule",     apply_schedule},

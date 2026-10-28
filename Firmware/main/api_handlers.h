@@ -13,7 +13,8 @@
 //                      factory_reset}, /api/schedule
 //   api_config.c       /api/config/{export,import}
 //   api_ota.c          /api/ota/{upload,url,status}
-//   api_integrations.c /api/integrations, /api/wireguard
+//   api_integrations.c /api/integrations, /api/wireguard, /api/mqtt
+//   api_value_poll.c   /api/value/poll (GET/POST), /api/value/poll/now
 //   web_static.c       /, gzipped assets, captive-portal probes
 
 #include "esp_http_server.h"
@@ -32,4 +33,5 @@ void api_system_register(httpd_handle_t srv);
 void api_config_register(httpd_handle_t srv);
 void api_ota_register(httpd_handle_t srv);
 void api_integrations_register(httpd_handle_t srv);
+void api_value_poll_register(httpd_handle_t srv);
 void web_static_register(httpd_handle_t srv);

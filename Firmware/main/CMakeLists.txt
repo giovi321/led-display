@@ -69,6 +69,7 @@ idf_component_register(
         "sched_window.c"
         "integrations.c"
         "value_feed.c"
+        "value_poll.c"
         "webhooks.c"
         "ota_update.c"
         "wg_client.c"
@@ -84,6 +85,7 @@ idf_component_register(
         "api_config.c"
         "api_ota.c"
         "api_integrations.c"
+        "api_value_poll.c"
     INCLUDE_DIRS "."
     EMBED_FILES ${_web_gz_files}
     REQUIRES

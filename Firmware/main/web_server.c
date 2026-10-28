@@ -11,9 +11,11 @@ esp_err_t web_server_start(void)
     httpd_handle_t srv = NULL;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
-    // Headroom over the ~50 currently registered: httpd silently refuses
+    // Headroom over the 67 currently registered (48 API, 19 in web_static:
+    // assets, tab routes, captive-portal probes): httpd silently refuses
     // handlers past this bound, so it must never sit at the exact count.
-    cfg.max_uri_handlers = 64;
+    // Each slot costs one pointer.
+    cfg.max_uri_handlers = 72;
     cfg.stack_size       = 10240;
     cfg.uri_match_fn     = httpd_uri_match_wildcard;
 
@@ -34,6 +36,7 @@ esp_err_t web_server_start(void)
     api_config_register(srv);
     api_ota_register(srv);
     api_integrations_register(srv);
+    api_value_poll_register(srv);
     web_static_register(srv);
 
     ESP_LOGI(TAG, "HTTP server listening on :80");

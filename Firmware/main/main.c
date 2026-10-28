@@ -15,6 +15,7 @@
 #include "scheduler.h"
 #include "settings.h"
 #include "value_feed.h"
+#include "value_poll.h"
 #include "web_server.h"
 #include "webhooks.h"
 #include "wg_client.h"
@@ -324,6 +325,9 @@ void app_main(void)
     }
     if (mqtt_link_init() != ESP_OK) {
         ESP_LOGW(TAG, "mqtt_link_init failed; MQTT unavailable");
+    }
+    if (value_poll_init() != ESP_OK) {
+        ESP_LOGW(TAG, "value_poll_init failed; URL polling unavailable");
     }
 
     // 13. Announce the boot to whatever is listening.
