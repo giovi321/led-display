@@ -196,8 +196,7 @@ static void webhook_task(void *arg)
     int64_t next_hb_us = 0;
 
     while (1) {
-        // Re-read the config every pass: the URL, device name or interval
-        // may have changed while an event sat in the queue.
+        // Read here only to size the wait; re-read after the wait below.
         integrations_cfg_t cfg;
         integrations_get(&cfg);
 
@@ -208,12 +207,20 @@ static void webhook_task(void *arg)
                 next_hb_us = now + (int64_t)cfg.heartbeat_min * 60 * 1000000;
             }
             int64_t left_ms = (next_hb_us - now) / 1000;
-            wait = left_ms <= 0 ? 0 : pdMS_TO_TICKS((uint32_t)left_ms);
+            wait = left_ms <= 0
+                       ? 0
+                       : (TickType_t)((uint64_t)left_ms * configTICK_RATE_HZ / 1000);
         } else {
             next_hb_us = 0;
         }
 
-        if (xQueueReceive(s_queue, &msg, wait) != pdTRUE) {
+        bool got = xQueueReceive(s_queue, &msg, wait) == pdTRUE;
+
+        // The pre-wait read only sized the wait and can be hours old: re-read
+        // so delivery uses the current URL, auth and device name.
+        integrations_get(&cfg);
+
+        if (!got) {
             // Timeout: the heartbeat is due. Sent regardless of
             // webhook_events; only an empty URL silences it.
             if (cfg.heartbeat_min > 0) {

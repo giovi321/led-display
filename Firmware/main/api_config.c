@@ -27,6 +27,7 @@
 #include "scheduler.h"
 #include "settings.h"
 #include "web_common.h"
+#include "webhooks.h"
 #include "wg_client.h"
 
 static const char *TAG = "api_config";
@@ -614,7 +615,9 @@ static bool apply_integrations(const cJSON *sec)
     if ((it = cJSON_GetObjectItem(sec, "ui_auth")) != NULL && cJSON_IsBool(it)) {
         c.ui_auth = cJSON_IsTrue(it) && c.ui_pass[0] != '\0';
     }
-    return integrations_set(&c) == ESP_OK;
+    if (integrations_set(&c) != ESP_OK) return false;
+    webhooks_wake();   // restart the heartbeat interval with the new config
+    return true;
 }
 
 static bool apply_wireguard(const cJSON *sec)
