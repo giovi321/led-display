@@ -61,6 +61,8 @@ Both are optional and can be set at the same time.
 - Secret: for services that expect a bearer token. The device sends `Authorization: Bearer <secret>`
 - Custom header: for services that expect a key in a header of their own, such as `X-Token`. Give the name and the value; the device sends `<name>: <value>`. The name must be a valid HTTP header name (letters, digits and the characters `!#$%&'*+-.^_`|~`) and the value must be a single line
 
+When the poll follows a redirect to a different host, or from `https` to plain `http`, the device drops the secret and the custom header for that request and every later redirect of it.
+
 Neither is shown again after saving. The interface and the API report only that a secret or header value is set. Saving the card with those fields left blank keeps the stored values, and the Clear buttons remove them (Clear on the custom header removes the name and the value). Prefer a secret or header over credentials inside the URL: the URL is shown in the card and travels in every backup in cleartext, as the secrets do, so store backups like secrets either way.
 
 ### What counts as a failed poll
@@ -140,7 +142,7 @@ Config: prefix `USD ` (note the trailing space), scale M, decimals 1, thousands 
 1. Multiplier 1 changes nothing
 2. Scale M divides by one million: `1.234567891`
 3. Decimals 1 rounds it: `1.2`
-4. The thousands separator groups the integer part: `1.2`
+4. The thousands separator groups the integer part, which has a single digit here, so nothing changes: `1.2`
 5. The scale letter follows the number and the prefix goes in front: `USD 1.2M`
 
 More configurations, each with its own raw value:
@@ -158,7 +160,7 @@ The Formatting card has a preview field. Type a raw value and the card shows wha
 
 ## Fallback
 
-A display that silently shows an old number is worse than a blank one. If the flow that feeds an office display dies on a Friday, the Monday visitor reads Friday's figure as today's, and nobody notices because the display looks perfectly healthy. The fallback makes a broken feed visible and, if you want, tells you about it. This section is the one place that describes it; other pages link here.
+A display that silently shows an old number is worse than a blank one. If the feed from a temperature sensor stops, the panel keeps showing the last reading as if it were current, and nobody notices because the display looks perfectly healthy. The fallback makes a broken feed visible and, if you want, tells you about it. This section is the one place that describes it; other pages link here.
 
 ### What the panel does
 
@@ -189,7 +191,7 @@ The next successful value from any source clears the fallback: a poll, a POST or
 - A value from any source clears the fallback, resets the failure count to 0 and re-arms every trigger
 - A trigger can fire again only on a new event: the failure count reaching the threshold again from 0, or a fresh MQTT disconnect that lasts 60 seconds. A poll that keeps failing while MQTT delivers values therefore does not switch the fallback back on at every tick
 - One slow or failed poll below the threshold changes nothing, so the fallback does not flap
-- No value since boot changes the panel only. It sends no notification and the MQTT `fallback` flag stays false. Notification starts when one of the triggers above fires
+- No value since boot changes the panel only. It sends no notification, and the `fallback` flag in the MQTT state and the heartbeat stays false. Notification starts when one of the triggers above fires
 
 The panel changes (text, marker, dim) only while the [content source](../display/#content-source) is Integration, and switching from Static to Integration shows the current fallback state straight away. Everything else runs whatever the source: the triggers, the webhooks, the MQTT flag and the heartbeat field, because they tell a remote watcher whether the feed is healthy, which is true regardless of what the panel shows.
 

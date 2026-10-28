@@ -95,7 +95,7 @@ When an enabled event fires, the device POSTs JSON to `webhook_url` with `Conten
 | `value_recovered` | the fallback cleared on the next value | `{"reason": "timeout"}` |
 | `status` | the heartbeat interval elapsed, see below | the status object below |
 
-For `value_stale`, `reason` is `timeout`, `poll_failures` or `mqtt_lost`, and `age_s` is the seconds since the last value, -1 when no value has arrived since boot. For `value_recovered`, `reason` is the reason that was active. Having no value since boot sends neither event, see [what engages the fallback](../../user-guide/value-updates/#what-engages-it).
+For `value_stale`, `reason` is `timeout`, `poll_failures` or `mqtt_lost`, and `age_s` is the seconds since the last value, -1 when no value has arrived since boot. For `value_recovered`, `reason` is the reason that was active. Having no value since boot is not a reason on its own and sends neither event. The `timeout` and `poll_failures` triggers still fire before the first value, with `age_s` -1. See [what engages the fallback](../../user-guide/value-updates/#what-engages-it).
 
 ### Status heartbeat
 
@@ -133,8 +133,8 @@ With `heartbeat_min` above 0 the device posts a `status` event every that many m
 | `source` | `static` or `integration`, the [content source](../display/#post-apidisplaysource) |
 | `text` | what the panel currently shows |
 | `value_age_s` | seconds since the last value from any source, -1 when none |
-| `fallback` | `true` while the fallback is engaged |
-| `fallback_reason` | `no_value`, `timeout`, `poll_failures` or `mqtt_lost` while engaged, otherwise `none`. Unlike the other reports, the heartbeat also shows `no_value` for the time between boot and the first value |
+| `fallback` | `true` while the fallback is engaged for `timeout`, `poll_failures` or `mqtt_lost`. It stays `false` before the first value, as in the MQTT state |
+| `fallback_reason` | `no_value`, `timeout`, `poll_failures` or `mqtt_lost` while engaged, otherwise `none`. The heartbeat also shows `no_value` for the time between boot and the first value, with `fallback` still `false` |
 
 ## GET /api/wireguard
 

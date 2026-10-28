@@ -126,7 +126,7 @@ The fallback settings above decide what the panel does when the feed breaks. Wha
 
 - the `value_stale` and `value_recovered` [webhook events](../integrations/#outbound-webhook-payloads), with `reason` one of `timeout`, `poll_failures` or `mqtt_lost`
 - the `fallback` and `fallback_reason` fields of the [MQTT state](../../admin-guide/mqtt/)
-- the same two fields in the `status` heartbeat, where `fallback_reason` can also be `no_value` before the first value since boot
+- the same two fields in the `status` heartbeat, where `fallback_reason` can also be `no_value` before the first value since boot, with `fallback` false
 - `value_age_s` in [`GET /api/status`](../system/#get-apistatus): seconds since the last value from any source, -1 when none was ever received
 
 ## GET /api/value/poll
@@ -182,7 +182,7 @@ curl -X POST http://192.168.1.50/api/value/poll \
   -d '{"enabled": true, "url": "https://example.com/value.json", "path": "data.price", "interval_s": 300, "secret": "s3cret"}'
 ```
 
-Response: `{"ok": true}`. Errors: 400 `"invalid JSON body"`, 400 `"interval_s must be 10..86400"`, 400 `"url must start with http:// or https://"`, 400 `"url required to enable polling"`, 400 `"field too long"`, 400 `"hdr_name must be a header token"`, 400 `"hdr_value must not contain line breaks"`, 500 `"saving value poll config failed"`.
+Response: `{"ok": true}`. Errors: 400 `"invalid JSON body"`, 400 `"interval_s must be 10..86400"`, 400 `"url must start with http:// or https://"`, 400 `"url required to enable polling"`, 400 `"field too long"`, 400 `"hdr_name must be a header token"`, 400 `"hdr_value must not contain line breaks"`, 400 `"hdr_value requires hdr_name"` when the saved result would have a header value without a name, 500 `"saving value poll config failed"`.
 
 Polling runs only while it is enabled, a URL is set and the device is in station mode with an IP address. Each poll has a 10 second timeout, follows redirects, verifies HTTPS against the built-in certificate bundle, and accepts a response body of up to 4 KB. How a response becomes a value, and what counts as a failure, is in the [user guide](../../user-guide/value-updates/#fetching-the-value-from-a-url).
 
