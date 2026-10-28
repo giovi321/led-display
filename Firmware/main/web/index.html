@@ -471,7 +471,7 @@
       data-help="Sent as Authorization: Bearer followed by the secret. Leave blank when saving to keep the stored one; Clear removes it."
       aria-expanded="false" aria-label="Explain the secret">?</button></div>
     <div class="row">
-      <input id="vp-secret" type="password" maxlength="128" autocomplete="off"
+      <input id="vp-secret" type="password" maxlength="128" autocomplete="new-password"
              placeholder="leave blank to keep current" aria-label="Secret">
       <button class="sec" id="vp-sclr">Clear</button>
     </div>
@@ -481,7 +481,7 @@
     <div class="row">
       <input id="vp-hname" type="text" maxlength="48" placeholder="Header name" aria-label="Header name"
              autocomplete="off" autocapitalize="off" spellcheck="false">
-      <input id="vp-hval" type="password" maxlength="128" autocomplete="off"
+      <input id="vp-hval" type="password" maxlength="128" autocomplete="new-password"
              placeholder="leave blank to keep current" aria-label="Header value">
       <button class="sec" id="vp-hclr">Clear</button>
     </div>
@@ -541,7 +541,7 @@
       <p class="note">MQTT commands are not gated by the API key - the broker's
         own authentication is the boundary. Push values to
         <code>&lt;base&gt;/value/set</code> to feed the display, same formatting
-        as the value endpoint below.</p>
+        as set in the Formatting card below.</p>
     </div>
   </div>
   <div class="card">
@@ -639,7 +639,7 @@
       data-help="Sent with every webhook as Authorization: Bearer followed by the secret. Leave blank when saving to keep the stored one; Clear removes it."
       aria-expanded="false" aria-label="Explain the webhook secret">?</button></div>
     <div class="row">
-      <input id="wh-secret" type="password" maxlength="128" autocomplete="off"
+      <input id="wh-secret" type="password" maxlength="128" autocomplete="new-password"
              placeholder="leave blank to keep current" aria-label="Webhook secret">
       <button class="sec" id="wh-sclr">Clear</button>
     </div>
@@ -649,7 +649,7 @@
     <div class="row">
       <input id="wh-hname" type="text" maxlength="48" placeholder="Header name" aria-label="Webhook header name"
              autocomplete="off" autocapitalize="off" spellcheck="false">
-      <input id="wh-hval" type="password" maxlength="128" autocomplete="off"
+      <input id="wh-hval" type="password" maxlength="128" autocomplete="new-password"
              placeholder="leave blank to keep current" aria-label="Webhook header value">
       <button class="sec" id="wh-hclr">Clear</button>
     </div>

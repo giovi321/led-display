@@ -1375,10 +1375,20 @@ function renderPollStatus(s) {
   $('#vp-status').textContent = t;
 }
 
-async function refreshPoll() {
+// Status line and cached config only, so unsaved form edits survive.
+async function pollStatus() {
   try {
     const p = await jget('/api/value/poll');
     vpCfg = p;
+    renderPollStatus(p.status);
+    return p;
+  } catch (e) { /* pre-poller firmware: leave the card as it is */ }
+}
+
+// Whole form: on tab load, after Save and after a clear.
+async function refreshPoll() {
+  const p = await pollStatus();
+  if (p) {
     $('#vp-en').checked = !!p.enabled;
     $('#vp-url').value = p.url || '';
     $('#vp-int').value = p.interval_s || 300;
@@ -1386,9 +1396,7 @@ async function refreshPoll() {
     $('#vp-hname').value = p.hdr_name || '';
     showSecret('#vp-secret', p.secret_set);
     showSecret('#vp-hval', p.hdr_value_set);
-    renderPollStatus(p.status);
-    return p.status;
-  } catch (e) { /* pre-poller firmware: leave the card as it is */ }
+  }
 }
 
 // The poll runs on the device's own task; re-read the status about once a
@@ -1397,8 +1405,8 @@ async function waitPoll(prev) {
   $('#vp-status').textContent = 'Polling...';
   for (let i = 0; i < 12; i++) {
     await sleep(1000);
-    const s = await refreshPoll();
-    if (s && s.last_poll !== prev) return;
+    const p = await pollStatus();
+    if (p && p.status && p.status.last_poll !== prev) return;
   }
   $('#vp-status').textContent = 'No result yet. Reload the tab later to see it.';
 }
@@ -1407,10 +1415,12 @@ $('#vp-save').onclick = () => act($('#vp-save'), async () => {
   const body = {
     enabled: $('#vp-en').checked,
     url: $('#vp-url').value.trim(),
-    interval_s: Math.round(+$('#vp-int').value),
     path: $('#vp-path').value.trim(),
     hdr_name: $('#vp-hname').value.trim(),
   };
+  // Empty interval: leave it out and the device keeps the stored one.
+  const iv = $('#vp-int').value.trim();
+  if (iv !== '') body.interval_s = Math.round(+iv);
   putSecret(body, 'secret', '#vp-secret');
   putSecret(body, 'hdr_value', '#vp-hval');
   if (body.enabled && !body.url) { toast('Enter the URL first', true); return; }
@@ -1418,7 +1428,8 @@ $('#vp-save').onclick = () => act($('#vp-save'), async () => {
   await jpost('/api/value/poll', body);
   toast('Saved');
   // Saving triggers one poll when polling can run.
-  if (body.enabled) await waitPoll(prev); else await refreshPoll();
+  await refreshPoll();
+  if (body.enabled) await waitPoll(prev);
 });
 
 $('#vp-now').onclick = () => act($('#vp-now'), async () => {
@@ -1440,14 +1451,14 @@ clearBtn('#vp-hclr', '/api/value/poll', 'clear_header', 'header', refreshPoll);
 // ---- Formatting ----
 
 function fmtCfg() {
-  const m = $('#vf-mult').value.trim();
+  const m = $('#vf-mult').value.trim(), d = $('#vf-dec').value.trim();
   return {
     prefix: $('#vf-prefix').value,
     suffix: $('#vf-suffix').value,
     multiplier: m === '' ? 1 : +m,
     scale: $('#vf-scale').value,
     scale_letters: $('#vf-letters').value.trim(),
-    decimals: Math.round(+$('#vf-dec').value),
+    decimals: d === '' ? -1 : Math.round(+d),   // empty = as sent
     dec_sep: $('#vf-dsep').value,
     thousands: $('#vf-thou').value,
     plus_sign: $('#vf-plus').checked,
