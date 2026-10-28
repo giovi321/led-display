@@ -176,6 +176,14 @@ static void publish_state_locked(void)
                                 ? "integration" : "static");
     cJSON_AddNumberToObject(r, "value_age_s",
                             (double)integrations_value_age_s());
+    // value_feed_get_state takes only value_feed's own mutexes, and value_feed
+    // never calls into mqtt_link while holding them, so this cannot deadlock.
+    value_feed_state_t vf;
+    value_feed_get_state(&vf);
+    bool fb_on = vf.active && fb_notifies(vf.reason);
+    cJSON_AddBoolToObject(r, "fallback", fb_on);
+    cJSON_AddStringToObject(r, "fallback_reason",
+                            fb_on ? fb_reason_str(vf.reason) : "none");
     cJSON_AddNumberToObject(r, "rssi", w.rssi);
     cJSON_AddStringToObject(r, "ip", w.ip);
     cJSON_AddStringToObject(r, "fw", FW_VERSION);
@@ -253,8 +261,8 @@ static void topic_str(cJSON *r, const char *key, const char *suffix)
 }
 
 // The entity set is deliberately small: panel on/off + brightness as a
-// light, the static text, the content source, reboot, and two diagnostic
-// sensors. Everything else stays web-UI-only.
+// light, the static text, the content source, reboot, two diagnostic
+// sensors, and the value fallback flag. Everything else stays web-UI-only.
 static void publish_discovery(bool remove)
 {
     if (!s_client || !s_connected) return;
@@ -270,6 +278,7 @@ static void publish_discovery(bool remove)
         ha_publish("button", "reboot",    NULL);
         ha_publish("sensor", "rssi",      NULL);
         ha_publish("sensor", "value_age", NULL);
+        ha_publish("binary_sensor", "fallback", NULL);
         return;
     }
 
@@ -323,6 +332,13 @@ static void publish_discovery(bool remove)
     cJSON_AddStringToObject(r, "unit_of_measurement", "s");
     cJSON_AddStringToObject(r, "entity_category", "diagnostic");
     ha_publish("sensor", "value_age", r);
+
+    r = ha_entity_json("Value fallback", "fallback", ip);
+    topic_str(r, "state_topic", "state");
+    cJSON_AddStringToObject(r, "value_template",
+                            "{{ 'ON' if value_json.fallback else 'OFF' }}");
+    cJSON_AddStringToObject(r, "entity_category", "diagnostic");
+    ha_publish("binary_sensor", "fallback", r);
 }
 
 // ---- inbound commands ---------------------------------------------------------

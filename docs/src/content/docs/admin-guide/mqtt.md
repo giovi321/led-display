@@ -44,10 +44,10 @@ The state JSON:
 
 ```json
 {"power": "ON", "brightness": 32, "text": "CHF 12'345.6", "source": "integration",
- "value_age_s": 42, "rssi": -58, "ip": "192.168.1.50", "fw": "2.10.0", "uptime_s": 86452}
+ "value_age_s": 42, "fallback": false, "fallback_reason": "none", "rssi": -58, "ip": "192.168.1.50", "fw": "2.10.0", "uptime_s": 86452}
 ```
 
-`power` reports whether the panel is showing anything; `brightness` is the stored user level (what the slider says, not what the schedule or light sensor currently applies); `value_age_s` is `-1` before the first value.
+`power` reports whether the panel is showing anything; `brightness` is the stored user level (what the slider says, not what the schedule or light sensor currently applies); `value_age_s` is `-1` before the first value; `fallback` is `true` while the value fallback is engaged because the value went stale, polling failed or the MQTT link was lost, and `fallback_reason` then names the cause (`timeout`, `poll_failures` or `mqtt_lost`), otherwise `none`. The state before the first value arrives reports `false`.
 
 ## Home Assistant discovery
 
@@ -61,6 +61,7 @@ Tick "Home Assistant auto-discovery" and the device publishes retained discovery
 | Reboot | button | `reboot/set` |
 | WiFi RSSI | sensor (diagnostic) | `BASE/state` |
 | Value age | sensor (diagnostic) | `BASE/state` |
+| Value fallback | binary sensor (diagnostic) | `BASE/state`, on while `fallback` is `true` |
 
 The device page links back to the web UI (configuration URL). Turning discovery off publishes empty retained payloads to the config topics, so the entities disappear from HA instead of going ghost.
 
