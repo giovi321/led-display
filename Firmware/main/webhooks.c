@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -82,6 +83,7 @@ static bool post_once(const integrations_cfg_t *icfg, const char *payload)
         .timeout_ms     = WEBHOOK_TIMEOUT_MS,
         .buffer_size    = 2048,
         .buffer_size_tx = 2048,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return false;
@@ -137,7 +139,9 @@ static char *build_status_data(void)
     cJSON_AddStringToObject(d, "text", text);
     cJSON_AddNumberToObject(d, "value_age_s",
                             (double)integrations_value_age_s());
-    cJSON_AddBoolToObject(d, "fallback", fb.active);
+    // Same rule as MQTT: no_value before the first value is information,
+    // not a fault, so it reports fallback false with the reason still set.
+    cJSON_AddBoolToObject(d, "fallback", fb.active && fb_notifies(fb.reason));
     cJSON_AddStringToObject(d, "fallback_reason",
                             fb.active ? fb_reason_str(fb.reason) : "none");
     char *out = cJSON_PrintUnformatted(d);

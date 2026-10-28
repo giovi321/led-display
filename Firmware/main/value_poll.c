@@ -184,6 +184,57 @@ static bool is_redirect(int code)
     return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
 }
 
+// Scheme and host of `url` (lower-case scheme, host without userinfo or
+// port). Empty strings when the URL has no "://".
+static void url_origin(const char *url, char *scheme, size_t ssz,
+                       char *host, size_t hsz)
+{
+    scheme[0] = host[0] = '\0';
+    const char *sep = strstr(url, "://");
+    if (!sep) return;
+    size_t n = (size_t)(sep - url);
+    if (n >= ssz) n = ssz - 1;
+    for (size_t i = 0; i < n; i++) {
+        char c = url[i];
+        scheme[i] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+    }
+    scheme[n] = '\0';
+
+    const char *a = sep + 3;
+    const char *end = a + strcspn(a, "/?#");
+    for (const char *p = a; p < end; p++) {
+        if (*p == '@') a = p + 1;      // skip userinfo
+    }
+    const char *h_end;
+    if (*a == '[') {                   // IPv6 literal: keep up to ']'
+        const char *rb = memchr(a, ']', (size_t)(end - a));
+        h_end = rb ? rb + 1 : end;
+    } else {
+        const char *colon = memchr(a, ':', (size_t)(end - a));
+        h_end = colon ? colon : end;
+    }
+    n = (size_t)(h_end - a);
+    if (n >= hsz) n = hsz - 1;
+    memcpy(host, a, n);
+    host[n] = '\0';
+}
+
+// True when a redirect to the client's current URL may keep the configured
+// Authorization and custom header: same host as the configured URL and no
+// downgrade from https to http. An unreadable URL counts as a change.
+static bool redirect_keeps_auth(esp_http_client_handle_t client,
+                                const char *orig_url)
+{
+    char now[512];
+    if (esp_http_client_get_url(client, now, sizeof(now)) != ESP_OK) return false;
+    char s0[8], h0[128], s1[8], h1[128];
+    url_origin(orig_url, s0, sizeof(s0), h0, sizeof(h0));
+    url_origin(now, s1, sizeof(s1), h1, sizeof(h1));
+    if (strcasecmp(h0, h1) != 0) return false;
+    if (strcmp(s0, "https") == 0 && strcmp(s1, "https") != 0) return false;
+    return true;
+}
+
 static bool deadline_passed(int64_t start_us)
 {
     return esp_timer_get_time() - start_us > (int64_t)VPOLL_DEADLINE_MS * 1000;
@@ -217,6 +268,7 @@ static bool fetch(const value_poll_cfg_t *cfg, char **out_body, int *http_status
 
     bool ok = false;
     bool auth_tried = false;
+    bool auth_dropped = false;
     char *body = NULL;
     int status = 0;
     int total = 0;
@@ -249,6 +301,17 @@ static bool fetch(const value_poll_cfg_t *cfg, char **out_body, int *http_status
         // reopen. esp_http_client_open reconnects after close.
         if (is_redirect(status) && esp_http_client_set_redirection(client) == ESP_OK) {
             esp_http_client_close(client);
+            // A redirect to another host, or from https to plain http, must
+            // not carry the configured credentials; once dropped they stay
+            // off for every later hop.
+            if (!auth_dropped && !redirect_keeps_auth(client, cfg->url)) {
+                esp_http_client_delete_header(client, "Authorization");
+                if (cfg->hdr_name[0]) {
+                    esp_http_client_delete_header(client, cfg->hdr_name);
+                }
+                auth_dropped = true;
+                ESP_LOGI(TAG, "redirect left the original host or https, auth headers dropped");
+            }
             continue;
         }
         char *user = NULL;

@@ -127,18 +127,13 @@ static void show_boot_screen(const settings_t *cfg, const wifi_mgr_status_t *s)
         case BOOT_SHOW_TEXT:
         default:
             if (cfg->source == DISPLAY_SRC_INTEGRATION) {
-                // The last value never survives a reboot; the configured
-                // placeholder stands in until the next push. No placeholder
-                // set: blank, so a stale-looking static text never poses as
-                // live data.
-                value_cfg_t vc;
-                integrations_get_value_cfg(&vc);
-                if (vc.fb.text[0] != '\0') {
-                    display_show_text(vc.fb.text, cfg->color,
-                                      cfg->scroll_mode, cfg->speed, cfg->scale);
-                } else {
-                    display_clear();
-                }
+                // The fallback state decides: before the first value since
+                // boot that is the fallback text (blank when none is set, so
+                // a stale-looking static text never poses as live data);
+                // later, on leaving the setup AP or on WiFi returning, the
+                // last value with its corner marker or dim. Safe before
+                // scheduler_init(): the brightness re-apply is a no-op then.
+                value_feed_apply_panel();
                 break;
             }
             // First boot has no saved text: fall back to the IP so the user

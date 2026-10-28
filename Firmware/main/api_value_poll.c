@@ -94,19 +94,18 @@ static esp_err_t vpoll_post_handler(httpd_req_t *req)
             cfg.interval_s = (uint32_t)it->valuedouble;
         }
     }
-    if (!bad && (!take_str(body, "url", cfg.url, sizeof(cfg.url)) ||
-                 !take_str(body, "hdr_name", cfg.hdr_name, sizeof(cfg.hdr_name)) ||
-                 !take_str(body, "path", cfg.path, sizeof(cfg.path)))) {
-        bad = "field too long";
-    }
-
-    // Secrets: clears first, so one request can clear and set a new value.
+    // Clears first, so one request can clear and set a new name or value.
     if (cJSON_IsTrue(cJSON_GetObjectItem(body, "clear_secret"))) {
         cfg.secret[0] = '\0';
     }
     if (cJSON_IsTrue(cJSON_GetObjectItem(body, "clear_header"))) {
         cfg.hdr_name[0]  = '\0';
         cfg.hdr_value[0] = '\0';
+    }
+    if (!bad && (!take_str(body, "url", cfg.url, sizeof(cfg.url)) ||
+                 !take_str(body, "hdr_name", cfg.hdr_name, sizeof(cfg.hdr_name)) ||
+                 !take_str(body, "path", cfg.path, sizeof(cfg.path)))) {
+        bad = "field too long";
     }
     if (!bad && (!take_secret(body, "secret", cfg.secret, sizeof(cfg.secret)) ||
                  !take_secret(body, "hdr_value", cfg.hdr_value, sizeof(cfg.hdr_value)))) {
@@ -115,6 +114,9 @@ static esp_err_t vpoll_post_handler(httpd_req_t *req)
     cJSON_Delete(body);
 
     if (!bad) bad = value_poll_validate(&cfg);
+    if (!bad && cfg.hdr_value[0] != '\0' && cfg.hdr_name[0] == '\0') {
+        bad = "hdr_value requires hdr_name";
+    }
     if (bad) {
         memset(&cfg, 0, sizeof(cfg));
         return web_send_err(req, bad, 400);

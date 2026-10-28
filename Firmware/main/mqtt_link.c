@@ -176,8 +176,10 @@ static void publish_state_locked(void)
                                 ? "integration" : "static");
     cJSON_AddNumberToObject(r, "value_age_s",
                             (double)integrations_value_age_s());
-    // value_feed_get_state takes only value_feed's own mutexes, and value_feed
-    // never calls into mqtt_link while holding them, so this cannot deadlock.
+    // value_feed_get_state takes the integrations lock (to read the value
+    // config) and then value_feed's mutex, one after the other. Neither
+    // integrations nor value_feed calls into mqtt_link while holding its
+    // lock, so this cannot deadlock.
     value_feed_state_t vf;
     value_feed_get_state(&vf);
     bool fb_on = vf.active && fb_notifies(vf.reason);

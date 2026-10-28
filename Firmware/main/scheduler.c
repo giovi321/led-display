@@ -345,9 +345,11 @@ esp_err_t scheduler_init(void)
 
     sntp_start();
 
-    // 4 KB: the value fallback tick stacks a settings_t + value_cfg_t on top of
-    // what the schedule check already used at 3 KB.
-    xTaskCreate(scheduler_task, "scheduler", 4096, NULL, 2, NULL);
+    // 5 KB: the value fallback tick stacks a settings_t + value_cfg_t on top of
+    // what the schedule check already used at 3 KB, and the tick also runs
+    // webhooks_fire and mqtt_link_publish_state (cJSON building) when the
+    // fallback engages or the schedule switches.
+    xTaskCreate(scheduler_task, "scheduler", 5120, NULL, 2, NULL);
     ESP_LOGI(TAG, "scheduler init (enabled=%d on=%02u:%02u off=%02u:%02u days=0x%02x "
                   "other_days=%u utc=%+d off_action=%u off_bri=%u)",
              s_sched.enabled, s_sched.on_hour, s_sched.on_min,

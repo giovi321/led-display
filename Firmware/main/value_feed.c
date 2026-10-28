@@ -275,9 +275,15 @@ void value_feed_apply_panel(void)
     integrations_get_value_cfg(&vc);
     settings_t cfg;
     settings_load(&cfg);
+    // Setup-AP mode owns the panel, as in value_feed_tick: saving formatting
+    // from the setup AP must not overwrite the banner. The dim flag is still
+    // recomputed, so it is right once the AP closes.
+    wifi_mgr_status_t w;
+    wifi_manager_get_status(&w);
+    bool ap = (w.mode == WIFI_MGR_MODE_AP);
 
     lock();
-    if (cfg.source == DISPLAY_SRC_INTEGRATION) {
+    if (!ap && cfg.source == DISPLAY_SRC_INTEGRATION) {
         char text[DISPLAY_TEXT_MAX];
         if (shows_text_locked(&vc)) {
             snprintf(text, sizeof(text), "%s", vc.fb.text);

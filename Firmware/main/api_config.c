@@ -26,6 +26,7 @@
 #include "mqtt_link.h"
 #include "scheduler.h"
 #include "settings.h"
+#include "value_feed.h"
 #include "value_poll.h"
 #include "web_common.h"
 #include "webhooks.h"
@@ -514,7 +515,11 @@ static bool apply_display(const cJSON *sec)
     led_driver_set_brightness_cap(s.brightness_cap);
     scheduler_reapply_brightness();
     display_set_font(s.font, s.prop);
-    if (s.text[0] != '\0') {
+    if (s.source == DISPLAY_SRC_INTEGRATION) {
+        // The stored text is the static text: the integration panel shows
+        // the value or the fallback instead.
+        value_feed_apply_panel();
+    } else if (s.text[0] != '\0') {
         display_show_text(s.text, s.color, s.scroll_mode, s.speed, s.scale);
     } else {
         display_clear();
@@ -900,7 +905,9 @@ static esp_err_t config_import(httpd_req_t *req)
     if (layout_applied && !display_present) {
         settings_t s;
         settings_load(&s);
-        if (s.text[0] != '\0') {
+        if (s.source == DISPLAY_SRC_INTEGRATION) {
+            value_feed_apply_panel();
+        } else if (s.text[0] != '\0') {
             display_show_text(s.text, s.color, s.scroll_mode, s.speed, s.scale);
         }
     }
