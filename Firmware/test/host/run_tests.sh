@@ -12,6 +12,7 @@ CFLAGS="-std=c11 -Wall -Wextra -Werror -g -I../../main"
 
 $CC $CFLAGS -o test_mapping   test_mapping.c   ../../main/mapping.c
 $CC $CFLAGS -o test_valuefmt  test_valuefmt.c  ../../main/valuefmt.c
+$CC $CFLAGS -o test_jsonpath  test_jsonpath.c  ../../main/jsonpath.c
 $CC $CFLAGS -o test_fonts     test_fonts.c     ../../main/fonts.c
 $CC $CFLAGS -o test_wifi_pick test_wifi_pick.c ../../main/wifi_pick.c
 $CC $CFLAGS -o test_devname   test_devname.c   ../../main/devname.c
@@ -23,6 +24,7 @@ $CC $CFLAGS -o test_light_curve test_light_curve.c ../../main/light_curve.c -lm
 
 ./test_mapping
 ./test_valuefmt
+./test_jsonpath
 ./test_fonts
 ./test_wifi_pick
 ./test_devname

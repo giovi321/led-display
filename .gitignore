@@ -7,6 +7,9 @@ Firmware/test/host/test_devname
 Firmware/test/host/test_light_curve
 Firmware/test/host/test_tz
 Firmware/test/host/test_sched_window
+Firmware/test/host/test_jsonpath
+Firmware/test/host/test_fallback
+Firmware/test/host/test_power_model
 
 # Firmware build artefacts (ESP-IDF). Patterns are unanchored so they catch
 # Firmware/build/ etc. without listing the prefix explicitly.
