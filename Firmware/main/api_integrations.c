@@ -14,10 +14,12 @@
 #include "esp_log.h"
 
 #include "api_handlers.h"
+#include "http_auth.h"
 #include "integrations.h"
 #include "mqtt_link.h"
 #include "web_common.h"
 #include "wg_client.h"
+#include "webhooks.h"
 
 static const char *TAG = "api_integr";
 
@@ -208,6 +210,10 @@ static esp_err_t integrations_post_handler(httpd_req_t *req)
             cJSON_Delete(body);
             return web_send_err(req, "webhook_hdr_name too long (max 48)", 400);
         }
+        if (it->valuestring[0] != '\0' && !http_auth_name_valid(it->valuestring)) {
+            cJSON_Delete(body);
+            return web_send_err(req, "webhook_hdr_name must be a header token", 400);
+        }
         snprintf(cfg.webhook_hdr_name, sizeof(cfg.webhook_hdr_name), "%s",
                  it->valuestring);
     }
@@ -216,6 +222,10 @@ static esp_err_t integrations_post_handler(httpd_req_t *req)
         if (strlen(it->valuestring) > INTEGR_SECRET_MAX) {
             cJSON_Delete(body);
             return web_send_err(req, "webhook_hdr_value too long (max 128)", 400);
+        }
+        if (!http_auth_value_valid(it->valuestring)) {
+            cJSON_Delete(body);
+            return web_send_err(req, "webhook_hdr_value must not contain line breaks", 400);
         }
         snprintf(cfg.webhook_hdr_value, sizeof(cfg.webhook_hdr_value), "%s",
                  it->valuestring);
@@ -235,6 +245,7 @@ static esp_err_t integrations_post_handler(httpd_req_t *req)
         ESP_LOGE(TAG, "saving integrations failed: %s", esp_err_to_name(err));
         return web_send_err(req, "saving integrations failed", 500);
     }
+    webhooks_wake();   // restart the heartbeat interval after any change
     return web_send_ok(req);
 }
 

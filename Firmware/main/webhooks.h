@@ -15,3 +15,7 @@ esp_err_t webhooks_init(void);
 // merged in as "data" (the module copies it; caller keeps ownership). Does
 // nothing when the event bit is off or no URL is configured.
 void webhooks_fire(uint32_t event_bit, const char *json_data);
+
+// Wake the worker so it re-reads heartbeat_min and restarts the status
+// interval. Call after the integrations config changed.
+void webhooks_wake(void);
