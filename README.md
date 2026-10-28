@@ -43,12 +43,13 @@ Everything is configured from one hand-written page served gzipped from flash, i
 - Scrolling off, restart, or continuous as a marquee that repeats after a two-character gap
 - Up to 12 named colour presets, stored on the device so every browser and phone sees the same list
 
-### The sender pushes a raw number and the device owns the rest
+### The source supplies a raw number and the device owns the rest
 
-- `POST /api/value` with `{"value": 4210.5}`; the device applies the prefix, suffix, decimals and thousands separator, so every feed stays a one-liner
+- The device can fetch the value itself from a URL on an interval (a JSON path picks the field, or the whole body is the value), with an optional bearer secret or custom header, for sources that cannot push into the network
+- `POST /api/value` with `{"value": 4210.5}` pushes one; the device applies the multiplier, scale (k, M, B), decimals, separators, plus sign, prefix and suffix, so every feed stays a one-liner
 - An optional MQTT client takes the same values over a broker, controls brightness, power and content source, publishes a retained state topic, and announces itself to Home Assistant
-- A staleness guard reacts when nothing has arrived for a set number of hours: dim the panel, mark a corner pixel, or swap in a fallback text
-- The content source switches between the text you typed and the live value, with a placeholder covering the gap before the first push
+- One fallback covers every failure: no value for a set time, consecutive failed polls, or a lost MQTT broker. The panel shows a fallback text, marks a corner pixel or dims, and webhooks and MQTT report it
+- The content source switches between the text you typed and the live value, with the fallback text covering the gap before the first value
 
 ### It handles the states you are not there to see
 
@@ -64,7 +65,7 @@ Everything is configured from one hand-written page served gzipped from flash, i
 - The whole configuration exports and restores as one JSON file, with WiFi credentials deliberately excluded so it can move between devices and people
 - Two locks, both off by default: an API key for scripts, and a browser login over the whole interface
 - An optional WireGuard client reaches the device from outside the LAN without a port forward
-- Outbound webhooks POST boot, IP change, OTA result, schedule on and off, and stale value to one URL, fire and forget
+- Outbound webhooks POST boot, IP change, OTA result, schedule on and off, value stale and value recovered to one URL, with an optional secret and a status heartbeat, fire and forget
 
 ## Hardware
 
@@ -142,12 +143,15 @@ This is a LAN device speaking plain HTTP. Treat it that way.
 │   │   ├── display.[hc]     frame buffer, scroll modes, test patterns, identify
 │   │   ├── fonts.[hc]       the three pixel fonts + spacing rules (pure, host-testable)
 │   │   ├── valuefmt.[hc]    value formatting (pure, host-testable)
+│   │   ├── value_feed.[hc]  one ingest path for every value source, drives the fallback
+│   │   ├── value_poll.[hc]  URL poller task; jsonpath.[hc] is the pure path scanner
+│   │   ├── fallback.[hc]    fallback state machine (pure, host-testable)
 │   │   ├── settings.[hc]    NVS persistence, JSON blobs
-│   │   ├── scheduler.[hc]   on/off schedule, brightness arbiter, staleness tick
+│   │   ├── scheduler.[hc]   on/off schedule, brightness arbiter, fallback tick
 │   │   ├── light_sensor.[hc] ambient sensor sampling; light_curve.[hc] is its pure half
-│   │   ├── integrations.[hc] API key, value config, webhook config
+│   │   ├── integrations.[hc] API key, value and fallback config, webhook config
 │   │   ├── devname.[hc]     device-name rules (pure, host-testable)
-│   │   ├── webhooks.[hc]    outbound webhook queue
+│   │   ├── webhooks.[hc]    outbound webhook queue and status heartbeat
 │   │   ├── wifi_manager.[hc] saved networks, STA + captive-portal AP; wifi_pick.[hc] orders the attempts
 │   │   ├── wg_client.[hc]   WireGuard lifecycle
 │   │   ├── ota_update.[hc]  OTA slots, rollback
@@ -170,7 +174,7 @@ The SketchUp sources the parts were modelled in are not tracked; the repository 
 
 ## Development
 
-The [documentation site](https://giovi321.github.io/led-display/) covers the API reference, the mapping model and the build setup in detail. The short version: ESP-IDF v6.0.1, `idf.py set-target esp32s3`, and if your toolchain lives in WSL, `Firmware/tools/wsl_build.sh` mirrors the tree and builds outside the network mount. The pure modules (`mapping.c`, `valuefmt.c`, `fonts.c`, `wifi_pick.c`, `devname.c`, `light_curve.c`, `power_model.c`) have host-side unit tests under `Firmware/test/host/`; they must pass before any PR. See [CONTRIBUTING.md](CONTRIBUTING.md).
+The [documentation site](https://giovi321.github.io/led-display/) covers the API reference, the mapping model and the build setup in detail. The short version: ESP-IDF v6.0.1, `idf.py set-target esp32s3`, and if your toolchain lives in WSL, `Firmware/tools/wsl_build.sh` mirrors the tree and builds outside the network mount. The pure modules (`mapping.c`, `valuefmt.c`, `fonts.c`, `wifi_pick.c`, `devname.c`, `light_curve.c`, `power_model.c`, `fallback.c`, `jsonpath.c`) have host-side unit tests under `Firmware/test/host/`; they must pass before any PR. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

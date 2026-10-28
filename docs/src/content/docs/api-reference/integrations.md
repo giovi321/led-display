@@ -1,35 +1,45 @@
 ---
 title: Integrations, WireGuard and MQTT
-description: /api/integrations, /api/wireguard, /api/mqtt, and the outbound webhook payloads
+description: /api/integrations, /api/wireguard, /api/mqtt, and the outbound webhook payloads, including the status heartbeat
 sidebar:
   order: 6
 ---
 
 ## GET /api/integrations
 
-Open. Returns the integration settings. Secrets never appear here: the API key and the web UI password are reported only as booleans.
+Open. Returns the integration settings. Secrets never appear here: the API key, the web UI password, the webhook secret and the webhook header value are reported only as booleans. The value polling settings have their own endpoint, [`/api/value/poll`](../value-and-colors/#get-apivaluepoll).
 
 ```json
 {
   "api_key_set": false,
   "webhook_url": "http://192.168.10.5:5678/webhook/led-display",
-  "webhook_events": ["boot", "value_stale"],
+  "webhook_events": ["boot", "value_stale", "value_recovered"],
   "device_name": "led-display",
   "ui_auth": false,
   "ui_user": "",
-  "ui_pass_set": false
+  "ui_pass_set": false,
+  "webhook_secret_set": true,
+  "webhook_hdr_name": "X-Token",
+  "webhook_hdr_value_set": false,
+  "heartbeat_min": 15
 }
 ```
 
 ## POST /api/integrations
 
-Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep their current value, an explicitly empty `api_key` or `webhook_url` clears (disables) that feature.
+Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep their current value, an explicitly empty `api_key` or `webhook_url` clears (disables) that feature. The webhook secret and header value follow the rule of the other secrets: an absent or empty field never clears them, only the explicit `clear_*` flag does, so re-saving a form cannot wipe them. A request that carries a clear flag and a new value clears first and then stores the new value.
 
 | Field | Type | Limits |
 |-------|------|--------|
 | `api_key` | string | max 64 chars, empty clears |
 | `webhook_url` | string | max 160 chars, empty disables webhooks |
-| `webhook_events` | array of strings | any of `boot`, `ip_change`, `ota_result`, `schedule_on`, `schedule_off`, `value_stale`; an unknown name is a 400 |
+| `webhook_events` | array of strings | any of `boot`, `ip_change`, `ota_result`, `schedule_on`, `schedule_off`, `value_stale`, `value_recovered`; an unknown name is a 400. `status` is not selectable, the heartbeat sends it |
+| `heartbeat_min` | number | 0..1440; 0 turns the status heartbeat off, 400 outside the range. Saving restarts the interval |
+| `webhook_secret` | string | max 128 chars, sent as `Authorization: Bearer <secret>` with every webhook; absent or empty keeps the stored one |
+| `webhook_hdr_name` | string | max 48 chars, a valid HTTP header name (RFC 7230 token), empty clears the name; otherwise 400 `"webhook_hdr_name must be a header token"` |
+| `webhook_hdr_value` | string | max 128 chars, no line breaks (400 `"webhook_hdr_value must not contain line breaks"`); absent or empty keeps the stored one |
+| `clear_webhook_secret` | bool | `true` removes the webhook secret |
+| `clear_webhook_hdr` | bool | `true` removes the webhook header name and value |
 | `device_name` | string | max 32 chars; kept for older clients, see below |
 | `ui_auth` | bool | turn the browser login on or off |
 | `ui_user` | string | max 32 chars, may be empty |
@@ -54,19 +64,19 @@ The device name is no longer webhook-specific: one name is the network hostname,
 ```sh
 curl -X POST http://<device-ip>/api/integrations \
   -H 'Content-Type: application/json' \
-  -d '{"webhook_url":"http://192.168.10.5:5678/webhook/led-display","webhook_events":["boot","value_stale"]}'
+  -d '{"webhook_url":"http://192.168.10.5:5678/webhook/led-display","webhook_events":["boot","value_stale","value_recovered"],"heartbeat_min":15}'
 ```
 
 ## Outbound webhook payloads
 
-When an enabled event fires, the device POSTs JSON to `webhook_url` with `Content-Type: application/json`, a 5 second timeout, and one retry after 2 seconds. Delivery is fire-and-forget; failures are logged and dropped.
+When an enabled event fires, the device POSTs JSON to `webhook_url` with `Content-Type: application/json`, a 5 second timeout, and one retry after 2 seconds. When a webhook secret or custom header is set, every POST carries them as `Authorization: Bearer <secret>` and `<name>: <value>`. Delivery is fire-and-forget; failures are logged and dropped.
 
 ```json
 {
   "event": "value_stale",
   "device": "led-display",
   "uptime_s": 86042,
-  "data": { "age_s": 14400 }
+  "data": { "reason": "timeout", "age_s": 14400 }
 }
 ```
 
@@ -81,7 +91,50 @@ When an enabled event fires, the device POSTs JSON to `webhook_url` with `Conten
 | `ota_result` | an update finished, either path | `{"result": "ok", "version": "2.10.0"}` or the error text |
 | `schedule_on` | the schedule turned the display on | none |
 | `schedule_off` | the schedule turned the display off | none |
-| `value_stale` | the staleness guard tripped (once per episode) | `{"age_s": <seconds since last value>}` |
+| `value_stale` | the [fallback](../../user-guide/value-updates/#fallback) engaged (once per episode) | `{"reason": "timeout", "age_s": 14400}` |
+| `value_recovered` | the fallback cleared on the next value | `{"reason": "timeout"}` |
+| `status` | the heartbeat interval elapsed, see below | the status object below |
+
+For `value_stale`, `reason` is `timeout`, `poll_failures` or `mqtt_lost`, and `age_s` is the seconds since the last value, -1 when no value has arrived since boot. For `value_recovered`, `reason` is the reason that was active. Having no value since boot sends neither event, see [what engages the fallback](../../user-guide/value-updates/#what-engages-it).
+
+### Status heartbeat
+
+With `heartbeat_min` above 0 the device posts a `status` event every that many minutes, whichever events are selected. A receiver that stops seeing it knows that the device, its power or its network is gone.
+
+```json
+{
+  "event": "status",
+  "device": "led-display",
+  "uptime_s": 86042,
+  "data": {
+    "ip": "192.168.10.8",
+    "rssi": -58,
+    "uptime_s": 86042,
+    "fw": "2.12.0",
+    "brightness": 60,
+    "power": "on",
+    "source": "integration",
+    "text": "USD 4,210.5",
+    "value_age_s": 42,
+    "fallback": false,
+    "fallback_reason": "none"
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `ip` | the device's WiFi address |
+| `rssi` | WiFi signal in dBm |
+| `uptime_s` | seconds since boot |
+| `fw` | firmware version |
+| `brightness` | the stored user brightness, 0..255 |
+| `power` | `on` while the panel shows anything, `off` when it is blank |
+| `source` | `static` or `integration`, the [content source](../display/#post-apidisplaysource) |
+| `text` | what the panel currently shows |
+| `value_age_s` | seconds since the last value from any source, -1 when none |
+| `fallback` | `true` while the fallback is engaged |
+| `fallback_reason` | `no_value`, `timeout`, `poll_failures` or `mqtt_lost` while engaged, otherwise `none`. Unlike the other reports, the heartbeat also shows `no_value` for the time between boot and the first value |
 
 ## GET /api/wireguard
 

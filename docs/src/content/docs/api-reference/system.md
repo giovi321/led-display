@@ -134,8 +134,8 @@ curl http://192.168.1.50/api/status
 | `wifi.ap_ssid` | The SSID the setup network appears under, reported in every mode |
 | `display.*` | Current text state; `scroll_mode`, `font`, `spacing`, `speed` and `scale` as documented under [display control](../display/#post-apidisplaytext) |
 | `display.scroll` | The plain bool, true for both scrolling modes |
-| `display.brightness` | The level the panel is actually running at: 0 in a blanked off-window, the light sensor's level while it drives, halved when the value is stale, never above the cap |
-| `display.brightness_stored` | The brightness you set and the device persisted. It is what the display returns to when the schedule, the sensor or the staleness guard stops overriding it |
+| `display.brightness` | The level the panel is actually running at: 0 in a blanked off-window, the light sensor's level while it drives, halved while the [fallback](../../user-guide/value-updates/#fallback) dim is engaged, never above the cap |
+| `display.brightness_stored` | The brightness you set and the device persisted. It is what the display returns to when the schedule, the sensor or the fallback dim stops overriding it |
 | `display.text_stored` | The persisted static text, distinct from `display.text` (whatever is on screen, which in integration mode is the pushed value) |
 | `display.source` | `static` or `integration`, see [`POST /api/display/source`](../display/#post-apidisplaysource) |
 | `system.heap` | Free heap in bytes |
@@ -157,7 +157,7 @@ curl http://192.168.1.50/api/status
 | `power.limited` | The limiter clamped the last frame. Per frame and presentation only; your stored brightness is untouched |
 | `power.floor_exceeded` | The chain draws more than the budget with every channel off. No brightness can fix that |
 | `layout.*` | Summary of the active layout; the full config comes from [`GET /api/layout`](../layout/) |
-| `value_age_s` | Seconds since the last `POST /api/value`; -1 means never |
+| `value_age_s` | Seconds since the last value from any source (poll, `POST /api/value` or MQTT); -1 means never |
 | `wireguard.last_handshake` | Unix seconds, 0 means never |
 | `wireguard.held` | The [crash-loop guard](../../admin-guide/wireguard/#the-crash-loop-guard) is keeping an enabled tunnel down |
 | `mqtt.*` | MQTT client state; config via [`GET /api/mqtt`](../integrations/#get-apimqtt) |
@@ -499,7 +499,7 @@ Top-level shape:
 ```json
 {
   "v": 1,
-  "fw": "2.10.0",
+  "fw": "2.12.0",
   "note": "wifi credentials not included",
   "display": {"text": "...", "color": {"r":80,"g":32,"b":0}, "brightness": 60,
               "brightness_cap": 128, "scroll": false, "scroll_mode": "off",
@@ -507,11 +507,17 @@ Top-level shape:
               "spacing": "proportional", "boot_screen": 1, "source": "static"},
   "layout": {"v":1, "panel": {}, "grid": {}, "cells": []},
   "colors": {"v":1, "colors": []},
-  "value_config": {"v":1, "prefix": "", "suffix": "", "decimals": -1,
-                   "thousands": "", "stale_hours": 0, "stale_action": "none",
-                   "stale_text": "", "default_text": ""},
+  "value_config": {"v":2, "prefix": "", "suffix": "", "decimals": -1,
+                   "thousands": "", "multiplier": 1, "scale": "none",
+                   "scale_letters": "", "dec_sep": ".", "plus_sign": false,
+                   "fb_text": "", "fb_mode": "text", "fb_after_min": 0,
+                   "fb_poll_failures": 3, "fb_on_mqtt_loss": false},
   "integrations": {"v":1, "api_key": "...", "webhook_url": "",
-                   "webhook_events": 0, "device_name": "led-display"},
+                   "webhook_events": 0, "device_name": "led-display",
+                   "webhook_secret": "...", "webhook_hdr_name": "",
+                   "webhook_hdr_value": "...", "heartbeat_min": 0},
+  "value_poll": {"v":1, "enabled": false, "url": "", "interval_s": 300,
+                 "secret": "...", "hdr_name": "", "hdr_value": "...", "path": ""},
   "wireguard": {"enabled": false, "private_key": "...", "peer_public_key": "",
                 "endpoint_host": "", "endpoint_port": 0, "address": "",
                 "allowed_ips": "", "keepalive_s": 0},
@@ -528,6 +534,8 @@ Top-level shape:
 ```
 
 Two fields use the storage dialect rather than the API dialect: `display.boot_screen` is numeric (0 text, 1 ip, 2 none) and `integrations.webhook_events` is the numeric bitmask, not the name array used by [`/api/integrations`](../integrations/#post-apiintegrations).
+
+The `value_config` section is written in the 2.12.0 shape. A backup from 2.11.0 or earlier carries `stale_hours`, `stale_action`, `stale_text` and `default_text` there instead, and still imports: the values are converted to the fallback settings as described in [upgrading from 2.11.0](../../user-guide/value-updates/#upgrading-from-2110).
 
 The `light_sensor` section describes the configuration only; the live reading is not part of a backup. A file written by an older build simply lacks the sections and fields added since. It still imports, and the settings it does not mention keep their current values.
 

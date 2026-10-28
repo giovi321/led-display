@@ -21,7 +21,7 @@ What the panel does before the network is up, while the device is still bringing
 
 What the panel shows once the network state is known.
 
-- **Content** (the default) shows what you configured. Two things happen automatically underneath it. In [integration mode](../value-updates/) the last pushed value does not survive a reboot, so the value config's placeholder text stands in until the next push arrives, and with no placeholder set the panel stays blank rather than letting an old static text pose as live data. In static mode on a first boot, where no text has been saved yet, it falls back to the IP address so you can find the web UI
+- **Content** (the default) shows what you configured. Two things happen automatically underneath it. In [integration mode](../value-updates/) the last value does not survive a reboot, so the [fallback](../value-updates/#fallback) text stands in until the next value arrives, and with no fallback text set the panel stays blank rather than letting an old static text pose as live data. In static mode on a first boot, where no text has been saved yet, it falls back to the IP address so you can find the web UI
 - **IP address** scrolls the address the device was given, over and over
 - **Nothing** leaves the panel blank
 - **IP address, then content** shows the address for five seconds and then hands over. If you set something from the web UI during those five seconds, the handover is cancelled rather than overwriting what you just did

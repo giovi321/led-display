@@ -238,7 +238,7 @@ Errors: 400 `"on required"` when the field is missing or not a boolean.
 
 ## POST /api/display/source
 
-Switches the [content source](../../user-guide/display/#content-source) and re-renders immediately: `static` shows the stored static text, `integration` shows the last pushed value, or the value config's `default_text` placeholder before the first push (blank when no placeholder is set). The choice is persisted; `GET /api/status` reports it as `display.source`.
+Switches the [content source](../../user-guide/display/#content-source) and re-renders immediately: `static` shows the stored static text, `integration` shows the last value, or the [fallback](../../user-guide/value-updates/#fallback) text (`fb_text`) before the first value (blank when none is set). The choice is persisted; `GET /api/status` reports it as `display.source`.
 
 | Field | Type | Meaning |
 |---|---|---|

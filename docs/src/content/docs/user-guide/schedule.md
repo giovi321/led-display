@@ -56,15 +56,15 @@ The `schedule_on` and `schedule_off` transitions fire whichever action is config
 
 While the device runs its own [setup network](../../getting-started/wifi-setup/), the schedule never blanks the panel. The banner with the setup SSID and address is then the only way to find the device, so it stays visible until the device is back on a network.
 
-## Interaction with the staleness guard
+## Interaction with the fallback
 
-The [staleness guard](../value-updates/#the-staleness-guard) is paused while the schedule holds the display dark: no dimming, no corner marker, no stale text, and no `value_stale` webhook fires. The check resumes when the display turns back on.
+While the schedule holds the display dark, the [fallback](../value-updates/#fallback) has nothing to show: no corner marker is drawn and the dim has no effect on a panel that is off. Its triggers and notifications keep running, so a `value_stale` webhook can fire during the off window and a feed that dies overnight is reported when it dies, not when the display comes back.
 
-With the dim action the panel is still visible, so the guard keeps running through the off window: a stale value halves whatever level the schedule allows, dim level included.
+With the dim action the panel is still visible, so the fallback keeps working through the off window: the fallback dim halves whatever level the schedule allows, dim level included.
 
-One edge case is handled for you: if the guard's dim action triggered before the off time, the display comes back at the halved level in the morning, not at full brightness, so a stale value never looks fresh.
+One edge case is handled for you: if the fallback dim engaged before the off time, the display comes back at the halved level in the morning, not at full brightness, so a broken feed never looks healthy.
 
 ## Related pages
 
 - [Display](../display/): text, colour, and brightness
-- [Value updates](../value-updates/): feeding the display and the staleness guard
+- [Value updates](../value-updates/): feeding the display and the fallback

@@ -3,7 +3,7 @@
 Target state for the second firmware generation: runtime-configurable panel
 arrangement with a graphical editor, a restructured web UI with an advanced
 mode, integrations (REST API with optional key, generic inbound value webhook,
-outbound event webhooks), configuration backup/restore, OTA updates, and an
+URL value polling, outbound event webhooks), configuration backup/restore, OTA updates, and an
 optional WireGuard client. This document is the reference for the
 implementation; module names below are binding.
 
@@ -86,13 +86,13 @@ gzips them into the build dir and embeds via `EMBED_FILES`; the server sends
   chips, brightness, scroll, speed, scale), Schedule
 - **Advanced mode** (header toggle, state in localStorage): adds Hardware
   (arrangement editor, test patterns, brightness cap), Network (WiFi,
-  WireGuard), Integrations (API key, value endpoint config, outbound
-  webhooks), System (OTA, backup/restore, boot screen, factory reset,
+  WireGuard), Integrations (value from URL, value endpoint, MQTT,
+  formatting, fallback, status webhook, API key), System (OTA, backup/restore, boot screen, factory reset,
   reboot)
 
 The HTTP layer splits into per-domain handler files: `api_display.c`,
 `api_layout.c`, `api_system.c`, `api_wifi.c`, `api_integrations.c`,
-`api_ota.c`, plus `web_server.c` reduced to server setup, static assets,
+`api_ota.c`, `api_value_poll.c`, plus `web_server.c` reduced to server setup, static assets,
 captive-portal probes, and a registration table each module contributes to.
 
 ## 4. Settings and persistence
@@ -109,8 +109,9 @@ own keys:
 |-----|---------|
 | `layout` | panel type + grid + cells (section 1) |
 | `colors` | array of `{name, r, g, b}`, max 12 |
-| `valuecfg` | prefix, suffix, decimals, thousands separator, stale_hours, stale_action, stale_text, default_text (integration-mode placeholder) |
-| `integr` | api_key, webhook url, webhook event mask, the web UI login (`ui_auth`, `ui_user`, `ui_pass`), plus the legacy device-name copy `dname` superseded |
+| `valuecfg` | blob version 2: prefix, suffix, decimals, thousands separator, multiplier, scale, scale letters, decimal separator, plus sign, and the fallback (`fb_text`, `fb_mode`, `fb_after_min`, `fb_poll_failures`, `fb_on_mqtt_loss`). A version 1 blob (stale_hours, stale_action, stale_text, default_text) is migrated on first load, see section 5 |
+| `vpoll` | URL poll: enabled, url, interval_s, secret, hdr_name, hdr_value, path |
+| `integr` | api_key, webhook url, webhook event mask, webhook secret and custom header, heartbeat interval, the web UI login (`ui_auth`, `ui_user`, `ui_pass`), plus the legacy device-name copy `dname` superseded |
 | `wg` | WireGuard enable, private key, peer public key, endpoint, port, allowed IPs, keepalive |
 | `mqtt` | MQTT enable, broker URI, username, password, base topic, HA discovery flag + prefix |
 | `lsen` | light sensor: enabled, sda, scl, dark_raw, bright_raw, min_bri, max_bri, gamma. Blob version 3; older versions are discarded on load rather than migrated, because their calibration numbers are not in lux |
@@ -143,13 +144,16 @@ All existing endpoints remain. New/changed:
 | POST | `/api/display/identify` | `{"on":true\|false}` identify mode |
 | GET/POST | `/api/colors` | saved colour presets |
 | POST | `/api/value` | `{"value":"4.2"}` or `{"value":4.2}`; device formats via valuecfg template and displays |
-| GET/POST | `/api/value/config` | prefix/suffix/decimals/staleness settings |
+| POST | `/api/value/preview` | `{"raw":..,"cfg":{..}}`; dry-run format, nothing displayed or stored |
+| GET/POST | `/api/value/config` | formatting and fallback settings; still reads and accepts the pre-2.12 stale keys for one release |
+| GET/POST | `/api/value/poll` | URL poll config and last-poll status; secrets only as `*_set` booleans |
+| POST | `/api/value/poll/now` | wake the poller; returns `{ok, pending, status}` without waiting |
 | GET | `/api/config/export` | full config JSON (all blobs + scalars, WiFi credentials excluded; API key and WG private key included; the endpoint requires the API key when one is set) |
 | POST | `/api/config/import` | restore config, rebuild LUT, apply |
 | POST | `/api/ota/upload` | raw `.bin` body -> inactive OTA slot |
 | POST | `/api/ota/url` | `{"url":"https://..."}` pull update |
 | GET | `/api/ota/status` | slot info, running version, last result |
-| GET/POST | `/api/integrations` | API key, outbound webhook config |
+| GET/POST | `/api/integrations` | API key, outbound webhook config, heartbeat |
 | GET/POST | `/api/wireguard` | WireGuard config; status surfaced in `/api/status` |
 | GET/POST | `/api/display/light_sensor` | ambient sensor config; the GET adds the live reading, the level and the pins that can be used |
 | POST | `/api/system/device_name` | `{"name":".."}`; one name for hostname, setup-AP SSID and the webhook `device` field |
@@ -168,14 +172,14 @@ POSIX TZ override applied via `setenv`/`tzset`, DST included; empty keeps
 the fixed `utc_offset`); `/api/display/test` accepts `pattern: "off"` to end
 tests/identify and restore the configured content; `/api/value` renders only
 in integration mode, remembers the formatted value in RAM either way, and
-reports `rendered`; `/api/value/config` gains `default_text` (the
-integration-mode placeholder before the first value); `/api/wifi/connect`
+reports `rendered`; `/api/value/config` carries the fallback text as `fb_text`
+(shown in integration mode before the first value); `/api/wifi/connect`
 adds or updates a network and reboots instead of replacing the single stored
 one; `/api/wifi/reset` forgets every network; `/api/wifi/scan` items gain
 `saved`.
 
 `/api/status` gains: firmware version + build date, layout summary, value
-age (seconds since last `/api/value`), WireGuard state (`held` included),
+age (seconds since the last value from any source), WireGuard state (`held` included),
 MQTT state, OTA slot, `display.scroll_mode`/`font`/`spacing`,
 `display.brightness_stored` next to the applied `display.brightness`,
 `display.text_stored` next to the on-screen `display.text`,
@@ -204,18 +208,36 @@ off DNS rebinding and cross-site POSTs from an unrelated page. Skipped in AP
 mode, where the captive-portal sheet posts under the probe hostname it was
 hijacked from.
 
-**Value staleness**: `scheduler.c` grows a minute-tick check: if
-`stale_hours > 0` and no value update for that long, apply `stale_action`:
-`none`, `dim` (halve the level the schedule and the cap allow), `marker` (blinking
-corner pixel), or `text` (show `stale_text`). Cleared by the next value post.
-The guard only runs while the display source is `integration`: a stale value
-must not dim, mark or overwrite the user's static text.
+**Value fallback**: every value source (`POST /api/value`, MQTT
+`value/set`, the URL poller) ends in `value_feed.c`, which formats the value,
+stores it, records the arrival and clears the fallback. The fallback state
+machine is `fallback.c` (pure C, time passed in, host-tested). Its triggers
+are events, not conditions re-checked each tick: no value for `after_min`
+minutes (counted from boot while none arrived), `poll_failures` consecutive
+failed polls, and the MQTT broker lost for 60 s when `on_mqtt_loss` is set. A
+value from any source clears it, resets the failure count and re-arms the
+triggers. The mode is `text` (show `fb_text`), `marker` (corner pixel) or
+`dim` (halve the level the schedule and the cap allow); before the first value
+since boot the fallback text shows whatever the mode. Evaluation and
+reporting (`value_stale` with `reason` and `age_s`, `value_recovered`, the MQTT
+`fallback` flag, the heartbeat fields) run whatever the display source; the
+panel itself changes only while the source is `integration`. No value since
+boot changes the panel only and notifies nobody. `scheduler.c` calls
+`value_feed_tick()` every 30 s, and setup-AP mode stands the fallback down.
+The poller (`value_poll.c`, one low-priority task, 10 s timeout, 4 KB cap)
+extracts the value with the pure `jsonpath.c`.
+
+**Migration from 2.11.0**: a version 1 `valuecfg` blob, or a backup carrying
+the old keys, maps through `fb_migrate_legacy`: `fb_text` is `default_text` if
+set, else `stale_text`; `fb_after_min` is `stale_hours` x 60 (at most 43200);
+the stale action text, marker or dim becomes the mode, and none becomes
+`fb_after_min` 0 with mode text. A thousands separator of `.` gets a decimal
+comma. The old keys stop being written.
 
 **Content source**: the `dsrc` scalar decides what the panel is wired to
-show. Static: the stored text. Integration: the last value pushed via
-`/api/value` or MQTT, held in RAM only (a reboot shows the `default_text`
-placeholder until the next push, because a stale-looking figure must never
-pose as live data). Values pushed in static mode are still formatted, remembered and
+show. Static: the stored text. Integration: the last value received from
+any source, held in RAM only (a reboot shows the fallback text until the
+next value, because a stale-looking figure must never pose as live data). Values pushed in static mode are still formatted, remembered and
 counted fresh, so switching to integration shows the latest one. The switch,
 the test-stop and the MQTT power-on all re-render through one helper
 (`api_display_apply_source`).
@@ -224,16 +246,16 @@ the test-stop and the MQTT power-on all re-render through one helper
 what reaches the panel, in this order: the schedule level (inside the
 on-window the stored user brightness, replaced by the ambient sensor's level
 while the sensor is enabled and has read something; outside it 0 or
-`off_brightness` per `off_action`), then the brightness cap, then the stale
-halving. The cap is applied before the halving on purpose: clamping last
-would swallow the staleness dim whenever the level is at least twice the cap,
+`off_brightness` per `off_action`), then the brightness cap, then the fallback
+dim halving. The cap is applied before the halving on purpose: clamping last
+would swallow the dim whenever the level is at least twice the cap,
 because dimmed and undimmed would both land on the cap. Setup-AP mode is the
 exception in all directions: the panel then carries the only copy of the AP
-name and address, so the schedule does not blank it, the staleness guard
+name and address, so the schedule does not blank it, the fallback
 yields, and the sensor is bypassed in favour of the stored brightness.
 
 `/api/status` reports both ends of this: `display.brightness` is what the
-arbiter last applied (0 in a blanked off-window, halved when stale) and
+arbiter last applied (0 in a blanked off-window, halved by the fallback dim) and
 `display.brightness_stored` is the user's level, so the UI slider can stay an
 input without writing the applied value back.
 
@@ -242,7 +264,13 @@ input without writing the applied value back.
 One configurable URL + per-event toggles, plain JSON POST
 (`{"event":"...", "device":"...", "data":{...}}`), fire-and-forget with one
 retry, 5 s timeout, from a low-priority task queue. Events: `boot`,
-`ip_change`, `ota_result`, `schedule_on`, `schedule_off`, `value_stale`.
+`ip_change`, `ota_result`, `schedule_on`, `schedule_off`, `value_stale`
+(fallback engaged, `data` has `reason` and `age_s`), `value_recovered`. An
+optional secret (`Authorization: Bearer`) and one custom header go with every
+POST, under the same rules as the poller. The same worker posts a `status`
+heartbeat every `heartbeat_min` minutes (0 = off) whatever the selected
+events: `ip`, `rssi`, `uptime_s`, `fw`, `brightness`, `power`, `source`,
+`text`, `value_age_s`, `fallback`, `fallback_reason`.
 Consumable by n8n or anything else that accepts a webhook; nothing
 n8n-specific in the firmware.
 
@@ -282,9 +310,9 @@ is re-saved. Any clean boot or completed handshake resets the counter.
 ## 9. Boot flow (v2)
 
 settings -> layout/LUT -> display init (stored font + spacing) -> splash ->
-WiFi -> integrations/webhooks -> boot screen -> SNTP/scheduler -> light
-sensor -> WireGuard (if enabled) -> HTTP -> mark OTA image valid -> `boot`
-webhook.
+WiFi -> integrations/value_feed/webhooks -> boot screen -> SNTP/scheduler -> light
+sensor -> HTTP -> mark OTA image valid -> WireGuard (if enabled), MQTT, URL
+poller -> `boot` webhook.
 
 Ordering constraints inside that sequence:
 
@@ -346,7 +374,7 @@ renderer treats it as blank rather than the `?` fallback.
 
 Multiple parallel data pins, clock/countdown modes, HTTPS on-device,
 per-panel type mixing (heterogeneous panels in one grid), an uploadable
-image/logo as the integration placeholder (text only for now; a bitmap needs
+image/logo as the fallback shown before the first value (text only for now; a bitmap needs
 its own storage and render path).
 
 ## 13. MQTT client (optional, v2.3)
@@ -359,11 +387,11 @@ never echoed, empty keeps stored).
 
 The device is an integration source and a controllable node under one base
 topic (default: the device name): `text/set`, `value/set` (identical
-semantics to the HTTP endpoints, same formatting and freshness bookkeeping),
+semantics to the HTTP endpoints, same formatting and fallback bookkeeping through `value_feed`),
 `brightness/set`, `power/set` (blank/restore, RAM only), `source/set`,
 `reboot/set`; retained `state` JSON every 30 s and after each command;
 `availability` via LWT. Optional Home Assistant discovery publishes retained
 configs (light with brightness, text, source select, reboot button, RSSI +
-value-age diagnostics) under the discovery prefix, and withdraws them with
+value-age diagnostics, and a value-fallback binary sensor fed by the `fallback` field of the state JSON) under the discovery prefix, and withdraws them with
 empty retained payloads when discovery is switched off. MQTT bypasses the
 API key by design; the broker's auth is the boundary, stated in the docs.

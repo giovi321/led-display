@@ -44,7 +44,7 @@ A link lost while running does not put the device into setup mode straight away.
 
 If it is still offline after 30 minutes, it raises the setup network alongside those retries, so the portal is there when you come looking. Retries only slow to one every 5 minutes while somebody is actually connected to the portal, because a scan stalls the page. As soon as one of the saved networks answers, the setup network disappears again.
 
-While the setup network is up, the panels scroll the setup SSID and address whatever the boot screen setting says, and neither the [schedule](../../user-guide/schedule/) nor the staleness guard nor the [light sensor](../../admin-guide/light-sensor/) may dim that banner away. A display nobody can reach still has to say how to reach it.
+While the setup network is up, the panels scroll the setup SSID and address whatever the boot screen setting says, and neither the [schedule](../../user-guide/schedule/) nor the value fallback nor the [light sensor](../../admin-guide/light-sensor/) may dim that banner away. A display nobody can reach still has to say how to reach it.
 
 ## Names and limits
 

@@ -19,8 +19,8 @@ If you want to reach the display from outside your LAN, do not port-forward the 
 
 With a key set:
 
-- every POST endpoint requires it: display, layout, schedule, system, OTA, WiFi, integrations, WireGuard, config import
-- `GET /api/config/export` requires it too, because the export contains the key itself and the WireGuard private key
+- every POST endpoint requires it: display, layout, schedule, system, OTA, WiFi, integrations, value, value preview, URL poll, WireGuard, config import
+- `GET /api/config/export` requires it too, because the export contains the key itself, the poll and webhook secrets and the WireGuard private key
 - all other GET endpoints stay open (status, layout, schedule, OTA status)
 - one exception: on the setup AP of a device that has no saved network, the WiFi endpoints skip the check. That is genuine first-time provisioning, where nobody could have set a key yet
 

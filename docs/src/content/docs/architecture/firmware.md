@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-Firmware v2 (current version 2.10.0, `fw_version.h`) is a single ESP-IDF application targeting the ESP32-S3, built with ESP-IDF v6.0.1. All application code lives in `Firmware/main/`; the only extra component is the vendored WireGuard client in `Firmware/components/esp_wireguard/`. Modules with pure logic (pixel mapping, value formatting, the fonts, the saved-network ordering, the device-name rules, the light-sensor curve) contain no ESP-IDF calls so they compile and run on the host, see [building](../../development/building/).
+Firmware v2 (current version 2.12.0, `fw_version.h`) is a single ESP-IDF application targeting the ESP32-S3, built with ESP-IDF v6.0.1. All application code lives in `Firmware/main/`; the only extra component is the vendored WireGuard client in `Firmware/components/esp_wireguard/`. Modules with pure logic (pixel mapping, value formatting, the fonts, the saved-network ordering, the device-name rules, the light-sensor curve) contain no ESP-IDF calls so they compile and run on the host, see [building](../../development/building/).
 
 ![Firmware module map](/led-display/assets/diagrams/firmware-modules.svg)
 
@@ -19,13 +19,13 @@ Firmware v2 (current version 2.10.0, `fw_version.h`) is a single ESP-IDF applica
 4. Bring up the LED stack: `led_driver_init` with the resolved layout, then the power budget and brightness cap before brightness (a value over either never reaches the panels), then `display_init` and the stored font and spacing
 5. Boot splash: a 1 s border in the stored color, visual confirmation the LEDs are alive
 6. Start WiFi (`wifi_manager_start`): set the hostname on both netifs before the radio starts so the first DHCP request carries it, then scan and walk the saved networks strongest-first with a 10 s timeout each, falling back to the captive-portal AP. Once boot ends in STA mode a reconnect task keeps retrying a lost link
-7. Load integration config and start the outbound webhook worker; both are non-fatal, a failure logs a warning and boot continues
+7. Load integration config, start `value_feed` (its fallback clock starts here, so "no value since boot" counts from now) and the outbound webhook worker; all non-fatal, a failure logs a warning and boot continues
 8. Show the configured boot screen: stored text, the IP banner, or blank (first boot with no stored text falls back to the IP banner). In AP mode the scrolling setup banner overrides the choice, and a `wifi_manager` state callback re-shows it if the AP is raised later
-9. Start the scheduler: SNTP sync, on/off schedule, value staleness ticks
+9. Start the scheduler: SNTP sync, on/off schedule, and the 30 s tick that evaluates the value fallback
 10. Initialize the ambient light sensor, after the scheduler on purpose: a first reading re-applies the brightness through the scheduler's arbiter, which needs its mutex to exist
 11. Start the HTTP server, so endpoints become reachable only once display state is settled
 12. Call `ota_mark_valid`. The web server answering is the "provably up" bar; a crash before this point rolls back to the previous OTA slot on the next boot
-13. Start the optional outbound clients, WireGuard and MQTT, both best effort: runtime-disabled until configured, no-op stubs when compiled out. They come last because they dial out to networks this image has never met, and a fault here before step 12 would roll back an otherwise good update
+13. Start the outbound clients, WireGuard, MQTT and the URL value poller, all best effort: runtime-disabled until configured, no-op stubs when compiled out for the first two. They come last because they dial out to networks this image has never met, and a fault here before step 12 would roll back an otherwise good update
 14. Fire the boot webhook
 
 ## Module map
@@ -54,8 +54,9 @@ Firmware v2 (current version 2.10.0, `fw_version.h`) is a single ESP-IDF applica
 | --- | --- |
 | `layout` | panel type, grid size, per-cell chain index and rotation |
 | `colors` | saved color presets |
-| `valuecfg` | value endpoint formatting and staleness config |
-| `integr` | API key, outbound webhook config, and the device-name copy the `dname` key superseded |
+| `valuecfg` | value formatting and fallback config (blob version 2; a version 1 blob with the old stale settings is migrated on first load) |
+| `vpoll` | URL poll config: enabled, URL, interval, value path, secret, custom header |
+| `integr` | API key, outbound webhook config (URL, events, secret, custom header, heartbeat interval), and the device-name copy the `dname` key superseded |
 | `wg` | WireGuard client config |
 | `mqtt` | MQTT broker URI, credentials, base topic, Home Assistant discovery |
 | `lsen` | light sensor I2C pins, calibration readings, brightness range, curve |
@@ -66,13 +67,14 @@ Two namespaces sit outside `cfg`: `sched` for the schedule scalars plus its off-
 
 ### HTTP API
 
-`web_server.c` starts `esp_http_server` on port 80 (wildcard URI matching, 48 handler slots) and calls one registration function per domain module. Each module owns its endpoints exclusively; the ownership table lives in `api_handlers.h`:
+`web_server.c` starts `esp_http_server` on port 80 (wildcard URI matching, 72 handler slots) and calls one registration function per domain module. Each module owns its endpoints exclusively; the ownership table lives in `api_handlers.h`:
 
 | File | Endpoints |
 | --- | --- |
 | `api_display.c` | `/api/display/{text,brightness,brightness_cap,power,light_sensor,clear,test,map,identify}` |
 | `api_layout.c` | `/api/layout` (GET/POST) |
-| `api_colors.c` | `/api/colors`, `/api/value`, `/api/value/config` |
+| `api_colors.c` | `/api/colors`, `/api/value`, `/api/value/config`, `/api/value/preview` |
+| `api_value_poll.c` | `/api/value/poll` (GET/POST), `/api/value/poll/now` |
 | `api_wifi.c` | `/api/wifi/{scan,networks,networks/delete,connect,reset}` |
 | `api_system.c` | `/api/status`, `/api/system/{reboot,boot_screen,device_name,factory_reset}`, `/api/schedule` |
 | `api_config.c` | `/api/config/{export,import}` |
@@ -88,17 +90,21 @@ Two namespaces sit outside `cfg`: `sched` for the schedule scalars plus its off-
 
 ### Scheduler
 
-`scheduler.c` syncs wall time over SNTP and drives two periodic jobs on a 30 s tick: the per-day display on/off schedule (day bitmask, on/off times, UTC offset in minutes, and whether the off window blanks the panel or holds it at a dim level) and the value staleness tick, which triggers the configured stale action (dim, corner marker, or replacement text) when no value update arrived within the configured window.
+`scheduler.c` syncs wall time over SNTP and drives two periodic jobs on a 30 s tick: the per-day display on/off schedule (day bitmask, on/off times, UTC offset in minutes, and whether the off window blanks the panel or holds it at a dim level) and a call to `value_feed_tick()`, which evaluates the value fallback (see below).
 
-It also owns the one function that decides what brightness reaches the panel, so nothing else has to know the precedence. In order: the schedule level (inside the on window the stored user level, or the light sensor's level while that is enabled and has read something; outside it 0 or the dim level), then the brightness cap, then the stale halving. Clamping before the halving is deliberate, because a cap at or below half the level would otherwise swallow the staleness dim entirely. In setup-AP mode the schedule and the staleness guard stand down and the sensor is bypassed, because the panel then carries the only copy of the AP name and address.
+It also owns the one function that decides what brightness reaches the panel, so nothing else has to know the precedence. In order: the schedule level (inside the on window the stored user level, or the light sensor's level while that is enabled and has read something; outside it 0 or the dim level), then the brightness cap, then the fallback dim, which halves the result. Clamping before the halving is deliberate, because a cap at or below half the level would otherwise swallow the dim entirely. In setup-AP mode the schedule and the fallback stand down and the sensor is bypassed, because the panel then carries the only copy of the AP name and address.
 
 ### Integrations and webhooks
 
-`integrations.c` caches the integration config (API key, webhook URL and event mask) and the value formatting config in RAM, backed by the `integr` and `valuecfg` blobs, and tracks when the last value arrived. `valuefmt.c` is the pure formatting half: raw value string to display text via prefix, suffix, decimals, and thousands separator, host-testable like the mapping engine.
+`integrations.c` caches the integration config (API key, webhook URL, event mask, webhook auth and heartbeat interval) and the value formatting and fallback config in RAM, backed by the `integr` and `valuecfg` blobs, and tracks when the last value arrived. It also converts a version 1 `valuecfg` blob (the 2.11.0 stale settings and placeholder) to version 2 on first load, through `fb_migrate_legacy`. `valuefmt.c` is the pure formatting half: raw value string to display text via multiplier, scale, decimals, separators, plus sign, prefix and suffix, host-testable like the mapping engine.
+
+Every value source ends in one place. `value_feed.c` is the ingest path for `POST /api/value`, MQTT `value/set` and the URL poller: it formats the raw value, stores it as the last value, records the arrival, clears the fallback and renders the panel when the display source is integration. It also owns the fallback state, feeds it poll results and MQTT connect state, and fires `value_stale` and `value_recovered` and the MQTT state publish only after releasing its mutex. `fallback.c` is the pure state machine behind it: triggers are events, not conditions re-checked each tick, and every call takes the time as an argument, so it is host-testable with a fake clock. The scheduler's brightness arbiter reads the resulting dim flag without taking the feed's mutex.
+
+`value_poll.c` is the URL poller: one low-priority task that fetches the configured URL on its interval, with a 10 s socket timeout and a whole-request deadline, a 4 KB body cap, redirects followed by hand and TLS checked against the IDF certificate bundle. `jsonpath.c` is the pure scanner that pulls one string or number out of the body by a dotted path with `[n]` indices, without building a tree and without heap, so it is host-tested like `valuefmt.c`. The poller never runs on the HTTP server or display task, and `POST /api/value/poll/now` only wakes it.
 
 `devname.c` is the pure device-name module: the charset rules, a lenient cleaner for values that were never validated against them (an older webhook name, an imported config file), and the resolvers that turn a stored name into a hostname or a setup-AP SSID, defaults included. `integrations.c` reads the stored name through it and adopts a customised pre-2.2 webhook name once; `wifi_manager.c` applies it to both netifs and to the AP config.
 
-`webhooks.c` posts JSON events (boot, IP change, OTA result, schedule on/off, value stale) to one configured URL from a low-priority worker task: fire and forget, one retry, 5 s timeout.
+`webhooks.c` posts JSON events (boot, IP change, OTA result, schedule on/off, value stale, value recovered) to one configured URL from a low-priority worker task: fire and forget, one retry, 5 s timeout, with an optional bearer secret and one custom header. The same task owns the status heartbeat: it waits on its event queue with a timeout equal to the time left until the next heartbeat and posts `status` when that runs out, whichever events are selected.
 
 ### OTA
 
@@ -106,7 +112,7 @@ It also owns the one function that decides what brightness reaches the panel, so
 
 ### MQTT
 
-`mqtt_link.c` wraps `esp-mqtt` behind the same shape as the WireGuard client: compiled in when `CONFIG_LEDDISP_MQTT=y` (default on), no-op stubs otherwise, and down until a broker URI is configured. It subscribes the `set` topics (text, value, brightness, power, source, reboot), publishes a retained state document every 30 seconds and after each command, and registers a last will so the broker marks the device offline on an unclean drop. Values arriving on `value/set` go through the same `valuefmt` path and the same staleness bookkeeping as `POST /api/value`. Home Assistant discovery, when enabled, publishes retained config topics on every connect and clears them with empty retained payloads when switched off.
+`mqtt_link.c` wraps `esp-mqtt` behind the same shape as the WireGuard client: compiled in when `CONFIG_LEDDISP_MQTT=y` (default on), no-op stubs otherwise, and down until a broker URI is configured. It subscribes the `set` topics (text, value, brightness, power, source, reboot), publishes a retained state document every 30 seconds and after each command, and registers a last will so the broker marks the device offline on an unclean drop. Values arriving on `value/set` go through `value_feed` like `POST /api/value`, so they share its formatting and fallback bookkeeping. The state document carries the fallback flag and reason, and the connect and disconnect events feed the fallback's MQTT-loss trigger. Home Assistant discovery, when enabled, publishes retained config topics on every connect and clears them with empty retained payloads when switched off.
 
 ### WireGuard
 

@@ -16,7 +16,7 @@ The header of the web UI carries a live preview of the panel: the same text in t
 The switch at the top decides where the panel content comes from:
 
 - **Static text** shows whatever you type in the Text card below
-- **Integration** shows the last value pushed by your integration (the [value endpoint](../value-updates/) or [MQTT](../../admin-guide/mqtt/)), formatted per the Integrations tab. Until the first value arrives, right after a reboot for instance, the panel shows the placeholder text configured with the [value settings](../value-updates/#formatting), or stays blank if none is set
+- **Integration** shows the last value from your integration (a [URL the device fetches](../value-updates/#fetching-the-value-from-a-url), the [value endpoint](../value-updates/#posting-a-value) or [MQTT](../../admin-guide/mqtt/)), formatted per the Integrations tab. Until the first value arrives, right after a reboot for instance, the panel shows the [fallback](../value-updates/#fallback) text, or stays blank if none is set
 
 Switching is immediate and persisted. Values pushed while the source is static are still accepted and remembered; switching to integration shows the latest one.
 
@@ -50,7 +50,7 @@ The slider runs from 0 to 255 and takes effect when you press Apply. 0 is dark, 
 
 The slider's maximum can be lower than 255: the brightness cap, set on the Hardware tab in advanced mode, limits how bright the display may go to protect the power supply. The slider never goes above the cap, and API requests asking for more are silently clamped to it rather than rejected. See the [admin guide](../../admin-guide/) for the cap itself.
 
-The display can also dim or go dark on its own: the [schedule](../schedule/) turns it off or holds it at a dimmed level outside the configured hours, the [staleness guard](../value-updates/#the-staleness-guard) can halve the brightness when a value stops updating, and the [light sensor](../../admin-guide/light-sensor/) can set the brightness from the room.
+The display can also dim or go dark on its own: the [schedule](../schedule/) turns it off or holds it at a dimmed level outside the configured hours, the [fallback](../value-updates/#fallback) can halve the brightness when a value stops arriving, and the [light sensor](../../admin-guide/light-sensor/) can set the brightness from the room.
 
 Once the light sensor is switched on and has produced a level, the slider shows that level and stops being an input; a note under it says so. It stays an input until then, and also while the device runs its own [setup network](../../getting-started/wifi-setup/), where the sensor is bypassed. Your saved level is kept untouched and comes back the moment you switch the sensor off.
 

@@ -19,7 +19,7 @@ Everything lives on the Integrations tab (advanced mode) or via `GET`/`POST /api
 | Username / password | empty username connects anonymously. A saved password is kept when the form is re-saved with a blank password field |
 | Base topic | the prefix under which every topic below lives. Empty uses the [device name](../../api-reference/system/#post-apisystemdevice_name) |
 
-The client reconnects on its own after broker or WiFi outages. A last-will message marks the device `offline` when the connection drops uncleanly.
+The client reconnects on its own after broker or WiFi outages. A last-will message marks the device `offline` when the connection drops uncleanly. The [value fallback](../../user-guide/value-updates/#fallback) can also engage when the broker stays lost for more than 60 seconds; that trigger is off by default and is set on the Fallback card.
 
 The client ID and, when no base topic is set, the topic prefix are taken from the device name at connect time. Renaming the device therefore moves its topics only after the MQTT config is saved again or the device reboots. That is deliberate, so a rename cannot silently orphan a broker ACL or a Home Assistant device mid-session.
 
@@ -47,7 +47,7 @@ The state JSON:
  "value_age_s": 42, "fallback": false, "fallback_reason": "none", "rssi": -58, "ip": "192.168.1.50", "fw": "2.10.0", "uptime_s": 86452}
 ```
 
-`power` reports whether the panel is showing anything; `brightness` is the stored user level (what the slider says, not what the schedule or light sensor currently applies); `value_age_s` is `-1` before the first value; `fallback` is `true` while the value fallback is engaged because the value went stale, polling failed or the MQTT link was lost, and `fallback_reason` then names the cause (`timeout`, `poll_failures` or `mqtt_lost`), otherwise `none`. The state before the first value arrives reports `false`.
+`power` reports whether the panel is showing anything; `brightness` is the stored user level (what the slider says, not what the schedule or light sensor currently applies); `value_age_s` is `-1` before the first value; `fallback` is `true` while the [value fallback](../../user-guide/value-updates/#fallback) is engaged because the value went stale, polling failed or the MQTT link was lost, and `fallback_reason` then names the cause (`timeout`, `poll_failures` or `mqtt_lost`), otherwise `none`. The state before the first value arrives reports `false`.
 
 ## Home Assistant discovery
 

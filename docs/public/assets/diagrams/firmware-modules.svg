@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="system-ui, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" font-family="system-ui, sans-serif">
   <defs>
     <marker id="marr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
       <polygon points="0 0, 8 3, 0 6" fill="#8f8e96"/>
     </marker>
   </defs>
 
-  <rect width="900" height="520" fill="#0b0b0d"/>
+  <rect width="900" height="600" fill="#0b0b0d"/>
 
   <!-- arrows first -->
   <line x1="560" y1="104" x2="560" y2="128" stroke="#8f8e96" stroke-width="1.5" marker-end="url(#marr)"/>
@@ -16,6 +16,11 @@
   <line x1="368" y1="404" x2="480 " y2="444" stroke="#8f8e96" stroke-width="1.5" marker-end="url(#marr)"/>
   <line x1="560" y1="404" x2="560" y2="444" stroke="#8f8e96" stroke-width="1.5" marker-end="url(#marr)"/>
   <line x1="752" y1="404" x2="640" y2="444" stroke="#8f8e96" stroke-width="1.5" marker-end="url(#marr)"/>
+
+  <line x1="600" y1="404" x2="680" y2="432" stroke="#8f8e96" stroke-width="1.5" marker-end="url(#marr)"/>
+  <line x1="756" y1="464" x2="778" y2="464" stroke="#8f8e96" stroke-width="1.5" marker-end="url(#marr)"/>
+  <line x1="714" y1="508" x2="714" y2="494" stroke="#8f8e96" stroke-width="1.5" marker-end="url(#marr)"/>
+  <line x1="756" y1="536" x2="778" y2="536" stroke="#8f8e96" stroke-width="1.5" marker-end="url(#marr)"/>
 
   <!-- boot sequence (left column) -->
   <rect x="40" y="64" width="200" height="372" rx="6" fill="#17171b" stroke="#2b2b33"/>
@@ -29,7 +34,7 @@
   <text x="56" y="238" fill="#8f8e96" font-size="11" font-family="ui-monospace, monospace">7 light sensor</text>
   <text x="56" y="258" fill="#8f8e96" font-size="11" font-family="ui-monospace, monospace">8 http server</text>
   <text x="56" y="278" fill="#ffb347" font-size="11" font-family="ui-monospace, monospace">9 mark OTA valid</text>
-  <text x="56" y="298" fill="#8f8e96" font-size="11" font-family="ui-monospace, monospace">10 wireguard + mqtt</text>
+  <text x="56" y="298" fill="#8f8e96" font-size="11" font-family="ui-monospace, monospace">10 wg, mqtt, poller</text>
   <text x="56" y="318" fill="#8f8e96" font-size="11" font-family="ui-monospace, monospace">11 boot webhook</text>
   <text x="56" y="352" fill="#8f8e96" font-size="10">The image is valid only once</text>
   <text x="56" y="368" fill="#8f8e96" font-size="10">HTTP is up. The dial-out</text>
@@ -75,4 +80,23 @@
   <rect x="480" y="444" width="160" height="48" rx="6" fill="#101013" stroke="#2b2b33"/>
   <text x="560" y="464" fill="#ecebe6" font-size="13" font-weight="600" text-anchor="middle">NVS</text>
   <text x="560" y="482" fill="#8f8e96" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">settings + JSON blobs</text>
+
+  <!-- value path: every value source ends in value_feed -->
+  <rect x="672" y="436" width="84" height="56" rx="6" fill="#241a0c" stroke="#ffb347"/>
+  <text x="714" y="458" fill="#ffb347" font-size="13" font-weight="600" text-anchor="middle">value_feed</text>
+  <text x="714" y="476" fill="#8f8e96" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">ingest hub</text>
+
+  <rect x="780" y="436" width="84" height="56" rx="6" fill="#17171b" stroke="#2b2b33"/>
+  <text x="822" y="458" fill="#ecebe6" font-size="13" font-weight="600" text-anchor="middle">fallback</text>
+  <text x="822" y="476" fill="#8f8e96" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">state machine</text>
+
+  <rect x="672" y="508" width="84" height="56" rx="6" fill="#17171b" stroke="#2b2b33"/>
+  <text x="714" y="530" fill="#ecebe6" font-size="13" font-weight="600" text-anchor="middle">value_poll</text>
+  <text x="714" y="548" fill="#8f8e96" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">URL poller</text>
+
+  <rect x="780" y="508" width="84" height="56" rx="6" fill="#17171b" stroke="#2b2b33"/>
+  <text x="822" y="530" fill="#ecebe6" font-size="13" font-weight="600" text-anchor="middle">jsonpath</text>
+  <text x="822" y="548" fill="#8f8e96" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle">path scanner</text>
+
+  <text x="768" y="586" fill="#8f8e96" font-size="10" text-anchor="middle">http, mqtt and poll all enter value_feed</text>
 </svg>

@@ -1,25 +1,29 @@
 ---
 title: Value and colors
-description: The generic value endpoint, its formatting and staleness config, and the saved color list
+description: The value endpoints (push, poll, preview), their formatting and fallback config, and the saved color list
 sidebar:
   order: 4
 ---
 
-`/api/value` is the integration workhorse: anything that can POST JSON (a home-automation flow, a cron job, curl) sends a number, the firmware formats it through the value config and puts it on the display. The saved colors are a device-side palette the web UI offers as one-click choices.
+`/api/value` is the integration workhorse: anything that can POST JSON (a home-automation flow, a cron job, curl) sends a number, the firmware formats it through the value config and puts it on the display. The device can also fetch the value itself from a URL, see [`/api/value/poll`](#get-apivaluepoll). The saved colors are a device-side palette the web UI offers as one-click choices.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | POST | `/api/value` | yes | Show a formatted value |
-| GET | `/api/value/config` | no | Read the formatting and staleness config |
+| POST | `/api/value/preview` | yes | Format a sample value without showing or storing it |
+| GET | `/api/value/config` | no | Read the formatting and fallback config |
 | POST | `/api/value/config` | yes | Update the config (partial update) |
+| GET | `/api/value/poll` | no | Read the URL poll config and status |
+| POST | `/api/value/poll` | yes | Update the URL poll config (partial update) |
+| POST | `/api/value/poll/now` | yes | Request one poll now |
 | GET | `/api/colors` | no | Read the saved color list |
 | POST | `/api/colors` | yes | Replace the saved color list |
 
 ## POST /api/value
 
-Body: `{"value": <number or string>}`. Numbers are normalized to up to 10 significant digits, so `4.2` and `"4.2"` behave the same. The raw value goes through the value config (prefix, suffix, decimals, thousands separator) and, while the display [content source](../display/#post-apidisplaysource) is `integration`, is shown in the current color, scroll mode and speed. The scroll mode is passed through rather than forced off, so a long formatted value keeps scrolling if that is how the display is set up, and posting a value never rewrites the stored mode or the stored static text. Posting also resets the staleness clock (see below).
+Body: `{"value": <number or string>}`. Numbers are normalized to up to 15 significant digits, so `4.2` and `"4.2"` behave the same. The raw value goes through the [value config](#post-apivalueconfig) and, while the display [content source](../display/#post-apidisplaysource) is `integration`, is shown in the current color, scroll mode and speed. The scroll mode is passed through rather than forced off, so a long formatted value keeps scrolling if that is how the display is set up, and posting a value never rewrites the stored mode or the stored static text. Posting also records the arrival time and clears the [fallback](../../user-guide/value-updates/#fallback).
 
-The formatted value is held in RAM only: after a reboot the panel shows the config's `default_text` placeholder until the next POST. In `static` mode the value is still formatted, remembered and counted as fresh, and the response then carries `"rendered": false`.
+The formatted value is held in RAM only: after a reboot the panel shows the config's fallback text until the next value arrives. In `static` mode the value is still formatted, remembered and counted as fresh, and the response then carries `"rendered": false`.
 
 ```bash
 curl -X POST http://192.168.1.50/api/value \
@@ -36,6 +40,22 @@ Errors: 400 `"invalid JSON body"` (bad JSON or body over 512 bytes), 400 `"body 
 
 Non-numeric strings are passed through with prefix and suffix only, so `{"value":"OPEN"}` works as a status display.
 
+## POST /api/value/preview
+
+A dry run of the formatter. It formats `raw` with the stored config overlaid by the optional `cfg` object, which takes the same keys as [`POST /api/value/config`](#post-apivalueconfig) and is not saved. Nothing is displayed or stored, and the fallback is not touched. The web UI preview calls this as you type, so the browser carries no copy of the formatter.
+
+```bash
+curl -X POST http://192.168.1.50/api/value/preview \
+  -H "X-Api-Key: mysecret" -H "Content-Type: application/json" \
+  -d '{"raw": 1234567.891, "cfg": {"prefix": "USD ", "scale": "M", "decimals": 1, "thousands": ","}}'
+```
+
+```json
+{"text": "USD 1.2M"}
+```
+
+`raw` is a number or a string. Errors: 400 `"invalid JSON body"` (bad JSON or body over 2048 bytes), 400 `"body must be {\"raw\":<string|number>,\"cfg\":{...}}"`, and any config error from the table below for a bad `cfg`, such as 400 `"thousands and decimal separator must differ"`.
+
 ## GET /api/value/config
 
 ```bash
@@ -48,12 +68,24 @@ curl http://192.168.1.50/api/value/config
   "suffix": "",
   "decimals": 2,
   "thousands": ",",
-  "stale_hours": 24,
+  "multiplier": 1,
+  "scale": "none",
+  "scale_letters": "",
+  "dec_sep": ".",
+  "plus_sign": false,
+  "fb_text": "waiting...",
+  "fb_mode": "dim",
+  "fb_after_min": 360,
+  "fb_poll_failures": 3,
+  "fb_on_mqtt_loss": false,
+  "stale_hours": 6,
   "stale_action": "dim",
-  "stale_text": "STALE",
+  "stale_text": "waiting...",
   "default_text": "waiting..."
 }
 ```
+
+The last four keys are the pre-2.12.0 fields, derived from the fallback settings and kept for one release so older scripts still read something. New clients should ignore them.
 
 ## POST /api/value/config
 
@@ -63,33 +95,110 @@ Partial update: only the fields you send change.
 |---|---|---|
 | `prefix` | string | Up to 16 characters, prepended to the value |
 | `suffix` | string | Up to 16 characters, appended to the value |
-| `decimals` | number | -1..9; -1 leaves the value exactly as sent, otherwise round half away from zero to that many decimals |
+| `decimals` | number | -1..6; -1 leaves the value as sent (when there is no multiplier or scale), otherwise round half away from zero to that many decimals |
 | `thousands` | string | Single separator character; `""` clears it. A space (`" "`) renders as a thin space, narrower than a typed space, so grouped values stay compact |
-| `stale_hours` | number | 0..65535; 0 disables the staleness check |
-| `stale_action` | string | `none`, `dim`, `marker` or `text` |
-| `stale_text` | string | Up to 64 characters, shown by the `text` action |
-| `default_text` | string | Up to 64 characters, shown verbatim in integration mode until the first value arrives; `""` keeps the panel blank |
+| `multiplier` | number | Non-zero, applied before scaling |
+| `scale` | string | `none`, `auto`, `k`, `M` or `B` |
+| `scale_letters` | string | Up to 23 characters, four space-separated tokens for k, M, B and T. Missing tokens fall back to `k M B T`; empty means the defaults |
+| `dec_sep` | string | `.` or `,` |
+| `plus_sign` | bool | Prefix positive numbers with `+` |
+| `fb_text` | string | Up to 64 characters, shown verbatim while the fallback is engaged; `""` keeps the panel blank |
+| `fb_mode` | string | `text`, `marker` or `dim` |
+| `fb_after_min` | number | 0..43200 minutes without a value; 0 turns the timeout off |
+| `fb_poll_failures` | number | 0..255 consecutive failed polls; 0 turns it off |
+| `fb_on_mqtt_loss` | bool | Engage when the MQTT broker has been lost for more than 60 seconds |
+
+The order the formatting fields apply in is described in the [user guide](../../user-guide/value-updates/#formatting). `thousands` and `dec_sep` must not be the same character.
+
+The pre-2.12.0 fields `stale_hours`, `stale_action`, `stale_text` and `default_text` are still accepted for one release and mapped onto the fallback settings. When a request carries both an old field and its `fb_*` replacement, the `fb_*` field wins. See [upgrading from 2.11.0](../../user-guide/value-updates/#upgrading-from-2110) for the mapping.
 
 ```bash
 curl -X POST http://192.168.1.50/api/value/config \
   -H "X-Api-Key: mysecret" \
-  -d '{"prefix":"","suffix":" C","decimals":1,"stale_hours":6,"stale_action":"marker"}'
+  -d '{"prefix":"","suffix":" C","decimals":1,"fb_mode":"marker","fb_after_min":360}'
 ```
 
-Response: `{"ok": true}`. Errors: 400 `"decimals must be -1..9"`, 400 `"stale_hours must be 0..65535"`, 400 `"stale_action must be none|dim|marker|text"`, 500 `"saving value config failed"`.
+Response: `{"ok": true}`. Errors, each a 400 with the message as text: `"decimals must be -1..6"`, `"multiplier must be a non-zero number"`, `"scale must be none|auto|k|M|B"`, `"dec_sep must be . or ,"`, `"fb_mode must be text|marker|dim"`, `"fb_after_min must be 0..43200"`, `"fb_poll_failures must be 0..255"`, `"thousands and decimal separator must differ"`, and for the old fields `"stale_hours must be 0..65535"` and `"stale_action must be none|dim|marker|text"`. A failed save is 500 `"saving value config failed"`. A changed fallback text or mode shows at once, not at the next tick.
 
-## Staleness
+## Fallback
 
-When no value arrives for `stale_hours`, the display flags it so a frozen number cannot masquerade as a live one:
+The fallback settings above decide what the panel does when the feed breaks. What triggers it, how it clears, and what it reports are described in one place, the [user guide](../../user-guide/value-updates/#fallback). The reports an API client sees:
 
-| Action | Effect |
-|---|---|
-| `none` | No visual change (the webhook still fires) |
-| `dim` | Halve the brightness until the next value arrives |
-| `marker` | Blink a corner pixel |
-| `text` | Replace the display with `stale_text` |
+- the `value_stale` and `value_recovered` [webhook events](../integrations/#outbound-webhook-payloads), with `reason` one of `timeout`, `poll_failures` or `mqtt_lost`
+- the `fallback` and `fallback_reason` fields of the [MQTT state](../../admin-guide/mqtt/)
+- the same two fields in the `status` heartbeat, where `fallback_reason` can also be `no_value` before the first value since boot
+- `value_age_s` in [`GET /api/status`](../system/#get-apistatus): seconds since the last value from any source, -1 when none was ever received
 
-Crossing into staleness also fires the `value_stale` [webhook](../integrations/#outbound-webhook-payloads) with the age in seconds. The next `POST /api/value` clears the condition and restores brightness. `GET /api/status` reports `value_age_s`, seconds since the last value, -1 when none was ever received (see [system](../system/#get-apistatus)).
+## GET /api/value/poll
+
+Open. Returns the URL poll config and the status of the last poll. Secrets never appear: the secret and the custom header value are reported only as booleans.
+
+```bash
+curl http://192.168.1.50/api/value/poll
+```
+
+```json
+{
+  "enabled": true,
+  "url": "https://example.com/value.json",
+  "interval_s": 300,
+  "secret_set": true,
+  "hdr_name": "X-Token",
+  "hdr_value_set": false,
+  "path": "data.price",
+  "status": {
+    "last_poll": 1793011200,
+    "http_status": 200,
+    "raw": "4210.5",
+    "error": "",
+    "failures": 0
+  }
+}
+```
+
+`status.last_poll` is unix seconds, 0 until the first poll. `http_status` is 0 when there was no response. `raw` is the extracted value (cut to 63 characters, for display) and `error` is empty after a good poll; after a failed one `raw` is empty and `error` holds the reason, for example `HTTP 503`, `path not found`, `value is not a string or number`, `invalid JSON`, `response too large`, `empty response` or a transport error such as `ESP_ERR_TIMEOUT`. `failures` counts consecutive failed polls.
+
+## POST /api/value/poll
+
+Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep their stored value. Saving applies immediately and triggers one poll, so the request itself never waits for the network.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `enabled` | bool | turn polling on or off; enabling needs a URL |
+| `url` | string | `http://` or `https://`, up to 255 characters; `""` clears it |
+| `interval_s` | number | 10..86400 seconds |
+| `path` | string | up to 64 characters; empty means the whole trimmed response body is the value |
+| `secret` | string | up to 128 characters, sent as `Authorization: Bearer <secret>`; absent or empty keeps the stored one |
+| `hdr_name` | string | up to 48 characters, a valid HTTP header name (RFC 7230 token); `""` clears the name |
+| `hdr_value` | string | up to 128 characters, no line breaks; absent or empty keeps the stored one |
+| `clear_secret` | bool | `true` removes the secret |
+| `clear_header` | bool | `true` removes the header name and value |
+
+A secret or header value is removed only by its explicit `clear_*` flag, never by an absent or empty field, so re-saving a form cannot wipe it. A request that carries a clear flag and a new value clears first and then stores the new value.
+
+```bash
+curl -X POST http://192.168.1.50/api/value/poll \
+  -H "X-Api-Key: mysecret" -H "Content-Type: application/json" \
+  -d '{"enabled": true, "url": "https://example.com/value.json", "path": "data.price", "interval_s": 300, "secret": "s3cret"}'
+```
+
+Response: `{"ok": true}`. Errors: 400 `"invalid JSON body"`, 400 `"interval_s must be 10..86400"`, 400 `"url must start with http:// or https://"`, 400 `"url required to enable polling"`, 400 `"field too long"`, 400 `"hdr_name must be a header token"`, 400 `"hdr_value must not contain line breaks"`, 500 `"saving value poll config failed"`.
+
+Polling runs only while it is enabled, a URL is set and the device is in station mode with an IP address. Each poll has a 10 second timeout, follows redirects, verifies HTTPS against the built-in certificate bundle, and accepts a response body of up to 4 KB. How a response becomes a value, and what counts as a failure, is in the [user guide](../../user-guide/value-updates/#fetching-the-value-from-a-url).
+
+## POST /api/value/poll/now
+
+Requires `X-Api-Key` when a key is set. Asks the poller to run one poll now and returns at once with the current status. It does not wait for the result.
+
+```bash
+curl -X POST http://192.168.1.50/api/value/poll/now -H "X-Api-Key: mysecret"
+```
+
+```json
+{"ok": true, "pending": true, "status": {"last_poll": 1793011200, "http_status": 200, "raw": "4210.5", "error": "", "failures": 0}}
+```
+
+`pending` is `true` when a poll was requested. It is `false`, and nothing is triggered, when polling cannot run: it is disabled, no URL is set, or the device has no station IP. The `status` block is the one from before the new poll. Read [`GET /api/value/poll`](#get-apivaluepoll) until `last_poll` changes; the web UI gives up after about 12 seconds.
 
 ## GET /api/colors
 

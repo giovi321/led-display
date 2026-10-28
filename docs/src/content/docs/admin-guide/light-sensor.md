@@ -52,7 +52,7 @@ The sensor level replaces your stored brightness while the [schedule](../../user
 
 - outside the on window the schedule wins, blank or dimmed as configured
 - the brightness cap clamps the result, always
-- a [stale value](../../user-guide/value-updates/#the-staleness-guard) halves what is left after the cap, so the staleness dim stays visible even on a capped display
+- the [fallback](../../user-guide/value-updates/#fallback) dim, when that mode is chosen, halves what is left after the cap, so it stays visible even on a capped display
 - in [setup-AP mode](../../getting-started/wifi-setup/) the sensor is bypassed and the stored brightness is used, so a dark room cannot dim away the banner carrying the setup SSID and address
 
 Your manually set brightness is stored, not overwritten: `GET /api/status` reports it as `display.brightness_stored` next to the applied `display.brightness`. The Display tab's slider shows the sensor's level and stops accepting input once the sensor has produced one; it stays usable before the first reading and in setup-AP mode. Switch the sensor off and your own level comes back.

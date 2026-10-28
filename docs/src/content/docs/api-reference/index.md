@@ -9,9 +9,9 @@ The firmware exposes a plain HTTP JSON API on port 80. Everything the web UI doe
 
 - [Display control](display/): text, fonts, brightness, the light sensor, test patterns, identify
 - [Layout](layout/): the panel arrangement config
-- [Value and colors](value-and-colors/): the generic value endpoint, its formatting config, saved colors
+- [Value and colors](value-and-colors/): the value endpoint, the URL poll, formatting and fallback config, preview, saved colors
 - [System](system/): status, reboot, device name, schedule, WiFi, OTA, config export/import
-- [Integrations](integrations/): API key, outbound webhooks, WireGuard
+- [Integrations](integrations/): API key, outbound webhooks and the status heartbeat, WireGuard, MQTT
 
 ## Base URL
 
@@ -103,11 +103,12 @@ Config-style POST endpoints overlay the fields you send onto the current state; 
 - `POST /api/display/light_sensor`
 - `POST /api/schedule`
 - `POST /api/value/config`
-- `POST /api/integrations`
+- `POST /api/value/poll` (an absent or empty `secret` or `hdr_value` keeps the stored one; only `clear_secret` and `clear_header` remove them)
+- `POST /api/integrations` (the same rule for `webhook_secret` and `webhook_hdr_value`)
 - `POST /api/wireguard` (an absent or empty `private_key` keeps the stored one)
 
 Two endpoints replace the whole resource instead, so the client never has to diff: `POST /api/colors` (the full list) and `POST /api/layout` (the full arrangement).
 
 ## Firmware version
 
-This reference matches firmware 2.10.0, reported in `GET /api/status` under `system.fw`. Fields are added as optional everywhere, so a client written against an earlier shape keeps working: the `scroll` bool is still accepted alongside `scroll_mode`, and the older map-mode API survives as a compatibility shim at [`POST /api/display/map`](display/#post-apidisplaymap).
+This reference matches firmware 2.12.0, reported in `GET /api/status` under `system.fw`. Fields are added as optional everywhere, so a client written against an earlier shape keeps working: the `scroll` bool is still accepted alongside `scroll_mode`, and the older map-mode API survives as a compatibility shim at [`POST /api/display/map`](display/#post-apidisplaymap).

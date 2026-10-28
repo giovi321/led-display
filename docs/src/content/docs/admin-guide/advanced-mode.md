@@ -20,7 +20,7 @@ Advanced mode adds:
 
 - Hardware: the [arrangement editor](../arrangement-editor/), test patterns, the brightness cap that protects the power supply, and the [light sensor](../light-sensor/)
 - Network: the saved WiFi networks, scan and connect, and the [WireGuard](../wireguard/) tunnel
-- Integrations: the [API key](../api-key/), the outbound webhook, and the value endpoint configuration
+- Integrations: the [API key](../api-key/), the value sources (URL polling, the value endpoint and MQTT), the value formatting and fallback, and the status webhook
 - System: firmware and status info, the device name, boot screen, [OTA updates](../ota-updates/), [backup and restore](../backup-restore/), reboot, and factory reset
 
 ## Behaviour details
