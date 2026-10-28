@@ -9,17 +9,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "fallback.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Staleness action when no value update arrived for stale_hours.
-typedef enum {
-    STALE_ACT_NONE   = 0,
-    STALE_ACT_DIM    = 1,   // halve brightness until the next update
-    STALE_ACT_MARKER = 2,   // blinking corner pixel
-    STALE_ACT_TEXT   = 3,   // replace display with stale_text
-} stale_action_t;
 
 // Number scaling: the value is divided by 1000^n and a letter appended.
 // AUTO picks the largest of k/M/B/T with |v| >= 1000^n.
@@ -45,13 +39,7 @@ typedef struct {
     char           scale_letters[VALUE_LETTERS_MAX + 1];  // "" = "k M B T"
     char           dec_sep;         // 0 or '.' = dot, ',' = comma
     bool           plus_sign;       // "+" on positive numbers
-    uint16_t       stale_hours;     // 0 = staleness check disabled
-    stale_action_t stale_action;
-    char           stale_text[VALUE_TEXT_MAX + 1];
-    // Placeholder shown in integration mode while no value has arrived yet
-    // (fresh boot, integration not wired up). Shown verbatim - no
-    // prefix/suffix/formatting applied. Empty = blank panel.
-    char           default_text[VALUE_TEXT_MAX + 1];
+    fallback_cfg_t fb;              // fallback text/mode and triggers
 } value_cfg_t;
 
 // Format `raw` (e.g. "1234567.891") into `out`. Numeric pipeline: multiply,
