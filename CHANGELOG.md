@@ -4,6 +4,28 @@ All notable changes to the firmware are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.0] - 2026-10-28
+
+### Added
+
+- The device can fetch the value itself. A new Value from URL card polls an http or https URL on an interval (10 to 86400 seconds, default 300), so a source that cannot push into the network can still drive the display. A value path (`data.price`, `[0].value`, `data.items[2].value`) picks the field out of a JSON response, and an empty path takes the whole trimmed body, shown exactly as received when it is not a number. An optional secret is sent as `Authorization: Bearer`, and one custom header can be set next to it. HTTPS is verified against the certificate bundle, the request times out after 10 seconds, and the body is capped at 4 KB. Polling runs on its own low-priority task, so a slow URL never blocks the web server, the display or MQTT. `jsonpath.[hc]` is the pure scanner behind the path, host-tested
+- `GET`/`POST /api/value/poll` and `POST /api/value/poll/now`. The GET reports the config and the status of the last poll (time, HTTP status, extracted value, error, consecutive failures), and the secret and header value only as `secret_set` and `hdr_value_set`. The POST keeps stored secrets unless `clear_secret` or `clear_header` is sent. "Poll now" does not wait for the result: it returns `pending` at once, and `pending` is false when polling cannot run. Saving the config triggers one poll. Header names must be valid HTTP tokens and values must not contain line breaks. The poll settings travel in the config backup as a `value_poll` section
+- More formatting for every value source: a multiplier, scaling to thousands, millions or billions (or `auto`), configurable scale letters, a decimal comma next to the existing separators, and an optional plus sign. A rounding that crosses a unit moves up with it, so 999.96k at one decimal shows 1.0M. `POST /api/value/preview` formats a sample value with a posted, unsaved config and returns the text, and the new Formatting card uses it for a live preview, so the browser carries no copy of the formatter
+- One fallback for every failure, with a text of up to 64 characters and a mode of text, corner marker or dim. It engages when no value arrived for a set number of minutes, after a set number of consecutive failed polls (default 3), or when the MQTT broker is lost for more than 60 seconds (off by default). Triggers are events, not conditions re-checked each tick, so a single slow poll does not flap it and a failing poll does not switch it back on while MQTT delivers values. The next value from any source clears it. Before the first value since boot the panel shows the fallback text whatever the mode, and notifies nobody
+- The status webhook gains a `value_recovered` event, an optional secret and custom header on every outbound POST, and a heartbeat. With a heartbeat interval of 1 to 1440 minutes the device posts a `status` event on that interval, whichever events are selected, with the IP, signal, uptime, firmware version, brightness, power, content source, what the panel shows, the value age, and the fallback state. `value_stale` now carries `reason` (`timeout`, `poll_failures` or `mqtt_lost`) next to `age_s`, which is -1 when no value has arrived since boot
+- MQTT state gains `fallback` and `fallback_reason`, and Home Assistant discovery publishes a diagnostic "Value fallback" binary sensor that is withdrawn with the rest when discovery is turned off
+
+### Changed
+
+- The Integrations tab follows the data flow: Value from URL, Value endpoint, MQTT, Formatting, Fallback, Status webhook, API key. Formatting moved out of the value endpoint card because it applies to every source. Every card that holds a secret uses a password field with "leave blank to keep current"
+- The fallback replaces the stale settings and the placeholder text. On the first boot of 2.12.0 the stored settings are converted: the fallback text is the old placeholder if one was set, else the old stale text, the timeout is the old stale hours times 60 minutes, and the stale action text, marker or dim becomes the fallback mode (action none becomes a timeout of 0 and mode text). A configuration that used a dot as thousands separator gets a decimal comma. A backup from 2.11.0 imports through the same conversion
+- `GET /api/value/config` still returns `stale_hours`, `stale_action`, `stale_text` and `default_text` for one release, derived from the fallback settings, and `POST /api/value/config` still accepts them. Use `fb_text`, `fb_mode`, `fb_after_min`, `fb_poll_failures` and `fb_on_mqtt_loss` in new scripts
+- The fallback timeout counts from boot while no value has arrived, where the old staleness guard armed only after the first value. The checks and the notifications run whatever the display source, while the panel itself changes only in integration mode
+- Every value source, `POST /api/value`, MQTT and the poller, now enters through one ingest path (`value_feed.c`) and the fallback state machine is `fallback.[hc]`, host-tested with a fake clock. The valuecfg blob is version 2, and the decimals range is -1 to 6 where it was -1 to 9
+- JSON numbers posted to `/api/value` are kept to 15 significant digits where they were cut to 10
+- `GET /api/status` and the MQTT state report `value_age_s` as the time since the last value from any source
+- The API key card moved last and says it gates every POST, the value, preview and poll endpoints included
+
 ## [2.11.0] - 2026-09-01
 
 ### Added
