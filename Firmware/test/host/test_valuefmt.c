@@ -170,8 +170,131 @@ static void test_truncation(void)
     valuefmt_format(&c, "42", NULL, 0);   // must not crash
 }
 
+static void test_multiplier(void)
+{
+    value_cfg_t c = mkcfg("", "", 1, 0);
+    c.multiplier = 100;
+    check(&c, "0.4567", "45.7", "multiplier 100");
+
+    c.multiplier = 0;   // 0 behaves as 1
+    check(&c, "0.4567", "0.5", "multiplier 0 behaves as 1");
+}
+
+static void test_scale_fixed(void)
+{
+    value_cfg_t m = mkcfg("", "", 1, ',');
+    m.scale = VALUE_SCALE_M;
+    check(&m, "1234567.891", "1.2M", "fixed M");
+
+    value_cfg_t k = mkcfg("", "", 0, 0);
+    k.scale = VALUE_SCALE_K;
+    check(&k, "-4500", "-5k", "fixed K negative");
+
+    value_cfg_t b = mkcfg("", "", 2, 0);
+    b.scale = VALUE_SCALE_B;
+    check(&b, "7500000000", "7.50B", "fixed B");
+}
+
+static void test_scale_auto(void)
+{
+    value_cfg_t c = mkcfg("", "", 1, 0);
+    c.scale = VALUE_SCALE_AUTO;
+    check(&c, "999",      "999.0",  "auto below 1000");
+    check(&c, "1000",     "1.0k",   "auto 1000");
+    check(&c, "999950",   "1.0M",   "auto rounds up into next unit");
+    check(&c, "999940",   "999.9k", "auto stays in unit");
+    check(&c, "2.5e12",   "2.5T",   "auto T");
+    check(&c, "-1500000", "-1.5M",  "auto negative");
+}
+
+static void test_scale_letters(void)
+{
+    value_cfg_t c = mkcfg("", "", 0, 0);
+    c.scale = VALUE_SCALE_AUTO;
+    snprintf(c.scale_letters, sizeof(c.scale_letters), "K Mio Mrd Bio");
+    check(&c, "3000000", "3Mio", "custom letters");
+
+    snprintf(c.scale_letters, sizeof(c.scale_letters), "K");
+    check(&c, "3000000", "3M", "missing letters fall back to default");
+    check(&c, "3000",    "3K", "first custom letter used");
+}
+
+static void test_decimal_comma(void)
+{
+    value_cfg_t c = mkcfg("", "", 2, '.');
+    c.dec_sep = ',';
+    check(&c, "1234567.891", "1.234.567,89", "decimal comma, dot thousands");
+}
+
+static void test_plus_sign(void)
+{
+    value_cfg_t c = mkcfg("", "", 1, 0);
+    c.plus_sign = true;
+    check(&c, "4.25",  "+4.3", "plus on positive");
+    check(&c, "0",     "0.0",  "no plus on zero");
+    check(&c, "-4.25", "-4.3", "no plus on negative");
+}
+
+static void test_affix_order(void)
+{
+    value_cfg_t c = mkcfg("USD ", " net", 1, 0);
+    c.scale = VALUE_SCALE_M;
+    c.plus_sign = true;
+    check(&c, "2500000", "USD +2.5M net", "prefix, plus, number, letter, suffix");
+}
+
+static void test_decimals_minus_one_pipeline(void)
+{
+    value_cfg_t plain = mkcfg("", "", -1, 0);
+    check(&plain, "4.20", "4.20", "-1 scale none keeps text");
+
+    value_cfg_t comma = mkcfg("", "", -1, 0);
+    comma.dec_sep = ',';
+    check(&comma, "4.20", "4,20", "-1 keeps text, dec_sep applies");
+
+    value_cfg_t k = mkcfg("", "", -1, 0);
+    k.scale = VALUE_SCALE_K;
+    check(&k, "1500", "1.5k", "-1 with scale prints trimmed value");
+
+    value_cfg_t mul = mkcfg("", "", -1, 0);
+    mul.multiplier = 2;
+    check(&mul, "21", "42", "-1 with multiplier prints trimmed value");
+}
+
+static void test_scale_passthrough(void)
+{
+    value_cfg_t c = mkcfg("P:", ":S", 1, 0);
+    c.scale = VALUE_SCALE_M;
+    check(&c, "n/a", "P:n/a:S", "non-numeric with scale passes through");
+}
+
+static void test_cfg_valid(void)
+{
+    value_cfg_t c = mkcfg("", "", 0, ',');
+    c.dec_sep = ',';
+    assert(!valuefmt_cfg_valid(&c));
+    c.dec_sep = '.';
+    assert(valuefmt_cfg_valid(&c));
+    c.thousands = 0;
+    c.dec_sep = ',';
+    assert(valuefmt_cfg_valid(&c));
+    c.thousands = '.';
+    c.dec_sep = 0;   // 0 means dot
+    assert(!valuefmt_cfg_valid(&c));
+}
+
 int main(void)
 {
+    test_multiplier();
+    test_scale_fixed();
+    test_scale_auto();
+    test_scale_letters();
+    test_decimal_comma();
+    test_plus_sign();
+    test_affix_order();
+    test_decimals_minus_one_pipeline();
+    test_scale_passthrough();
+    test_cfg_valid();
     test_decimals_rounding();
     test_decimals_keep_raw();
     test_big_numbers();
