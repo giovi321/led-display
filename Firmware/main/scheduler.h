@@ -55,6 +55,6 @@ bool scheduler_display_is_off(void);
 // Re-run the brightness arbiter and push the result at the panel. Anything
 // that changes an input the arbiter reads - the stored brightness, the light
 // sensor's level - calls this instead of touching led_driver itself, so the
-// off-window, the sensor and the staleness dim keep composing in one place.
+// off-window, the sensor and the fallback dim keep composing in one place.
 // Safe (a no-op) before scheduler_init().
 void scheduler_reapply_brightness(void);

@@ -94,7 +94,7 @@ bool integrations_value_cfg_from_json(value_cfg_t *v, const struct cJSON *obj,
 void integrations_value_cfg_to_json(const value_cfg_t *v, struct cJSON *obj,
                                     bool legacy);
 
-// Value freshness bookkeeping (used by /api/value and the staleness tick).
+// Value freshness bookkeeping (written by value_feed, read for reports).
 void integrations_touch_value(void);       // record "a value arrived now"
 int64_t integrations_value_age_s(void);    // seconds since last value, -1 = never
 

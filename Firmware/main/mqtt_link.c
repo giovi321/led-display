@@ -45,7 +45,7 @@
 #include "led_driver.h"
 #include "scheduler.h"
 #include "settings.h"
-#include "valuefmt.h"
+#include "value_feed.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "mqtt";
@@ -340,25 +340,10 @@ static void handle_text(const char *payload)
 
 static void handle_value(const char *payload)
 {
-    // Same semantics as POST /api/value: format, remember, count as fresh,
-    // render only while the display source is "integration".
-    value_cfg_t vcfg;
-    integrations_get_value_cfg(&vcfg);
-
-    char text[DISPLAY_TEXT_MAX];
-    valuefmt_format(&vcfg, payload, text, sizeof(text));
-
-    integrations_set_last_value(text);
-    integrations_touch_value();
-
-    settings_t cfg;
-    settings_load(&cfg);
-    if (cfg.source == DISPLAY_SRC_INTEGRATION) {
-        display_color_t col;
-        uint8_t mode, speed;
-        display_get_state(NULL, 0, &col, &mode, &speed, NULL);
-        display_show_text(text, col, mode, speed, 0);
-    }
+    // Same path as POST /api/value: format, remember, count as fresh, clear
+    // the fallback, render only while the display source is "integration".
+    // Runs without s_lock: value_feed may publish the state itself.
+    value_feed_ingest(payload, VALUE_SRC_MQTT, NULL, 0);
 }
 
 static void handle_brightness(const char *payload)
@@ -452,6 +437,7 @@ static void mqtt_event(void *arg, esp_event_base_t base, int32_t event_id,
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "connected");
             s_connected = true;
+            value_feed_mqtt_state(true);
             subscribe_all();
             publish(s_avail_topic, "online", 1);
             lock();
@@ -463,6 +449,8 @@ static void mqtt_event(void *arg, esp_event_base_t base, int32_t event_id,
         case MQTT_EVENT_DISCONNECTED:
             if (s_connected) ESP_LOGW(TAG, "disconnected");
             s_connected = false;
+            // Starts the MQTT-loss grace only on the first event of an outage.
+            value_feed_mqtt_state(false);
             break;
 
         case MQTT_EVENT_DATA: {
@@ -610,6 +598,7 @@ esp_err_t mqtt_link_init(void)
         esp_err_t err = client_start();
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "client start failed: %s", esp_err_to_name(err));
+            value_feed_mqtt_state(false);   // enabled but no link: an outage
         }
     }
     return ESP_OK;
@@ -646,7 +635,13 @@ esp_err_t mqtt_link_apply(const mqtt_cfg_t *cfg)
     s_active = c;
     unlock();
 
+    // The old link is gone: forget any outage it was timing. Disabled counts
+    // as connected for the MQTT-loss trigger, and a re-enabled link starts a
+    // fresh 60 s grace on its first disconnect. A client that cannot even
+    // start is an outage from now.
+    value_feed_mqtt_state(true);
     err = (c.enabled && c.uri[0]) ? client_start() : ESP_OK;
+    if (err != ESP_OK) value_feed_mqtt_state(false);
 
     ESP_LOGI(TAG, "apply: enabled=%d uri=%s discovery=%d", c.enabled,
              c.uri[0] ? c.uri : "(unset)", c.ha_discovery);

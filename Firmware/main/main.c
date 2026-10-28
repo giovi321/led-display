@@ -14,6 +14,7 @@
 #include "ota_update.h"
 #include "scheduler.h"
 #include "settings.h"
+#include "value_feed.h"
 #include "web_server.h"
 #include "webhooks.h"
 #include "wg_client.h"
@@ -277,6 +278,10 @@ void app_main(void)
     if (integrations_init() != ESP_OK) {
         ESP_LOGW(TAG, "integrations_init failed; continuing with defaults");
     }
+    // The fallback clock starts here: "no value since boot" counts from now.
+    if (value_feed_init() != ESP_OK) {
+        ESP_LOGW(TAG, "value_feed_init failed; fallback runs without its mutex");
+    }
     if (webhooks_init() != ESP_OK) {
         ESP_LOGW(TAG, "webhooks_init failed; outbound events disabled");
     }
@@ -287,7 +292,7 @@ void app_main(void)
     show_boot_screen(&cfg, &s);
     wifi_manager_set_state_cb(on_wifi_state);
 
-    // 8. Scheduler (SNTP + on/off + value staleness ticks). Needs WiFi up.
+    // 8. Scheduler (SNTP + on/off + value fallback ticks). Needs WiFi up.
     ESP_ERROR_CHECK(scheduler_init());
 
     // 9. Optional ambient-light sensor. After the scheduler on purpose: a

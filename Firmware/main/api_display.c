@@ -16,6 +16,7 @@
 #include "mapping.h"
 #include "scheduler.h"
 #include "settings.h"
+#include "value_feed.h"
 #include "web_common.h"
 
 static const char *TAG = "api_display";
@@ -50,25 +51,19 @@ void api_display_apply_source(void)
     settings_t cfg;
     settings_load(&cfg);
 
-    char text[DISPLAY_TEXT_MAX];
-    if (cfg.source == DISPLAY_SRC_INTEGRATION) {
-        // Latest pushed value; the configured placeholder until one arrives.
-        if (!integrations_get_last_value(text, sizeof(text))) {
-            value_cfg_t vc;
-            integrations_get_value_cfg(&vc);
-            snprintf(text, sizeof(text), "%s", vc.fb.text);
+    if (cfg.source != DISPLAY_SRC_INTEGRATION) {
+        if (cfg.text[0] != '\0') {
+            display_show_text(cfg.text, cfg.color, cfg.scroll_mode, cfg.speed,
+                              cfg.scale);
+        } else {
+            // Nothing to show; display_clear also ends identify/test modes.
+            display_clear();
         }
-    } else {
-        snprintf(text, sizeof(text), "%s", cfg.text);
     }
-
-    if (text[0] != '\0') {
-        display_show_text(text, cfg.color, cfg.scroll_mode, cfg.speed,
-                          cfg.scale);
-    } else {
-        // Nothing to show; display_clear also ends identify/test modes.
-        display_clear();
-    }
+    // Integration: the latest value, or the fallback text / marker / dim the
+    // current fallback state asks for. Static: drops a fallback dim the
+    // static text must not inherit.
+    value_feed_apply_panel();
 }
 
 static int scroll_mode_by_name(const char *name)
@@ -231,7 +226,7 @@ static esp_err_t display_brightness_cap_post(httpd_req_t *req)
     led_driver_set_brightness_cap((uint8_t)v);
     settings_save_brightness_cap((uint8_t)v);
     // Re-derive through the arbiter rather than just refreshing: the level is
-    // clamped to the cap before the staleness dim, so raising the cap has to
+    // clamped to the cap before the fallback dim, so raising the cap has to
     // recompute and not re-push the old clamped value.
     scheduler_reapply_brightness();
     return web_send_ok(req);

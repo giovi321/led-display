@@ -17,6 +17,7 @@
 #include "light_sensor.h"
 #include "settings.h"
 #include "tz.h"
+#include "value_feed.h"
 #include "webhooks.h"
 #include "wifi_manager.h"
 
@@ -43,10 +44,6 @@ static SemaphoreHandle_t s_lock;
 // in between, so an unserialised pass could publish a level derived from a
 // flag another task has already changed.
 static SemaphoreHandle_t s_apply;
-
-// Value-staleness guard state (DESIGN.md section 5). Written only by the
-// scheduler task, read by every caller of the arbiter under s_apply.
-static bool s_stale_dimmed;   // a stale value is halving the brightness
 
 static void apply_defaults(schedule_t *s)
 {
@@ -178,9 +175,9 @@ static sched_window_t window_of(const schedule_t *sc)
 
 // Single place that decides how bright the panel runs. The schedule sets the
 // level (the in-window level, 0 or off_brightness outside it), that level is
-// clamped to the brightness cap, and a stale value halves the result - so the
-// staleness dim stays visible in a dim off-window and under a power-budget cap,
-// and stays a no-op while the panel is blanked.
+// clamped to the brightness cap, and the fallback dim (value_feed.c) halves the
+// result - so the fallback dim stays visible in a dim off-window and under a
+// power-budget cap, and stays a no-op while the panel is blanked.
 //
 // The in-window level is the stored user brightness, or the ambient sensor's
 // level when the sensor is enabled and has read something. Setup-AP mode is
@@ -208,12 +205,12 @@ static uint8_t target_brightness(void)
         }
     }
     // Clamp before the relative dim, so the halving is relative to the level
-    // the panel actually shows. Without this a binding cap swallows the stale
+    // the panel actually shows. Without this a binding cap swallows the fallback
     // dim whole: at twice the cap or more, dimmed and undimmed both clamp to
     // the cap and nothing changes.
     uint8_t cap = led_driver_get_brightness_cap();
     if (bri > cap) bri = cap;
-    if (s_stale_dimmed) bri /= 2;
+    if (value_feed_dim_active()) bri /= 2;
     return bri;
 }
 
@@ -306,16 +303,6 @@ static void evaluate_window(void)
     }
 }
 
-// ---- value staleness -------------------------------------------------------
-//
-// Placeholder: the fallback state machine (fallback.c, driven by value_feed)
-// takes over staleness. Until it lands this tick does nothing, and the stale
-// dim flag below stays false.
-
-static void staleness_tick(void)
-{
-}
-
 static void scheduler_task(void *arg)
 {
     (void)arg;
@@ -338,11 +325,11 @@ static void scheduler_task(void *arg)
             apply_brightness();
         }
 
-        // Staleness needs no wall-clock time (it works off uptime), so it
-        // runs whether or not SNTP has synced; evaluate_window() handles the
-        // unsynced case by leaving the panel alone.
+        // The value fallback needs no wall-clock time (it works off uptime),
+        // so it runs whether or not SNTP has synced; evaluate_window() handles
+        // the unsynced case by leaving the panel alone.
         evaluate_window();
-        staleness_tick();
+        value_feed_tick();
     }
 }
 
@@ -358,7 +345,7 @@ esp_err_t scheduler_init(void)
 
     sntp_start();
 
-    // 4 KB: the staleness path stacks a settings_t + value_cfg_t on top of
+    // 4 KB: the value fallback tick stacks a settings_t + value_cfg_t on top of
     // what the schedule check already used at 3 KB.
     xTaskCreate(scheduler_task, "scheduler", 4096, NULL, 2, NULL);
     ESP_LOGI(TAG, "scheduler init (enabled=%d on=%02u:%02u off=%02u:%02u days=0x%02x "

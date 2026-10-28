@@ -20,6 +20,7 @@
 #include "display.h"
 #include "integrations.h"
 #include "settings.h"
+#include "value_feed.h"
 #include "valuefmt.h"
 #include "web_common.h"
 
@@ -131,9 +132,9 @@ static esp_err_t value_post(httpd_req_t *req)
     const cJSON *val = cJSON_GetObjectItem(body, "value");
     char raw[DISPLAY_TEXT_MAX];
     if (cJSON_IsNumber(val)) {
-        // Normalise JSON numbers so 4.2 and "4.2" behave the same; %.10g
-        // keeps 10 significant digits without trailing-zero noise.
-        snprintf(raw, sizeof(raw), "%.10g", val->valuedouble);
+        // Normalise JSON numbers so 4.2 and "4.2" behave the same; %.15g
+        // keeps 15 significant digits without trailing-zero noise.
+        snprintf(raw, sizeof(raw), "%.15g", val->valuedouble);
     } else if (cJSON_IsString(val)) {
         snprintf(raw, sizeof(raw), "%s", val->valuestring);
     } else {
@@ -142,33 +143,14 @@ static esp_err_t value_post(httpd_req_t *req)
     }
     cJSON_Delete(body);
 
-    value_cfg_t vcfg;
-    integrations_get_value_cfg(&vcfg);
-
+    // Formats, remembers, counts as fresh and clears the fallback whatever
+    // the display source; renders only while the source is "integration".
     char text[DISPLAY_TEXT_MAX];
-    valuefmt_format(&vcfg, raw, text, sizeof(text));
-
-    // Always remembered (so switching to integration mode later shows it) and
-    // always counted as fresh - but only RENDERED while the display source is
-    // "integration". In static mode the panel keeps the user's text.
-    integrations_set_last_value(text);
-    integrations_touch_value();
+    value_feed_ingest(raw, VALUE_SRC_HTTP, text, sizeof(text));
 
     settings_t cfg;
     settings_load(&cfg);
     bool rendered = (cfg.source == DISPLAY_SRC_INTEGRATION);
-    if (rendered) {
-        // Show in the current colour, scrolling mode and speed; scale 0 =
-        // keep the active scale. The mode is passed through rather than
-        // forced off: a long formatted value is exactly what continuous
-        // scrolling is for. Deliberately NOT persisted as the stored text -
-        // that field is the static text now; after a reboot the value
-        // config's default_text stands in until the next push.
-        display_color_t color;
-        uint8_t mode, speed;
-        display_get_state(NULL, 0, &color, &mode, &speed, NULL);
-        display_show_text(text, color, mode, speed, 0);
-    }
 
     cJSON *resp = cJSON_CreateObject();
     cJSON_AddBoolToObject(resp, "ok", true);
@@ -212,6 +194,8 @@ static esp_err_t value_cfg_post(httpd_req_t *req)
         ESP_LOGE(TAG, "saving value config failed: %s", esp_err_to_name(err));
         return web_send_err(req, "saving value config failed", 500);
     }
+    // A changed fallback text or mode shows now, not at the next tick.
+    value_feed_apply_panel();
     return web_send_ok(req);
 }
 
@@ -231,7 +215,7 @@ static esp_err_t value_preview_post(httpd_req_t *req)
     char raw[DISPLAY_TEXT_MAX];
     if (cJSON_IsNumber(rawj)) {
         // Same normalisation as /api/value.
-        snprintf(raw, sizeof(raw), "%.10g", rawj->valuedouble);
+        snprintf(raw, sizeof(raw), "%.15g", rawj->valuedouble);
     } else if (cJSON_IsString(rawj)) {
         snprintf(raw, sizeof(raw), "%s", rawj->valuestring);
     } else {

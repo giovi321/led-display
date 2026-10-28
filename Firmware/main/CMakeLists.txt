@@ -68,6 +68,7 @@ idf_component_register(
         "scheduler.c"
         "sched_window.c"
         "integrations.c"
+        "value_feed.c"
         "webhooks.c"
         "ota_update.c"
         "wg_client.c"

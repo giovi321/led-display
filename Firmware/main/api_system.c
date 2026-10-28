@@ -121,7 +121,7 @@ static esp_err_t status_get(httpd_req_t *req)
                             cfg.source == DISPLAY_SRC_INTEGRATION
                                 ? "integration" : "static");
     // display.brightness is what the arbiter last applied (0 in a blanked
-    // off-window, halved by the staleness guard); the stored user level is a
+    // off-window, halved by the fallback dim); the stored user level is a
     // separate field, so the UI slider can be an input without writing the
     // applied value back.
     cJSON_AddNumberToObject(d, "brightness_stored", cfg.brightness);
