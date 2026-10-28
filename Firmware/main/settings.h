@@ -54,7 +54,7 @@ typedef enum {
 
 // Where the panel content comes from. Static: the text the user typed in the
 // Display tab. Integration: the last value pushed via /api/value (or MQTT),
-// with the value config's default_text as the placeholder until one arrives.
+// with the value config's fallback text as the placeholder until one arrives.
 typedef enum {
     DISPLAY_SRC_STATIC      = 0,
     DISPLAY_SRC_INTEGRATION = 1,

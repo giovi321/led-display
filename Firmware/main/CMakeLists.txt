@@ -51,6 +51,8 @@ idf_component_register(
         "main.c"
         "mapping.c"
         "valuefmt.c"
+        "fallback.c"
+        "jsonpath.c"
         "tz.c"
         "tzdata.c"
         "fonts.c"

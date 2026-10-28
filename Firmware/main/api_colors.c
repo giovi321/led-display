@@ -29,10 +29,6 @@ static const char *TAG = "api_colors";
 #define COLORS_MAX       12
 #define COLOR_NAME_MAX   24
 
-// Mirrors the table in integrations.c; both files keep it private because
-// the frozen headers give the enum no name strings.
-static const char *STALE_NAMES[] = {"none", "dim", "marker", "text"};
-
 // ---- /api/colors -----------------------------------------------------------
 
 static esp_err_t colors_get(httpd_req_t *req)
@@ -188,18 +184,10 @@ static esp_err_t value_cfg_get(httpd_req_t *req)
     value_cfg_t v;
     integrations_get_value_cfg(&v);
 
+    // Every current key, plus the pre-2.12 stale_* / default_text keys
+    // derived from the fallback config so old scripts still read something.
     cJSON *r = cJSON_CreateObject();
-    cJSON_AddStringToObject(r, "prefix", v.prefix);
-    cJSON_AddStringToObject(r, "suffix", v.suffix);
-    cJSON_AddNumberToObject(r, "decimals", v.decimals);
-    char thou[2] = {v.thousands, '\0'};
-    cJSON_AddStringToObject(r, "thousands", thou);
-    cJSON_AddNumberToObject(r, "stale_hours", v.stale_hours);
-    unsigned act = (unsigned)v.stale_action;
-    if (act >= sizeof(STALE_NAMES) / sizeof(STALE_NAMES[0])) act = 0;
-    cJSON_AddStringToObject(r, "stale_action", STALE_NAMES[act]);
-    cJSON_AddStringToObject(r, "stale_text", v.stale_text);
-    cJSON_AddStringToObject(r, "default_text", v.default_text);
+    integrations_value_cfg_to_json(&v, r, true);
     return web_send_json(req, r);
 }
 
@@ -207,61 +195,17 @@ static esp_err_t value_cfg_post(httpd_req_t *req)
 {
     if (web_require_auth(req) != ESP_OK) return ESP_OK;
 
-    cJSON *body = web_read_json(req, 1024);
+    cJSON *body = web_read_json(req, 2048);
     if (!body) return web_send_err(req, "invalid JSON body", 400);
 
     // Overlay present fields onto the current config so clients can PATCH
     // a single field without knowing the whole schema.
     value_cfg_t v;
     integrations_get_value_cfg(&v);
-
-    const cJSON *it;
-    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "prefix"))) {
-        snprintf(v.prefix, sizeof(v.prefix), "%s", it->valuestring);
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "suffix"))) {
-        snprintf(v.suffix, sizeof(v.suffix), "%s", it->valuestring);
-    }
-    if (cJSON_IsNumber(it = cJSON_GetObjectItem(body, "decimals"))) {
-        int d = it->valueint;
-        if (d < -1 || d > 9) {
-            cJSON_Delete(body);
-            return web_send_err(req, "decimals must be -1..9", 400);
-        }
-        v.decimals = (int8_t)d;
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "thousands"))) {
-        v.thousands = it->valuestring[0];   // "" clears the separator
-    }
-    if (cJSON_IsNumber(it = cJSON_GetObjectItem(body, "stale_hours"))) {
-        int h = it->valueint;
-        if (h < 0 || h > 0xFFFF) {
-            cJSON_Delete(body);
-            return web_send_err(req, "stale_hours must be 0..65535", 400);
-        }
-        v.stale_hours = (uint16_t)h;
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "stale_action"))) {
-        bool found = false;
-        for (unsigned i = 0; i < sizeof(STALE_NAMES) / sizeof(STALE_NAMES[0]); i++) {
-            if (strcmp(it->valuestring, STALE_NAMES[i]) == 0) {
-                v.stale_action = (stale_action_t)i;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            cJSON_Delete(body);
-            return web_send_err(req, "stale_action must be none|dim|marker|text", 400);
-        }
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "stale_text"))) {
-        snprintf(v.stale_text, sizeof(v.stale_text), "%s", it->valuestring);
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "default_text"))) {
-        snprintf(v.default_text, sizeof(v.default_text), "%s", it->valuestring);
-    }
+    const char *msg = NULL;
+    bool ok = integrations_value_cfg_from_json(&v, body, true, &msg);
     cJSON_Delete(body);
+    if (!ok) return web_send_err(req, msg ? msg : "invalid value config", 400);
 
     esp_err_t err = integrations_set_value_cfg(&v);
     if (err != ESP_OK) {
@@ -269,6 +213,52 @@ static esp_err_t value_cfg_post(httpd_req_t *req)
         return web_send_err(req, "saving value config failed", 500);
     }
     return web_send_ok(req);
+}
+
+// ---- /api/value/preview ----------------------------------------------------
+
+// Dry run of the formatter: formats `raw` with the stored config overlaid by
+// the optional `cfg` object (same keys and errors as the config POST).
+// Nothing is displayed or stored.
+static esp_err_t value_preview_post(httpd_req_t *req)
+{
+    if (web_require_auth(req) != ESP_OK) return ESP_OK;
+
+    cJSON *body = web_read_json(req, 2048);
+    if (!body) return web_send_err(req, "invalid JSON body", 400);
+
+    const cJSON *rawj = cJSON_GetObjectItem(body, "raw");
+    char raw[DISPLAY_TEXT_MAX];
+    if (cJSON_IsNumber(rawj)) {
+        // Same normalisation as /api/value.
+        snprintf(raw, sizeof(raw), "%.10g", rawj->valuedouble);
+    } else if (cJSON_IsString(rawj)) {
+        snprintf(raw, sizeof(raw), "%s", rawj->valuestring);
+    } else {
+        cJSON_Delete(body);
+        return web_send_err(req,
+                            "body must be {\"raw\":<string|number>,\"cfg\":{...}}",
+                            400);
+    }
+
+    value_cfg_t v;
+    integrations_get_value_cfg(&v);
+    const cJSON *cfg = cJSON_GetObjectItem(body, "cfg");
+    if (cfg && !cJSON_IsNull(cfg)) {
+        const char *msg = NULL;
+        if (!integrations_value_cfg_from_json(&v, cfg, true, &msg)) {
+            cJSON_Delete(body);
+            return web_send_err(req, msg ? msg : "invalid value config", 400);
+        }
+    }
+    cJSON_Delete(body);
+
+    char text[DISPLAY_TEXT_MAX];
+    valuefmt_format(&v, raw, text, sizeof(text));
+
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "text", text);
+    return web_send_json(req, resp);
 }
 
 // ---- registration ----------------------------------------------------------
@@ -281,6 +271,7 @@ void api_colors_register(httpd_handle_t srv)
         {.uri = "/api/value",        .method = HTTP_POST, .handler = value_post},
         {.uri = "/api/value/config", .method = HTTP_GET,  .handler = value_cfg_get},
         {.uri = "/api/value/config", .method = HTTP_POST, .handler = value_cfg_post},
+        {.uri = "/api/value/preview", .method = HTTP_POST, .handler = value_preview_post},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
         web_register_uri(srv, &uris[i]);

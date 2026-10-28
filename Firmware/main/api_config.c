@@ -35,9 +35,8 @@ static const char *TAG = "api_config";
 #define COLORS_MAX       12
 #define COLOR_NAME_MAX   24
 
-// Mirrors the tables in integrations.c / api_colors.c; each file keeps its
-// own copy because the frozen headers expose no name strings.
-static const char *STALE_NAMES[] = {"none", "dim", "marker", "text"};
+// Name tables for the export; each file keeps its own copy because the
+// frozen headers expose no name strings.
 static const char *ORIGIN_NAMES[] = {"TL", "TR", "BL", "BR"};
 static const char *AXIS_NAMES[]   = {"row", "col"};
 static const char *SCROLL_NAMES[]  = {"off", "restart", "continuous"};
@@ -145,19 +144,11 @@ static cJSON *value_cfg_to_json(void)
     value_cfg_t v;
     integrations_get_value_cfg(&v);
 
+    // Same shape as the v2 blob. The legacy stale_* keys are not written; a
+    // pre-2.12 backup carrying them imports through the migration.
     cJSON *r = cJSON_CreateObject();
-    cJSON_AddNumberToObject(r, "v", 1);
-    cJSON_AddStringToObject(r, "prefix", v.prefix);
-    cJSON_AddStringToObject(r, "suffix", v.suffix);
-    cJSON_AddNumberToObject(r, "decimals", v.decimals);
-    char thou[2] = {v.thousands, '\0'};
-    cJSON_AddStringToObject(r, "thousands", thou);
-    cJSON_AddNumberToObject(r, "stale_hours", v.stale_hours);
-    unsigned act = (unsigned)v.stale_action;
-    if (act >= sizeof(STALE_NAMES) / sizeof(STALE_NAMES[0])) act = 0;
-    cJSON_AddStringToObject(r, "stale_action", STALE_NAMES[act]);
-    cJSON_AddStringToObject(r, "stale_text", v.stale_text);
-    cJSON_AddStringToObject(r, "default_text", v.default_text);
+    cJSON_AddNumberToObject(r, "v", 2);
+    integrations_value_cfg_to_json(&v, r, false);
     return r;
 }
 
@@ -175,6 +166,11 @@ static cJSON *integrations_to_json(void)
     cJSON_AddBoolToObject(r, "ui_auth", c.ui_auth);
     cJSON_AddStringToObject(r, "ui_user", c.ui_user);
     cJSON_AddStringToObject(r, "ui_pass", c.ui_pass);   // secret: export is auth-gated
+    // Outbound webhook auth travels like api_key: secrets, export is auth-gated.
+    cJSON_AddStringToObject(r, "webhook_secret", c.webhook_secret);
+    cJSON_AddStringToObject(r, "webhook_hdr_name", c.webhook_hdr_name);
+    cJSON_AddStringToObject(r, "webhook_hdr_value", c.webhook_hdr_value);
+    cJSON_AddNumberToObject(r, "heartbeat_min", c.heartbeat_min);
     return r;
 }
 
@@ -554,35 +550,11 @@ static bool apply_value_config(const cJSON *sec)
     value_cfg_t v;
     integrations_get_value_cfg(&v);
 
-    const cJSON *it;
-    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "prefix"))) {
-        snprintf(v.prefix, sizeof(v.prefix), "%s", it->valuestring);
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "suffix"))) {
-        snprintf(v.suffix, sizeof(v.suffix), "%s", it->valuestring);
-    }
-    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "decimals"))) {
-        v.decimals = (int8_t)clampi(it->valueint, -1, 9);
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "thousands"))) {
-        v.thousands = it->valuestring[0];
-    }
-    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "stale_hours"))) {
-        v.stale_hours = (uint16_t)clampi(it->valueint, 0, 0xFFFF);
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "stale_action"))) {
-        for (unsigned i = 0; i < sizeof(STALE_NAMES) / sizeof(STALE_NAMES[0]); i++) {
-            if (strcmp(it->valuestring, STALE_NAMES[i]) == 0) {
-                v.stale_action = (stale_action_t)i;
-            }
-        }
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "stale_text"))) {
-        snprintf(v.stale_text, sizeof(v.stale_text), "%s", it->valuestring);
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "default_text"))) {
-        snprintf(v.default_text, sizeof(v.default_text), "%s", it->valuestring);
-    }
+    // Lenient overlay: out-of-range values are clamped, not refused, as for
+    // the other sections. A pre-2.12 section (stale_hours, stale_action,
+    // stale_text, default_text and no fb_* keys) maps through
+    // fb_migrate_legacy inside the parser; fb_* keys win when both appear.
+    integrations_value_cfg_from_json(&v, sec, false, NULL);
 
     // integrations_set_value_cfg persists the blob AND refreshes the RAM
     // cache, which is the "re-init" the import contract asks for.
@@ -610,7 +582,24 @@ static bool apply_integrations(const cJSON *sec)
     // The export writes the mask as a number (blob shape); name arrays are
     // the /api/integrations dialect, not the config-file one.
     if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "webhook_events"))) {
-        c.webhook_events = (uint32_t)it->valuedouble;
+        // Only user-selectable bits: "status" is driven by heartbeat_min.
+        c.webhook_events = (uint32_t)it->valuedouble & WEBHOOK_EVT_SELECTABLE;
+    }
+    // Outbound webhook auth (2.12.0) restores like api_key; absent in an
+    // older backup, which leaves the stored values alone.
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "webhook_secret"))) {
+        snprintf(c.webhook_secret, sizeof(c.webhook_secret), "%s", it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "webhook_hdr_name"))) {
+        snprintf(c.webhook_hdr_name, sizeof(c.webhook_hdr_name), "%s",
+                 it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "webhook_hdr_value"))) {
+        snprintf(c.webhook_hdr_value, sizeof(c.webhook_hdr_value), "%s",
+                 it->valuestring);
+    }
+    if (cJSON_IsNumber(it = cJSON_GetObjectItem(sec, "heartbeat_min"))) {
+        c.heartbeat_min = (uint16_t)clampi(it->valueint, 0, INTEGR_HEARTBEAT_MAX);
     }
     // Browser login. Absent in a pre-2.8.0 backup, which leaves the stored
     // setting alone; restoring one that enables it without carrying a

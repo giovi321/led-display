@@ -46,7 +46,6 @@ static SemaphoreHandle_t s_apply;
 
 // Value-staleness guard state (DESIGN.md section 5). Written only by the
 // scheduler task, read by every caller of the arbiter under s_apply.
-static bool s_stale;          // currently past the stale threshold
 static bool s_stale_dimmed;   // a stale value is halving the brightness
 
 static void apply_defaults(schedule_t *s)
@@ -307,95 +306,14 @@ static void evaluate_window(void)
     }
 }
 
-// ---- value staleness (DESIGN.md section 5) ---------------------------------
+// ---- value staleness -------------------------------------------------------
 //
-// Runs on the same 30 s tick as the schedule. The text action and the webhook
-// fire once on the fresh->stale edge; the dim is derived from the live config
-// every tick, so switching the action while a value is already stale is picked
-// up either way round; the corner marker is re-poked every tick because any
-// re-render wipes it (and static text is NOT re-rendered, so between renders
-// the poked pixel survives in the frame buffer). Un-staling happens via
-// /api/value: the POST re-renders the text (clearing marker/stale text) and
-// drops the age, so all this side has to do is put the brightness back.
+// Placeholder: the fallback state machine (fallback.c, driven by value_feed)
+// takes over staleness. Until it lands this tick does nothing, and the stale
+// dim flag below stays false.
 
 static void staleness_tick(void)
 {
-    // Setup-AP mode owns the panel: the banner must stay readable and must not
-    // be overwritten by stale text or a marker pixel. The flags reset so the
-    // guard re-evaluates (and re-fires its webhook, now deliverable) once the
-    // device is back on a network.
-    wifi_mgr_status_t w;
-    wifi_manager_get_status(&w);
-    if (w.mode == WIFI_MGR_MODE_AP) {
-        s_stale = false;
-        set_flag_and_apply(&s_stale_dimmed, false);
-        return;
-    }
-
-    // A blanked off-window has nothing to dim, mark or write to, so the guard
-    // idles until the on-window returns. A dimmed off-window is a visible
-    // display, so it keeps running.
-    if (s_display_off) {
-        schedule_t sc;
-        scheduler_get(&sc);
-        if (sc.off_action != SCHED_OFF_ACT_DIM) return;
-    }
-
-    // The guard watches the integration value; while the panel shows the
-    // static text, a stale value must not dim it, mark it or overwrite it.
-    // Same reset-and-idle as the AP branch, so a later switch back to
-    // integration mode re-evaluates (and re-fires the webhook if still stale).
-    settings_t dcfg;
-    settings_load(&dcfg);
-    if (dcfg.source != DISPLAY_SRC_INTEGRATION) {
-        s_stale = false;
-        set_flag_and_apply(&s_stale_dimmed, false);
-        return;
-    }
-
-    value_cfg_t vc;
-    integrations_get_value_cfg(&vc);
-
-    if (vc.stale_hours == 0) {
-        // Guard switched off while stale: forget the state, undo the dim.
-        set_flag_and_apply(&s_stale_dimmed, false);
-        s_stale = false;
-        return;
-    }
-
-    // age < 0 means no value was ever posted: nothing to go stale.
-    int64_t age = integrations_value_age_s();
-    bool stale = age >= (int64_t)vc.stale_hours * 3600;
-
-    if (stale && !s_stale) {
-        s_stale = true;
-        if (vc.stale_action == STALE_ACT_TEXT) {
-            display_color_t col;
-            display_get_state(NULL, 0, &col, NULL, NULL, NULL);
-            display_show_text_static(vc.stale_text, col);
-        }
-        // none: webhook only. dim: derived below. marker: re-poked below.
-        char data[48];
-        snprintf(data, sizeof(data), "{\"age_s\":%lld}", (long long)age);
-        webhooks_fire(WEBHOOK_EVT_VALUE_STALE, data);
-        ESP_LOGW(TAG, "value stale (age=%llds, action=%d)",
-                 (long long)age, (int)vc.stale_action);
-    } else if (!stale && s_stale) {
-        s_stale = false;
-        ESP_LOGI(TAG, "value fresh again");
-    }
-
-    // Derived from the live config, not latched on the edge: the action can be
-    // changed while a value is already stale, in either direction.
-    set_flag_and_apply(&s_stale_dimmed,
-                       s_stale && vc.stale_action == STALE_ACT_DIM);
-
-    if (s_stale && vc.stale_action == STALE_ACT_MARKER) {
-        led_driver_lock();
-        led_driver_set_pixel(0, 0, 120, 0, 0);
-        led_driver_refresh();
-        led_driver_unlock();
-    }
 }
 
 static void scheduler_task(void *arg)

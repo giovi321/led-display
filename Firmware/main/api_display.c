@@ -56,7 +56,7 @@ void api_display_apply_source(void)
         if (!integrations_get_last_value(text, sizeof(text))) {
             value_cfg_t vc;
             integrations_get_value_cfg(&vc);
-            snprintf(text, sizeof(text), "%s", vc.default_text);
+            snprintf(text, sizeof(text), "%s", vc.fb.text);
         }
     } else {
         snprintf(text, sizeof(text), "%s", cfg.text);
@@ -507,7 +507,7 @@ static esp_err_t display_map_post(httpd_req_t *req)
 }
 
 // Switch the display between the stored static text and the integration
-// value (with the default_text placeholder before the first push). The new
+// value (with the fallback text before the first push). The new
 // content renders immediately.
 static esp_err_t display_source_post(httpd_req_t *req)
 {

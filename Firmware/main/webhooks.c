@@ -52,7 +52,9 @@ static const char *event_name(uint32_t bit)
         case WEBHOOK_EVT_SCHEDULE_ON:  return "schedule_on";
         case WEBHOOK_EVT_SCHEDULE_OFF: return "schedule_off";
         case WEBHOOK_EVT_VALUE_STALE:  return "value_stale";
-        default:                       return "unknown";
+        case WEBHOOK_EVT_VALUE_RECOVERED: return "value_recovered";
+        case WEBHOOK_EVT_STATUS:       return "status";
+        default:                      return "unknown";
     }
 }
 

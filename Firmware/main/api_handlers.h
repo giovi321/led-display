@@ -21,7 +21,7 @@
 void api_display_register(httpd_handle_t srv);
 
 // Re-render the panel from the persisted display source: the stored static
-// text, or (integration mode) the last pushed value / default_text
+// text, or (integration mode) the last pushed value / fallback text
 // placeholder. Shared by the source switch, the test-pattern stop and the
 // MQTT control path.
 void api_display_apply_source(void);

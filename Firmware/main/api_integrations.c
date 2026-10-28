@@ -35,6 +35,9 @@ static const event_map_t EVENTS[] = {
     {"schedule_on",  WEBHOOK_EVT_SCHEDULE_ON},
     {"schedule_off", WEBHOOK_EVT_SCHEDULE_OFF},
     {"value_stale",  WEBHOOK_EVT_VALUE_STALE},
+    {"value_recovered", WEBHOOK_EVT_VALUE_RECOVERED},
+    // "status" is deliberately absent: the heartbeat (heartbeat_min) sends
+    // it, so it is not selectable here.
 };
 #define EVENT_COUNT (sizeof(EVENTS) / sizeof(EVENTS[0]))
 
@@ -89,6 +92,13 @@ static esp_err_t integrations_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(r, "ui_auth", cfg.ui_auth);
     cJSON_AddStringToObject(r, "ui_user", cfg.ui_user);
     cJSON_AddBoolToObject(r, "ui_pass_set", cfg.ui_pass[0] != '\0');
+    // Outbound webhook auth: the header name is not a secret, the secret and
+    // the header value only report whether one is set.
+    cJSON_AddBoolToObject(r, "webhook_secret_set", cfg.webhook_secret[0] != '\0');
+    cJSON_AddStringToObject(r, "webhook_hdr_name", cfg.webhook_hdr_name);
+    cJSON_AddBoolToObject(r, "webhook_hdr_value_set",
+                          cfg.webhook_hdr_value[0] != '\0');
+    cJSON_AddNumberToObject(r, "heartbeat_min", cfg.heartbeat_min);
     return web_send_json(req, r);
 }
 
@@ -96,7 +106,7 @@ static esp_err_t integrations_post_handler(httpd_req_t *req)
 {
     if (web_require_auth(req) != ESP_OK) return ESP_OK;
 
-    cJSON *body = web_read_json(req, 1024);
+    cJSON *body = web_read_json(req, 2048);
     if (!body) return web_send_err(req, "invalid JSON body", 400);
 
     // Overlay present fields onto the current config. An explicitly empty
@@ -167,8 +177,56 @@ static esp_err_t integrations_post_handler(httpd_req_t *req)
             return web_send_err(req,
                                 "webhook_events must be an array of: boot, "
                                 "ip_change, ota_result, schedule_on, "
-                                "schedule_off, value_stale", 400);
+                                "schedule_off, value_stale, value_recovered",
+                                400);
         }
+    }
+
+    // Outbound webhook auth. Same contract as the other secrets: an absent or
+    // empty secret / header value keeps the stored one; only an explicit
+    // clear_* flag removes it. The header name is plain config and may be
+    // set to "" directly, which also stops the header being sent. Clears run
+    // first, so one request can clear and set a new value.
+    if (cJSON_IsTrue(cJSON_GetObjectItem(body, "clear_webhook_secret"))) {
+        cfg.webhook_secret[0] = '\0';
+    }
+    if (cJSON_IsTrue(cJSON_GetObjectItem(body, "clear_webhook_hdr"))) {
+        cfg.webhook_hdr_name[0]  = '\0';
+        cfg.webhook_hdr_value[0] = '\0';
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "webhook_secret")) &&
+        it->valuestring[0] != '\0') {
+        if (strlen(it->valuestring) > INTEGR_SECRET_MAX) {
+            cJSON_Delete(body);
+            return web_send_err(req, "webhook_secret too long (max 128)", 400);
+        }
+        snprintf(cfg.webhook_secret, sizeof(cfg.webhook_secret), "%s",
+                 it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "webhook_hdr_name"))) {
+        if (strlen(it->valuestring) > INTEGR_HDR_NAME_MAX) {
+            cJSON_Delete(body);
+            return web_send_err(req, "webhook_hdr_name too long (max 48)", 400);
+        }
+        snprintf(cfg.webhook_hdr_name, sizeof(cfg.webhook_hdr_name), "%s",
+                 it->valuestring);
+    }
+    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "webhook_hdr_value")) &&
+        it->valuestring[0] != '\0') {
+        if (strlen(it->valuestring) > INTEGR_SECRET_MAX) {
+            cJSON_Delete(body);
+            return web_send_err(req, "webhook_hdr_value too long (max 128)", 400);
+        }
+        snprintf(cfg.webhook_hdr_value, sizeof(cfg.webhook_hdr_value), "%s",
+                 it->valuestring);
+    }
+    if ((it = cJSON_GetObjectItem(body, "heartbeat_min")) != NULL) {
+        if (!cJSON_IsNumber(it) || it->valuedouble < 0 ||
+            it->valuedouble > INTEGR_HEARTBEAT_MAX) {
+            cJSON_Delete(body);
+            return web_send_err(req, "heartbeat_min must be 0..1440", 400);
+        }
+        cfg.heartbeat_min = (uint16_t)it->valuedouble;
     }
     cJSON_Delete(body);
 

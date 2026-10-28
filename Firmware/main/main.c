@@ -131,8 +131,8 @@ static void show_boot_screen(const settings_t *cfg, const wifi_mgr_status_t *s)
                 // live data.
                 value_cfg_t vc;
                 integrations_get_value_cfg(&vc);
-                if (vc.default_text[0] != '\0') {
-                    display_show_text(vc.default_text, cfg->color,
+                if (vc.fb.text[0] != '\0') {
+                    display_show_text(vc.fb.text, cfg->color,
                                       cfg->scroll_mode, cfg->speed, cfg->scale);
                 } else {
                     display_clear();
