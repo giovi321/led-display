@@ -451,32 +451,62 @@
 <!-- ========================== Integrations ========================= -->
 <section id="tab-integrations" class="hidden">
   <div class="card">
-    <h2>API key</h2>
-    <p id="apikey-state" class="note"></p>
-    <p class="note">When a key is set, every POST must send it as
-      <code>X-Api-Key</code>. Leave unset on a trusted network.</p>
-    <label for="apikey">Key</label>
-    <input id="apikey" type="text" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <h2>Value from URL</h2>
+    <p class="note">The device fetches one value from a URL on an interval. It
+      goes through the same formatting and fallback as a pushed value.</p>
+    <label class="check big"><input id="vp-en" type="checkbox"> Enable polling</label>
+    <label for="vp-url">URL</label>
+    <input id="vp-url" type="text" maxlength="255" placeholder="https://example.com/value.json"
+           autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="grid2">
+      <div><label for="vp-int">Interval (seconds)</label>
+        <input id="vp-int" type="number" min="10" max="86400" value="300"></div>
+      <div><div class="flab">Value path<button type="button" class="hlp"
+        data-help="Where the value sits in a JSON response: dot-separated keys and [n] array indices, such as data.price or [0].value. Leave empty to use the whole response body, trimmed."
+        aria-expanded="false" aria-label="Explain the value path">?</button></div>
+        <input id="vp-path" type="text" maxlength="64" placeholder="data.price"
+               autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+    </div>
+    <div class="flab">Secret<button type="button" class="hlp"
+      data-help="Sent as Authorization: Bearer followed by the secret. Leave blank when saving to keep the stored one; Clear removes it."
+      aria-expanded="false" aria-label="Explain the secret">?</button></div>
     <div class="row">
-      <button class="act" id="apikey-set">Set key</button>
-      <button class="danger" id="apikey-clear">Clear key</button>
+      <input id="vp-secret" type="password" maxlength="128" autocomplete="off"
+             placeholder="leave blank to keep current" aria-label="Secret">
+      <button class="sec" id="vp-sclr">Clear</button>
+    </div>
+    <div class="flab">Custom header<button type="button" class="hlp"
+      data-help="One extra request header, for services that expect a key in a header of their own. Leave the value blank when saving to keep the stored one; Clear removes both name and value."
+      aria-expanded="false" aria-label="Explain the custom header">?</button></div>
+    <div class="row">
+      <input id="vp-hname" type="text" maxlength="48" placeholder="Header name" aria-label="Header name"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input id="vp-hval" type="password" maxlength="128" autocomplete="off"
+             placeholder="leave blank to keep current" aria-label="Header value">
+      <button class="sec" id="vp-hclr">Clear</button>
+    </div>
+    <p id="vp-status" class="note"></p>
+    <div class="row">
+      <button class="act" id="vp-save">Save</button>
+      <button class="sec" id="vp-now">Poll now</button>
     </div>
   </div>
   <div class="card">
-    <h2>Outbound webhook</h2>
-    <label for="whurl">URL (empty = disabled)</label>
-    <input id="whurl" type="text" maxlength="160" placeholder="http://host/webhook/led-display"
-           autocomplete="off" autocapitalize="off" spellcheck="false">
-    <label>Send events</label>
-    <div class="grid2" id="whevents">
-      <label class="check"><input type="checkbox" data-evt="boot"> Boot</label>
-      <label class="check"><input type="checkbox" data-evt="ip_change"> IP change</label>
-      <label class="check"><input type="checkbox" data-evt="ota_result"> OTA result</label>
-      <label class="check"><input type="checkbox" data-evt="schedule_on"> Schedule on</label>
-      <label class="check"><input type="checkbox" data-evt="schedule_off"> Schedule off</label>
-      <label class="check"><input type="checkbox" data-evt="value_stale"> Value stale</label>
+    <h2>Value endpoint</h2>
+    <p class="note">POST a raw value from any webhook source; the device formats
+      and displays it.</p>
+    <label for="v-test">Test value</label>
+    <div class="row">
+      <input id="v-test" type="text" placeholder="42.5" autocomplete="off">
+      <button class="sec" id="v-send">Send test</button>
     </div>
-    <div class="row"><button class="act" id="wh-save">Save webhook</button></div>
+    <p id="v-echo" class="note"></p>
+
+    <label>Example</label>
+    <div class="row">
+      <code id="curl-ex" class="code"></code>
+      <button class="sec" id="curl-copy">Copy</button>
+    </div>
   </div>
   <div class="card" id="mqtt-card">
     <h2>MQTT</h2>
@@ -515,53 +545,127 @@
     </div>
   </div>
   <div class="card">
-    <h2>Value endpoint</h2>
-    <p class="note">POST a raw value from any webhook source; the device formats
-      and displays it.</p>
+    <h2>Formatting</h2>
+    <p class="note">Applies to every value source: URL, value endpoint and MQTT.</p>
     <div class="grid2">
-      <div><label for="v-prefix">Prefix</label>
-        <input id="v-prefix" type="text" maxlength="16" autocomplete="off"></div>
-      <div><label for="v-suffix">Suffix</label>
-        <input id="v-suffix" type="text" maxlength="16" autocomplete="off"></div>
-      <div><label for="v-dec">Decimals (-1 = as sent)</label>
-        <input id="v-dec" type="number" min="-1" max="6" value="-1"></div>
-      <div><label for="v-thou">Thousands separator</label>
-        <select id="v-thou">
+      <div><label for="vf-prefix">Prefix</label>
+        <input id="vf-prefix" type="text" maxlength="16" autocomplete="off"></div>
+      <div><label for="vf-suffix">Suffix</label>
+        <input id="vf-suffix" type="text" maxlength="16" autocomplete="off"></div>
+      <div><div class="flab">Multiplier<button type="button" class="hlp"
+        data-help="The number is multiplied by this before anything else, for unit conversion or 100 for a percentage. 1 leaves it unchanged."
+        aria-expanded="false" aria-label="Explain the multiplier">?</button></div>
+        <input id="vf-mult" type="number" step="any" value="1"></div>
+      <div><label for="vf-scale">Scale</label>
+        <select id="vf-scale">
+          <option value="none">None</option>
+          <option value="auto">Auto</option>
+          <option value="k">Thousands k</option>
+          <option value="M">Millions M</option>
+          <option value="B">Billions B</option>
+        </select></div>
+      <div><div class="flab">Scale letters<button type="button" class="hlp"
+        data-help="The letters appended for thousands, millions, billions and trillions, separated by spaces. Missing ones fall back to k M B T."
+        aria-expanded="false" aria-label="Explain the scale letters">?</button></div>
+        <input id="vf-letters" type="text" maxlength="23" placeholder="k M B T" autocomplete="off"></div>
+      <div><label for="vf-dec">Decimals (-1 = as sent)</label>
+        <input id="vf-dec" type="number" min="-1" max="6" value="-1"></div>
+      <div><label for="vf-dsep">Decimal separator</label>
+        <select id="vf-dsep">
+          <option value=".">Dot</option>
+          <option value=",">Comma</option>
+        </select></div>
+      <div><label for="vf-thou">Thousands separator</label>
+        <select id="vf-thou">
           <option value="">None</option>
           <option value=",">Comma</option>
           <option value=".">Dot</option>
           <option value="'">Apostrophe</option>
           <option value=" ">Thin space</option>
         </select></div>
-      <div><label for="v-stalehrs">Stale after (hours, 0 = off)</label>
-        <input id="v-stalehrs" type="number" min="0" max="720" value="0"></div>
-      <div><label for="v-staleact">Stale action</label>
-        <select id="v-staleact">
-          <option value="none">None</option>
-          <option value="dim">Dim</option>
-          <option value="marker">Corner marker</option>
+    </div>
+    <label class="check"><input id="vf-plus" type="checkbox"> Plus sign on positive numbers</label>
+    <label for="vf-try">Preview</label>
+    <input id="vf-try" type="text" placeholder="1234567.891" autocomplete="off">
+    <p id="vf-out" class="note"></p>
+    <div class="row"><button class="act" id="vf-save">Save</button></div>
+  </div>
+  <div class="card">
+    <h2>Fallback</h2>
+    <p class="note">What the panel shows when the value is missing or the feed
+      looks unhealthy. Any trigger engages it; the next value from any source
+      clears it.</p>
+    <div class="flab">Fallback text<button type="button" class="hlp"
+      data-help="Shown verbatim, without formatting. Always used before the first value since boot, whatever the mode. Leave empty for a blank panel."
+      aria-expanded="false" aria-label="Explain the fallback text">?</button></div>
+    <input id="fb-text" type="text" maxlength="64" autocomplete="off">
+    <div class="grid2">
+      <div><label for="fb-mode">Mode</label>
+        <select id="fb-mode">
           <option value="text">Show text</option>
+          <option value="marker">Corner marker</option>
+          <option value="dim">Dim</option>
         </select></div>
+      <div><label for="fb-after">After minutes without a value (0 = off)</label>
+        <input id="fb-after" type="number" min="0" max="43200" value="0"></div>
+      <div><div class="flab">Poll failures (0 = off)<button type="button" class="hlp"
+        data-help="Engage after this many failed polls in a row. Only counts while Value from URL is enabled."
+        aria-expanded="false" aria-label="Explain poll failures">?</button></div>
+        <input id="fb-fails" type="number" min="0" max="255" value="3"></div>
     </div>
-    <label for="v-staletext">Stale text</label>
-    <input id="v-staletext" type="text" maxlength="64" placeholder="stale" autocomplete="off">
-    <div class="flab">Placeholder before the first value<button type="button" class="hlp"
-      data-help="Shown verbatim while the display source is Integration and no value has arrived yet - right after a reboot, or before the integration is wired up. Leave empty for a blank panel."
-      aria-expanded="false" aria-label="Explain the placeholder">?</button></div>
-    <input id="v-default" type="text" maxlength="64" placeholder="e.g. waiting for data..." autocomplete="off">
-    <div class="row"><button class="act" id="vcfg-save">Save value config</button></div>
-
-    <label for="v-test">Test value</label>
-    <div class="row">
-      <input id="v-test" type="text" placeholder="42.5" autocomplete="off">
-      <button class="sec" id="v-send">Send test</button>
+    <label class="check"><input id="fb-mqtt" type="checkbox"> Engage when the MQTT broker is lost for over 60 s</label>
+    <div class="row"><button class="act" id="fb-save">Save</button></div>
+  </div>
+  <div class="card">
+    <h2>Status webhook</h2>
+    <label for="whurl">URL (empty = disabled)</label>
+    <input id="whurl" type="text" maxlength="160" placeholder="http://host/webhook/led-display"
+           autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label>Send events</label>
+    <div class="grid2" id="whevents">
+      <label class="check"><input type="checkbox" data-evt="boot"> Boot</label>
+      <label class="check"><input type="checkbox" data-evt="ip_change"> IP change</label>
+      <label class="check"><input type="checkbox" data-evt="ota_result"> OTA result</label>
+      <label class="check"><input type="checkbox" data-evt="schedule_on"> Schedule on</label>
+      <label class="check"><input type="checkbox" data-evt="schedule_off"> Schedule off</label>
+      <label class="check"><input type="checkbox" data-evt="value_stale"> Value stale</label>
+      <label class="check"><input type="checkbox" data-evt="value_recovered"> Value recovered</label>
     </div>
-    <p id="v-echo" class="note"></p>
-
-    <label>Example</label>
+    <div class="flab">Heartbeat (minutes, 0 = off)<button type="button" class="hlp"
+      data-help="Posts a status event on this interval with the IP, signal, uptime, what the panel shows, the value age and whether fallback is active."
+      aria-expanded="false" aria-label="Explain the heartbeat">?</button></div>
+    <input id="wh-hb" type="number" min="0" max="1440" value="0" class="num">
+    <div class="flab">Secret<button type="button" class="hlp"
+      data-help="Sent with every webhook as Authorization: Bearer followed by the secret. Leave blank when saving to keep the stored one; Clear removes it."
+      aria-expanded="false" aria-label="Explain the webhook secret">?</button></div>
     <div class="row">
-      <code id="curl-ex" class="code"></code>
-      <button class="sec" id="curl-copy">Copy</button>
+      <input id="wh-secret" type="password" maxlength="128" autocomplete="off"
+             placeholder="leave blank to keep current" aria-label="Webhook secret">
+      <button class="sec" id="wh-sclr">Clear</button>
+    </div>
+    <div class="flab">Custom header<button type="button" class="hlp"
+      data-help="One extra header on every webhook. Leave the value blank when saving to keep the stored one; Clear removes both name and value."
+      aria-expanded="false" aria-label="Explain the webhook header">?</button></div>
+    <div class="row">
+      <input id="wh-hname" type="text" maxlength="48" placeholder="Header name" aria-label="Webhook header name"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input id="wh-hval" type="password" maxlength="128" autocomplete="off"
+             placeholder="leave blank to keep current" aria-label="Webhook header value">
+      <button class="sec" id="wh-hclr">Clear</button>
+    </div>
+    <div class="row"><button class="act" id="wh-save">Save</button></div>
+  </div>
+  <div class="card">
+    <h2>API key</h2>
+    <p id="apikey-state" class="note"></p>
+    <p class="note">When set, every POST must send it as <code>X-Api-Key</code>,
+      including the value, preview and poll endpoints. Leave unset on a trusted
+      network.</p>
+    <label for="apikey">Key</label>
+    <input id="apikey" type="text" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="row">
+      <button class="act" id="apikey-set">Set key</button>
+      <button class="danger" id="apikey-clear">Clear key</button>
     </div>
   </div>
 </section>

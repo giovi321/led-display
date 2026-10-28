@@ -1288,7 +1288,9 @@ $('#wg-save').onclick = () => act($('#wg-save'), async () => {
 
 // ---- Integrations tab ------------------------------------------------------
 
-async function refreshIntegrations() {
+// Webhook and API key cards; reloaded alone after their own saves so the
+// other cards keep any unsaved edits.
+async function refreshHooks() {
   try {
     const j = await jget('/api/integrations');
     // The device name is a System-tab setting now (one name, also used as the
@@ -1297,6 +1299,10 @@ async function refreshIntegrations() {
     // The wire format is an array of event names, not a bitmask.
     const evts = Array.isArray(j.webhook_events) ? j.webhook_events : [];
     $$('#whevents input').forEach(cb => { cb.checked = evts.includes(cb.dataset.evt); });
+    $('#wh-hb').value = j.heartbeat_min || 0;
+    $('#wh-hname').value = j.webhook_hdr_name || '';
+    showSecret('#wh-secret', j.webhook_secret_set);
+    showSecret('#wh-hval', j.webhook_hdr_value_set);
     // The key itself may be withheld by the API; only report whether one is set.
     const keySet = !!(j.api_key || j.api_key_set);
     $('#apikey-state').textContent = keySet
@@ -1305,23 +1311,192 @@ async function refreshIntegrations() {
   } catch (e) {
     toast('Error: ' + e.message, true);
   }
+}
+
+async function refreshIntegrations() {
+  await refreshHooks();
   try {
     const v = await jget('/api/value/config');
-    $('#v-prefix').value = v.prefix || '';
-    $('#v-suffix').value = v.suffix || '';
-    $('#v-dec').value = (v.decimals === undefined ? -1 : v.decimals);
-    $('#v-thou').value = v.thousands || '';
-    $('#v-stalehrs').value = v.stale_hours || 0;
-    const actName = (typeof v.stale_action === 'number')
-      ? (['none', 'dim', 'marker', 'text'][v.stale_action] || 'none')
-      : (v.stale_action || 'none');
-    $('#v-staleact').value = actName;
-    $('#v-staletext').value = v.stale_text || '';
-    $('#v-default').value = v.default_text || '';
+    $('#vf-prefix').value = v.prefix || '';
+    $('#vf-suffix').value = v.suffix || '';
+    $('#vf-mult').value = v.multiplier || 1;
+    $('#vf-scale').value = v.scale || 'none';
+    $('#vf-letters').value = v.scale_letters || '';
+    $('#vf-dec').value = (v.decimals === undefined ? -1 : v.decimals);
+    $('#vf-dsep').value = v.dec_sep || '.';
+    $('#vf-thou').value = v.thousands || '';
+    $('#vf-plus').checked = !!v.plus_sign;
+    $('#fb-text').value = v.fb_text || '';
+    $('#fb-mode').value = v.fb_mode || 'text';
+    $('#fb-after').value = v.fb_after_min || 0;
+    $('#fb-fails').value = v.fb_poll_failures || 0;
+    $('#fb-mqtt').checked = !!v.fb_on_mqtt_loss;
   } catch (e) { /* endpoint not up yet; leave the form editable */ }
+  await refreshPoll();
   await refreshMqtt();
   updateCurl();
 }
+
+// Secret boxes are write-only: the API only says whether one is stored.
+function showSecret(sel, isSet) {
+  $(sel).value = '';
+  $(sel).placeholder = isSet ? 'leave blank to keep current' : 'not set';
+}
+// A blank box means "keep the stored one", so it stays out of the body.
+function putSecret(body, key, sel) {
+  const v = $(sel).value;
+  if (v) body[key] = v;
+}
+// Clears go in a request of their own, never mixed with new values.
+function clearBtn(sel, path, flag, what, reload) {
+  $(sel).onclick = () => act($(sel), async () => {
+    if (!confirm('Remove the stored ' + what + '?')) return;
+    await jpost(path, { [flag]: true });
+    toast('Removed the ' + what);
+    reload();
+  });
+}
+
+// ---- Value from URL ----
+
+let vpCfg = null;   // last loaded config, to explain why a poll cannot run
+
+function renderPollStatus(s) {
+  let t;
+  if (!s || !s.last_poll) {
+    t = 'Not polled yet.';
+  } else {
+    t = 'Last poll ' + (s.last_poll > 1e9
+      ? new Date(s.last_poll * 1000).toLocaleString() : '(device clock not set)')
+      + ', HTTP ' + (s.http_status || 'none') + '. '
+      + (s.error ? 'Error: ' + s.error : 'Value: ' + s.raw)
+      + (s.failures ? '. Failed ' + s.failures + ' times in a row.' : '');
+  }
+  $('#vp-status').textContent = t;
+}
+
+async function refreshPoll() {
+  try {
+    const p = await jget('/api/value/poll');
+    vpCfg = p;
+    $('#vp-en').checked = !!p.enabled;
+    $('#vp-url').value = p.url || '';
+    $('#vp-int').value = p.interval_s || 300;
+    $('#vp-path').value = p.path || '';
+    $('#vp-hname').value = p.hdr_name || '';
+    showSecret('#vp-secret', p.secret_set);
+    showSecret('#vp-hval', p.hdr_value_set);
+    renderPollStatus(p.status);
+    return p.status;
+  } catch (e) { /* pre-poller firmware: leave the card as it is */ }
+}
+
+// The poll runs on the device's own task; re-read the status about once a
+// second until last_poll moves, giving up after ~12 s.
+async function waitPoll(prev) {
+  $('#vp-status').textContent = 'Polling...';
+  for (let i = 0; i < 12; i++) {
+    await sleep(1000);
+    const s = await refreshPoll();
+    if (s && s.last_poll !== prev) return;
+  }
+  $('#vp-status').textContent = 'No result yet. Reload the tab later to see it.';
+}
+
+$('#vp-save').onclick = () => act($('#vp-save'), async () => {
+  const body = {
+    enabled: $('#vp-en').checked,
+    url: $('#vp-url').value.trim(),
+    interval_s: Math.round(+$('#vp-int').value),
+    path: $('#vp-path').value.trim(),
+    hdr_name: $('#vp-hname').value.trim(),
+  };
+  putSecret(body, 'secret', '#vp-secret');
+  putSecret(body, 'hdr_value', '#vp-hval');
+  if (body.enabled && !body.url) { toast('Enter the URL first', true); return; }
+  const prev = vpCfg && vpCfg.status ? vpCfg.status.last_poll : 0;
+  await jpost('/api/value/poll', body);
+  toast('Saved');
+  // Saving triggers one poll when polling can run.
+  if (body.enabled) await waitPoll(prev); else await refreshPoll();
+});
+
+$('#vp-now').onclick = () => act($('#vp-now'), async () => {
+  const r = await jpost('/api/value/poll/now');
+  if (!r.pending) {
+    const c = vpCfg || {};
+    $('#vp-status').textContent = !c.enabled
+      ? 'Polling is off. Enable it and save first.'
+      : (!c.url ? 'No URL saved yet.'
+                : 'Not connected to a WiFi network, so polling cannot run.');
+    return;
+  }
+  await waitPoll(r.status ? r.status.last_poll : 0);
+});
+
+clearBtn('#vp-sclr', '/api/value/poll', 'clear_secret', 'secret', refreshPoll);
+clearBtn('#vp-hclr', '/api/value/poll', 'clear_header', 'header', refreshPoll);
+
+// ---- Formatting ----
+
+function fmtCfg() {
+  const m = $('#vf-mult').value.trim();
+  return {
+    prefix: $('#vf-prefix').value,
+    suffix: $('#vf-suffix').value,
+    multiplier: m === '' ? 1 : +m,
+    scale: $('#vf-scale').value,
+    scale_letters: $('#vf-letters').value.trim(),
+    decimals: Math.round(+$('#vf-dec').value),
+    dec_sep: $('#vf-dsep').value,
+    thousands: $('#vf-thou').value,
+    plus_sign: $('#vf-plus').checked,
+  };
+}
+const SEP_CLASH = 'Thousands and decimal separator must differ';
+
+// The browser carries no copy of the formatter: the device formats the
+// sample with the unsaved form values.
+let previewTimer = 0, previewSeq = 0;
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    const raw = $('#vf-try').value.trim();
+    const out = $('#vf-out');
+    const seq = ++previewSeq;
+    if (!raw) { out.textContent = ''; return; }
+    const cfg = fmtCfg();
+    if (cfg.thousands === cfg.dec_sep) { out.textContent = SEP_CLASH; return; }
+    let t;
+    try {
+      const j = await jpost('/api/value/preview', { raw: raw, cfg: cfg });
+      t = 'Shows: ' + j.text;
+    } catch (e) { t = 'Error: ' + e.message; }
+    if (seq === previewSeq) out.textContent = t;
+  }, 300);
+}
+$$('#tab-integrations [id^="vf-"]').forEach(el => {
+  el.addEventListener('input', schedulePreview);
+  el.addEventListener('change', schedulePreview);
+});
+
+$('#vf-save').onclick = () => act($('#vf-save'), async () => {
+  const cfg = fmtCfg();
+  if (cfg.thousands === cfg.dec_sep) { toast(SEP_CLASH, true); return; }
+  await jpost('/api/value/config', cfg);
+  toast('Formatting saved');
+});
+
+$('#fb-save').onclick = () => act($('#fb-save'), async () => {
+  await jpost('/api/value/config', {
+    fb_text: $('#fb-text').value,
+    fb_mode: $('#fb-mode').value,
+    fb_after_min: Math.max(0, Math.round(+$('#fb-after').value) || 0),
+    fb_poll_failures: Math.max(0, Math.round(+$('#fb-fails').value) || 0),
+    fb_on_mqtt_loss: $('#fb-mqtt').checked,
+  });
+  toast('Fallback saved');
+});
 
 async function refreshMqtt() {
   try {
@@ -1436,26 +1611,23 @@ $('#uiauth-save').onclick = () => act($('#uiauth-save'), async () => {
 $('#wh-save').onclick = () => act($('#wh-save'), async () => {
   const evts = [];
   $$('#whevents input').forEach(cb => { if (cb.checked) evts.push(cb.dataset.evt); });
-  await jpost('/api/integrations', {
+  const body = {
     webhook_url: $('#whurl').value.trim(),
     webhook_events: evts,
-  });
+    heartbeat_min: Math.max(0, Math.round(+$('#wh-hb').value) || 0),
+    webhook_hdr_name: $('#wh-hname').value.trim(),
+  };
+  putSecret(body, 'webhook_secret', '#wh-secret');
+  putSecret(body, 'webhook_hdr_value', '#wh-hval');
+  await jpost('/api/integrations', body);
   toast('Webhook config saved');
+  refreshHooks();
 });
 
-$('#vcfg-save').onclick = () => act($('#vcfg-save'), async () => {
-  await jpost('/api/value/config', {
-    prefix: $('#v-prefix').value,
-    suffix: $('#v-suffix').value,
-    decimals: Math.round(+$('#v-dec').value),
-    thousands: $('#v-thou').value,
-    stale_hours: Math.max(0, Math.round(+$('#v-stalehrs').value) || 0),
-    stale_action: $('#v-staleact').value,
-    stale_text: $('#v-staletext').value,
-    default_text: $('#v-default').value,
-  });
-  toast('Value config saved');
-});
+clearBtn('#wh-sclr', '/api/integrations', 'clear_webhook_secret', 'webhook secret',
+         refreshHooks);
+clearBtn('#wh-hclr', '/api/integrations', 'clear_webhook_hdr', 'webhook header',
+         refreshHooks);
 
 $('#v-send').onclick = () => act($('#v-send'), async () => {
   const raw = $('#v-test').value.trim();
