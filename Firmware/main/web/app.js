@@ -1301,7 +1301,6 @@ async function refreshHooks() {
     $$('#whevents input').forEach(cb => { cb.checked = evts.includes(cb.dataset.evt); });
     $('#wh-hb').value = j.heartbeat_min || 0;
     $('#wh-hname').value = j.webhook_hdr_name || '';
-    showSecret('#wh-secret', j.webhook_secret_set);
     showSecret('#wh-hval', j.webhook_hdr_value_set);
     // The key itself may be withheld by the API; only report whether one is set.
     const keySet = !!(j.api_key || j.api_key_set);
@@ -1394,7 +1393,6 @@ async function refreshPoll() {
     $('#vp-int').value = p.interval_s || 300;
     $('#vp-path').value = p.path || '';
     $('#vp-hname').value = p.hdr_name || '';
-    showSecret('#vp-secret', p.secret_set);
     showSecret('#vp-hval', p.hdr_value_set);
   }
 }
@@ -1421,7 +1419,6 @@ $('#vp-save').onclick = () => act($('#vp-save'), async () => {
   // Empty interval: leave it out and the device keeps the stored one.
   const iv = $('#vp-int').value.trim();
   if (iv !== '') body.interval_s = Math.round(+iv);
-  putSecret(body, 'secret', '#vp-secret');
   putSecret(body, 'hdr_value', '#vp-hval');
   if (body.enabled && !body.url) { toast('Enter the URL first', true); return; }
   const prev = vpCfg && vpCfg.status ? vpCfg.status.last_poll : 0;
@@ -1445,7 +1442,6 @@ $('#vp-now').onclick = () => act($('#vp-now'), async () => {
   await waitPoll(r.status ? r.status.last_poll : 0);
 });
 
-clearBtn('#vp-sclr', '/api/value/poll', 'clear_secret', 'secret', refreshPoll);
 clearBtn('#vp-hclr', '/api/value/poll', 'clear_header', 'header', refreshPoll);
 
 // ---- Formatting ----
@@ -1628,15 +1624,12 @@ $('#wh-save').onclick = () => act($('#wh-save'), async () => {
     heartbeat_min: Math.max(0, Math.round(+$('#wh-hb').value) || 0),
     webhook_hdr_name: $('#wh-hname').value.trim(),
   };
-  putSecret(body, 'webhook_secret', '#wh-secret');
   putSecret(body, 'webhook_hdr_value', '#wh-hval');
   await jpost('/api/integrations', body);
   toast('Webhook config saved');
   refreshHooks();
 });
 
-clearBtn('#wh-sclr', '/api/integrations', 'clear_webhook_secret', 'webhook secret',
-         refreshHooks);
 clearBtn('#wh-hclr', '/api/integrations', 'clear_webhook_hdr', 'webhook header',
          refreshHooks);
 

@@ -55,8 +55,8 @@ Firmware v2 (current version 2.12.0, `fw_version.h`) is a single ESP-IDF applica
 | `layout` | panel type, grid size, per-cell chain index and rotation |
 | `colors` | saved color presets |
 | `valuecfg` | value formatting and fallback config (blob version 2; a version 1 blob with the old stale settings is migrated on first load) |
-| `vpoll` | URL poll config: enabled, URL, interval, value path, secret, custom header |
-| `integr` | API key, outbound webhook config (URL, events, secret, custom header, heartbeat interval), and the device-name copy the `dname` key superseded |
+| `vpoll` | URL poll config: enabled, URL, interval, value path, custom header |
+| `integr` | API key, outbound webhook config (URL, events, custom header, heartbeat interval), and the device-name copy the `dname` key superseded |
 | `wg` | WireGuard client config |
 | `mqtt` | MQTT broker URI, credentials, base topic, Home Assistant discovery |
 | `lsen` | light sensor I2C pins, calibration readings, brightness range, curve |
@@ -104,7 +104,7 @@ Every value source ends in one place. `value_feed.c` is the ingest path for `POS
 
 `devname.c` is the pure device-name module: the charset rules, a lenient cleaner for values that were never validated against them (an older webhook name, an imported config file), and the resolvers that turn a stored name into a hostname or a setup-AP SSID, defaults included. `integrations.c` reads the stored name through it and adopts a customised pre-2.2 webhook name once; `wifi_manager.c` applies it to both netifs and to the AP config.
 
-`webhooks.c` posts JSON events (boot, IP change, OTA result, schedule on/off, value stale, value recovered) to one configured URL from a low-priority worker task: fire and forget, one retry, 5 s timeout, with an optional bearer secret and one custom header. The same task owns the status heartbeat: it waits on its event queue with a timeout equal to the time left until the next heartbeat and posts `status` when that runs out, whichever events are selected.
+`webhooks.c` posts JSON events (boot, IP change, OTA result, schedule on/off, value stale, value recovered) to one configured URL from a low-priority worker task: fire and forget, one retry, 5 s timeout, with one optional custom header. The same task owns the status heartbeat: it waits on its event queue with a timeout equal to the time left until the next heartbeat and posts `status` when that runs out, whichever events are selected.
 
 ### OTA
 

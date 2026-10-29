@@ -23,10 +23,9 @@ Use this when the source cannot push into your network, for example a cloud serv
 | URL | `http://` or `https://`, up to 255 characters | HTTPS is verified against the built-in certificate bundle; redirects are followed |
 | Interval | 10 to 86400 seconds, default 300 | time between polls |
 | Value path | up to 64 characters | where the value sits in a JSON response; empty means the whole response body |
-| Secret | up to 128 characters | sent as `Authorization: Bearer <secret>` |
-| Custom header | name up to 48, value up to 128 characters | one extra request header |
+| Custom header | name up to 48, value up to 128 characters | one extra request header, where authentication goes |
 
-Saving the card triggers one poll straight away, and the first poll after boot runs within a few seconds of the device getting an IP address. "Poll now" requests one more poll. The card shows the time of the last poll, the HTTP status, the value that was extracted or the error, and the number of failures in a row.
+Saving the card triggers one poll straight away, and the first poll after boot runs within a few seconds of the device getting an IP address. "Poll now" requests one more poll. The card shows the time of the last poll, the HTTP status, the value that was extracted or the error, and the number of failures in a row. When the device cannot connect at all, the error says where it stopped: DNS lookup, TCP connect, TLS handshake, or a certificate the device does not trust. A DNS or TCP error usually points at the network (a VLAN or firewall that blocks the device), a certificate error at the server's certificate chain.
 
 Polling runs on its own low-priority task. A slow or dead URL never blocks the web interface, the display or MQTT.
 
@@ -54,16 +53,18 @@ With the formatting set to prefix `USD `, 1 decimal and a comma as thousands sep
 
 Leave the value path empty and the whole response body, with surrounding whitespace trimmed, is the raw value. A URL that answers with just `21.4` gives the raw value `21.4`. When the body is not a number, it is shown exactly as received, with only the prefix and suffix added, so a URL that answers `OPEN` puts `OPEN` on the panel. The body is capped at 4 KB; anything larger is a failure.
 
-### Secret or custom header
+### Custom header
 
-Both are optional and can be set at the same time.
+The custom header is optional and is where authentication goes. Give the name and the value; the device sends `<name>: <value>` with every request.
 
-- Secret: for services that expect a bearer token. The device sends `Authorization: Bearer <secret>`
-- Custom header: for services that expect a key in a header of their own, such as `X-Token`. Give the name and the value; the device sends `<name>: <value>`. The name must be a valid HTTP header name (letters, digits and the characters `!#$%&'*+-.^_`|~`) and the value must be a single line
+- For a bearer token, use the name `Authorization` and the value `Bearer <token>`
+- For an API key, use the header name the service expects, such as `X-Token`, and the key as the value
 
-When the poll follows a redirect to a different host, or from `https` to plain `http`, the device drops the secret and the custom header for that request and every later redirect of it.
+The name must be a valid HTTP header name (letters, digits and the characters `!#$%&'*+-.^_`|~`) and the value must be a single line.
 
-Neither is shown again after saving. The interface and the API report only that a secret or header value is set. Saving the card with those fields left blank keeps the stored values, and the Clear buttons remove them (Clear on the custom header removes the name and the value). Prefer a secret or header over credentials inside the URL: the URL is shown in the card and travels in every backup in cleartext, as the secrets do, so store backups like secrets either way.
+When the poll follows a redirect to a different host, or from `https` to plain `http`, the device drops the custom header for that request and every later redirect of it.
+
+The value is not shown again after saving. The interface and the API report only that a header value is set. Saving the card with the value left blank keeps the stored one, and Clear removes both the name and the value. Prefer the header over credentials inside the URL: the URL is shown in the card and travels in every backup in cleartext, as the header value does, so store backups like secrets either way.
 
 ### What counts as a failed poll
 
@@ -249,7 +250,7 @@ The payload is always the same envelope, with an optional `data` object per even
  "data": {"reason": "timeout", "age_s": 90000}}
 ```
 
-`device` is the [device name](../../api-reference/system/#post-apisystemdevice_name) set on the System tab, so several displays can share one receiver. The card can also send a secret as `Authorization: Bearer` and one custom header with every webhook, under the same rules as the [URL poll](#secret-or-custom-header). Delivery is fire and forget: 5-second timeout, one retry after 2 seconds, then the event is dropped, so treat webhooks as notifications, not as a reliable event log. The full payload of each event is in the [API reference](../../api-reference/integrations/#outbound-webhook-payloads).
+`device` is the [device name](../../api-reference/system/#post-apisystemdevice_name) set on the System tab, so several displays can share one receiver. The card can also send one custom header with every webhook, for authentication, under the same rules as the [URL poll](#custom-header). Delivery is fire and forget: 5-second timeout, one retry after 2 seconds, then the event is dropped, so treat webhooks as notifications, not as a reliable event log. The full payload of each event is in the [API reference](../../api-reference/integrations/#outbound-webhook-payloads).
 
 An n8n alerting flow for the events worth waking up for:
 

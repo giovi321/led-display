@@ -13,7 +13,7 @@
 //   "integr"   {"v":1,"api_key":"..","webhook_url":"..",
 //               "webhook_events":<mask>,"device_name":"..",
 //               "ui_auth":false,"ui_user":"..","ui_pass":"..",
-//               "webhook_secret":"..","webhook_hdr_name":"..",
+//               "webhook_hdr_name":"..",
 //               "webhook_hdr_value":"..","heartbeat_min":0}
 //   "valuecfg" {"v":2,"prefix":"..","suffix":"..","decimals":-1,
 //               "thousands":"","multiplier":1,"scale":"none",
@@ -368,8 +368,6 @@ static void load_integr(integrations_cfg_t *out)
     out->ui_auth = cJSON_IsTrue(ua) && out->ui_pass[0] != '\0';
 
     // Webhook auth and heartbeat (2.12.0): absent in older blobs = off.
-    json_get_str(root, "webhook_secret", out->webhook_secret,
-                 sizeof(out->webhook_secret));
     json_get_str(root, "webhook_hdr_name", out->webhook_hdr_name,
                  sizeof(out->webhook_hdr_name));
     json_get_str(root, "webhook_hdr_value", out->webhook_hdr_value,
@@ -428,7 +426,6 @@ static esp_err_t save_integr(const integrations_cfg_t *in)
     cJSON_AddBoolToObject(root, "ui_auth", in->ui_auth);
     cJSON_AddStringToObject(root, "ui_user", in->ui_user);
     cJSON_AddStringToObject(root, "ui_pass", in->ui_pass);
-    cJSON_AddStringToObject(root, "webhook_secret", in->webhook_secret);
     cJSON_AddStringToObject(root, "webhook_hdr_name", in->webhook_hdr_name);
     cJSON_AddStringToObject(root, "webhook_hdr_value", in->webhook_hdr_value);
     cJSON_AddNumberToObject(root, "heartbeat_min", in->heartbeat_min);
@@ -540,7 +537,6 @@ esp_err_t integrations_set(const integrations_cfg_t *in)
     cfg.api_key[INTEGR_API_KEY_MAX]  = '\0';
     cfg.webhook_url[INTEGR_URL_MAX]  = '\0';
     cfg.device_name[INTEGR_NAME_MAX] = '\0';
-    cfg.webhook_secret[INTEGR_SECRET_MAX]     = '\0';
     cfg.webhook_hdr_name[INTEGR_HDR_NAME_MAX] = '\0';
     cfg.webhook_hdr_value[INTEGR_SECRET_MAX]  = '\0';
     if (cfg.heartbeat_min > INTEGR_HEARTBEAT_MAX) {

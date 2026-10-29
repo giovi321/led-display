@@ -110,8 +110,8 @@ own keys:
 | `layout` | panel type + grid + cells (section 1) |
 | `colors` | array of `{name, r, g, b}`, max 12 |
 | `valuecfg` | blob version 2: prefix, suffix, decimals, thousands separator, multiplier, scale, scale letters, decimal separator, plus sign, and the fallback (`fb_text`, `fb_mode`, `fb_after_min`, `fb_poll_failures`, `fb_on_mqtt_loss`). A version 1 blob (stale_hours, stale_action, stale_text, default_text) is migrated on first load, see section 5 |
-| `vpoll` | URL poll: enabled, url, interval_s, secret, hdr_name, hdr_value, path |
-| `integr` | api_key, webhook url, webhook event mask, webhook secret and custom header, heartbeat interval, the web UI login (`ui_auth`, `ui_user`, `ui_pass`), plus the legacy device-name copy `dname` superseded |
+| `vpoll` | URL poll: enabled, url, interval_s, hdr_name, hdr_value, path |
+| `integr` | api_key, webhook url, webhook event mask, webhook custom header, heartbeat interval, the web UI login (`ui_auth`, `ui_user`, `ui_pass`), plus the legacy device-name copy `dname` superseded |
 | `wg` | WireGuard enable, private key, peer public key, endpoint, port, allowed IPs, keepalive |
 | `mqtt` | MQTT enable, broker URI, username, password, base topic, HA discovery flag + prefix |
 | `lsen` | light sensor: enabled, sda, scl, dark_raw, bright_raw, min_bri, max_bri, gamma. Blob version 3; older versions are discarded on load rather than migrated, because their calibration numbers are not in lux |
@@ -146,7 +146,7 @@ All existing endpoints remain. New/changed:
 | POST | `/api/value` | `{"value":"4.2"}` or `{"value":4.2}`; device formats via valuecfg template and displays |
 | POST | `/api/value/preview` | `{"raw":..,"cfg":{..}}`; dry-run format, nothing displayed or stored |
 | GET/POST | `/api/value/config` | formatting and fallback settings; still reads and accepts the pre-2.12 stale keys for one release |
-| GET/POST | `/api/value/poll` | URL poll config and last-poll status; secrets only as `*_set` booleans |
+| GET/POST | `/api/value/poll` | URL poll config and last-poll status; header value only as a `*_set` boolean |
 | POST | `/api/value/poll/now` | wake the poller; returns `{ok, pending, status}` without waiting |
 | GET | `/api/config/export` | full config JSON (all blobs + scalars, WiFi credentials excluded; API key and WG private key included; the endpoint requires the API key when one is set) |
 | POST | `/api/config/import` | restore config, rebuild LUT, apply |
@@ -266,7 +266,7 @@ One configurable URL + per-event toggles, plain JSON POST
 retry, 5 s timeout, from a low-priority task queue. Events: `boot`,
 `ip_change`, `ota_result`, `schedule_on`, `schedule_off`, `value_stale`
 (fallback engaged, `data` has `reason` and `age_s`), `value_recovered`. An
-optional secret (`Authorization: Bearer`) and one custom header go with every
+one optional custom header (name and value) goes with every
 POST, under the same rules as the poller. The same worker posts a `status`
 heartbeat every `heartbeat_min` minutes (0 = off) whatever the selected
 events: `ip`, `rssi`, `uptime_s`, `fw`, `brightness`, `power`, `source`,

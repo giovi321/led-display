@@ -467,16 +467,8 @@
         <input id="vp-path" type="text" maxlength="64" placeholder="data.price"
                autocomplete="off" autocapitalize="off" spellcheck="false"></div>
     </div>
-    <div class="flab">Secret<button type="button" class="hlp"
-      data-help="Sent as Authorization: Bearer followed by the secret. Leave blank when saving to keep the stored one; Clear removes it."
-      aria-expanded="false" aria-label="Explain the secret">?</button></div>
-    <div class="row">
-      <input id="vp-secret" type="password" maxlength="128" autocomplete="new-password"
-             placeholder="leave blank to keep current" aria-label="Secret">
-      <button class="sec" id="vp-sclr">Clear</button>
-    </div>
     <div class="flab">Custom header<button type="button" class="hlp"
-      data-help="One extra request header, for services that expect a key in a header of their own. Leave the value blank when saving to keep the stored one; Clear removes both name and value."
+      data-help="One extra request header, where authentication goes. Enter the header name the service checks and its value, for example Authorization with Bearer followed by a token, or an API-key header. Leave the value blank when saving to keep the stored one; Clear removes both name and value."
       aria-expanded="false" aria-label="Explain the custom header">?</button></div>
     <div class="row">
       <input id="vp-hname" type="text" maxlength="48" placeholder="Header name" aria-label="Header name"
@@ -635,16 +627,8 @@
       data-help="Posts a status event on this interval with the IP, signal, uptime, what the panel shows, the value age and whether fallback is active."
       aria-expanded="false" aria-label="Explain the heartbeat">?</button></div>
     <input id="wh-hb" type="number" min="0" max="1440" value="0" class="num">
-    <div class="flab">Secret<button type="button" class="hlp"
-      data-help="Sent with every webhook as Authorization: Bearer followed by the secret. Leave blank when saving to keep the stored one; Clear removes it."
-      aria-expanded="false" aria-label="Explain the webhook secret">?</button></div>
-    <div class="row">
-      <input id="wh-secret" type="password" maxlength="128" autocomplete="new-password"
-             placeholder="leave blank to keep current" aria-label="Webhook secret">
-      <button class="sec" id="wh-sclr">Clear</button>
-    </div>
     <div class="flab">Custom header<button type="button" class="hlp"
-      data-help="One extra header on every webhook. Leave the value blank when saving to keep the stored one; Clear removes both name and value."
+      data-help="One extra header on every webhook, where authentication goes. Enter the header name the receiver checks and its value, for example Authorization with Bearer followed by a token, or an API-key header. Leave the value blank when saving to keep the stored one; Clear removes both name and value."
       aria-expanded="false" aria-label="Explain the webhook header">?</button></div>
     <div class="row">
       <input id="wh-hname" type="text" maxlength="48" placeholder="Header name" aria-label="Webhook header name"

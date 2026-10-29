@@ -131,7 +131,7 @@ The fallback settings above decide what the panel does when the feed breaks. Wha
 
 ## GET /api/value/poll
 
-Open. Returns the URL poll config and the status of the last poll. Secrets never appear: the secret and the custom header value are reported only as booleans.
+Open. Returns the URL poll config and the status of the last poll. The custom header value never appears: it is reported only as a boolean.
 
 ```bash
 curl http://192.168.1.50/api/value/poll
@@ -142,7 +142,6 @@ curl http://192.168.1.50/api/value/poll
   "enabled": true,
   "url": "https://example.com/value.json",
   "interval_s": 300,
-  "secret_set": true,
   "hdr_name": "X-Token",
   "hdr_value_set": false,
   "path": "data.price",
@@ -156,7 +155,7 @@ curl http://192.168.1.50/api/value/poll
 }
 ```
 
-`status.last_poll` is unix seconds, 0 until the first poll. `http_status` is 0 when there was no response. `raw` is the extracted value (cut to 63 characters, for display) and `error` is empty after a good poll; after a failed one `raw` is empty and `error` holds the reason, for example `HTTP 503`, `path not found`, `value is not a string or number`, `invalid JSON`, `response too large`, `empty response` or a transport error such as `ESP_ERR_TIMEOUT`. `failures` counts consecutive failed polls.
+`status.last_poll` is unix seconds, 0 until the first poll. `http_status` is 0 when there was no response. `raw` is the extracted value (cut to 63 characters, for display) and `error` is empty after a good poll; after a failed one `raw` is empty and `error` holds the reason, for example `HTTP 503`, `path not found`, `value is not a string or number`, `invalid JSON`, `response too large`, `empty response` or a transport error such as `ESP_ERR_TIMEOUT`. A connection that cannot be opened names the cause: `DNS lookup failed`, `TCP connect failed`, `TCP connect timed out`, `TLS handshake timed out`, `TLS handshake failed (-0x....)` with the mbedTLS error code, or `TLS certificate not trusted (flags 0x..)` with the mbedTLS verification flags. `failures` counts consecutive failed polls.
 
 ## POST /api/value/poll
 
@@ -168,18 +167,16 @@ Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep th
 | `url` | string | `http://` or `https://`, up to 255 characters; `""` clears it |
 | `interval_s` | number | 10..86400 seconds |
 | `path` | string | up to 64 characters; empty means the whole trimmed response body is the value |
-| `secret` | string | up to 128 characters, sent as `Authorization: Bearer <secret>`; absent or empty keeps the stored one |
-| `hdr_name` | string | up to 48 characters, a valid HTTP header name (RFC 7230 token); `""` clears the name |
-| `hdr_value` | string | up to 128 characters, no line breaks; absent or empty keeps the stored one |
-| `clear_secret` | bool | `true` removes the secret |
+| `hdr_name` | string | up to 48 characters, a valid HTTP header name (RFC 7230 token); `""` clears the name. This is where authentication goes: for a bearer token use `Authorization` |
+| `hdr_value` | string | up to 128 characters, no line breaks, for example `Bearer <token>`; absent or empty keeps the stored one |
 | `clear_header` | bool | `true` removes the header name and value |
 
-A secret or header value is removed only by its explicit `clear_*` flag, never by an absent or empty field, so re-saving a form cannot wipe it. A request that carries a clear flag and a new value clears first and then stores the new value.
+The header value is removed only by `clear_header`, never by an absent or empty field, so re-saving a form cannot wipe it. A request that carries a clear flag and a new value clears first and then stores the new value.
 
 ```bash
 curl -X POST http://192.168.1.50/api/value/poll \
   -H "X-Api-Key: mysecret" -H "Content-Type: application/json" \
-  -d '{"enabled": true, "url": "https://example.com/value.json", "path": "data.price", "interval_s": 300, "secret": "s3cret"}'
+  -d '{"enabled": true, "url": "https://example.com/value.json", "path": "data.price", "interval_s": 300, "hdr_name": "Authorization", "hdr_value": "Bearer <token>"}'
 ```
 
 Response: `{"ok": true}`. Errors: 400 `"invalid JSON body"`, 400 `"interval_s must be 10..86400"`, 400 `"url must start with http:// or https://"`, 400 `"url required to enable polling"`, 400 `"field too long"`, 400 `"hdr_name must be a header token"`, 400 `"hdr_value must not contain line breaks"`, 400 `"hdr_value requires hdr_name"` when the saved result would have a header value without a name, 500 `"saving value poll config failed"`.

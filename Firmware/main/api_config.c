@@ -169,8 +169,7 @@ static cJSON *integrations_to_json(void)
     cJSON_AddBoolToObject(r, "ui_auth", c.ui_auth);
     cJSON_AddStringToObject(r, "ui_user", c.ui_user);
     cJSON_AddStringToObject(r, "ui_pass", c.ui_pass);   // secret: export is auth-gated
-    // Outbound webhook auth travels like api_key: secrets, export is auth-gated.
-    cJSON_AddStringToObject(r, "webhook_secret", c.webhook_secret);
+    // Outbound webhook header travels like api_key: export is auth-gated.
     cJSON_AddStringToObject(r, "webhook_hdr_name", c.webhook_hdr_name);
     cJSON_AddStringToObject(r, "webhook_hdr_value", c.webhook_hdr_value);
     cJSON_AddNumberToObject(r, "heartbeat_min", c.heartbeat_min);
@@ -187,8 +186,7 @@ static cJSON *value_poll_to_json(void)
     cJSON_AddBoolToObject(r, "enabled", c.enabled);
     cJSON_AddStringToObject(r, "url", c.url);
     cJSON_AddNumberToObject(r, "interval_s", c.interval_s);
-    // Poll auth travels like api_key: secrets, export is auth-gated.
-    cJSON_AddStringToObject(r, "secret", c.secret);
+    // Poll header travels like api_key: export is auth-gated.
     cJSON_AddStringToObject(r, "hdr_name", c.hdr_name);
     cJSON_AddStringToObject(r, "hdr_value", c.hdr_value);
     cJSON_AddStringToObject(r, "path", c.path);
@@ -612,11 +610,8 @@ static bool apply_integrations(const cJSON *sec)
         // Only user-selectable bits: "status" is driven by heartbeat_min.
         c.webhook_events = (uint32_t)it->valuedouble & WEBHOOK_EVT_SELECTABLE;
     }
-    // Outbound webhook auth (2.12.0) restores like api_key; absent in an
-    // older backup, which leaves the stored values alone.
-    if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "webhook_secret"))) {
-        snprintf(c.webhook_secret, sizeof(c.webhook_secret), "%s", it->valuestring);
-    }
+    // Outbound webhook header restores like api_key; absent in an older
+    // backup, which leaves the stored values alone.
     if (cJSON_IsString(it = cJSON_GetObjectItem(sec, "webhook_hdr_name"))) {
         snprintf(c.webhook_hdr_name, sizeof(c.webhook_hdr_name), "%s",
                  it->valuestring);
@@ -659,11 +654,10 @@ static bool apply_value_poll(const cJSON *sec)
         c.interval_s = (uint32_t)clampi(it->valueint, VPOLL_INTERVAL_MIN,
                                         VPOLL_INTERVAL_MAX);
     }
-    // Strings restore like api_key, secrets included. An overlong value
+    // Strings restore like api_key, the header value included. An overlong value
     // fails the section rather than being truncated.
     struct { const char *key; char *dst; size_t sz; } strs[] = {
         {"url",       c.url,       sizeof(c.url)},
-        {"secret",    c.secret,    sizeof(c.secret)},
         {"hdr_name",  c.hdr_name,  sizeof(c.hdr_name)},
         {"hdr_value", c.hdr_value, sizeof(c.hdr_value)},
         {"path",      c.path,      sizeof(c.path)},

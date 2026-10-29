@@ -103,8 +103,8 @@ Config-style POST endpoints overlay the fields you send onto the current state; 
 - `POST /api/display/light_sensor`
 - `POST /api/schedule`
 - `POST /api/value/config`
-- `POST /api/value/poll` (an absent or empty `secret` or `hdr_value` keeps the stored one; only `clear_secret` and `clear_header` remove them)
-- `POST /api/integrations` (the same rule for `webhook_secret` and `webhook_hdr_value`)
+- `POST /api/value/poll` (an absent or empty `hdr_value` keeps the stored one; only `clear_header` removes it)
+- `POST /api/integrations` (the same rule for `webhook_hdr_value` and `clear_webhook_hdr`)
 - `POST /api/wireguard` (an absent or empty `private_key` keeps the stored one)
 
 Two endpoints replace the whole resource instead, so the client never has to diff: `POST /api/colors` (the full list) and `POST /api/layout` (the full arrangement).

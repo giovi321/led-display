@@ -26,6 +26,13 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # server). TLS still works when the URL is https://.
 CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
 
+# Certificate bundle: some hosts send a cross-signed root as the last
+# certificate (Google Trust Services sends GTS Root R4 signed by GlobalSign
+# Root CA, which is no longer in the bundle). Without this the bundle looks up
+# only the issuer of that last certificate and the handshake fails, although
+# GTS Root R4 itself is in the bundle. Costs about 700 bytes of heap.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
+
 # HTTP server: enough room for the embedded web UI
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
 CONFIG_HTTPD_MAX_URI_LEN=512

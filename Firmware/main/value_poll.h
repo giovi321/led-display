@@ -7,8 +7,8 @@
 // task. Polls only while enabled, with a URL set, and while WiFi is in
 // station mode with an IP. HTTPS is verified against the IDF CA bundle.
 //
-// Persisted as the "vpoll" JSON blob via settings.c. The secret, the header
-// value and the URL (which may carry credentials) are never logged.
+// Persisted as the "vpoll" JSON blob via settings.c. The header value
+// and the URL (which may carry credentials) are never logged.
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -31,7 +31,6 @@ typedef struct {
     bool     enabled;
     char     url[VPOLL_URL_MAX + 1];
     uint32_t interval_s;                    // 10..86400, default 300
-    char     secret[VPOLL_SECRET_MAX + 1];  // "Authorization: Bearer <secret>"
     char     hdr_name[VPOLL_HDR_NAME_MAX + 1];
     char     hdr_value[VPOLL_SECRET_MAX + 1];
     char     path[JSONPATH_PATH_MAX + 1];   // "" = whole trimmed body

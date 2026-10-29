@@ -89,7 +89,7 @@ static bool post_once(const integrations_cfg_t *icfg, const char *payload)
     if (!client) return false;
 
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    http_auth_apply(client, icfg->webhook_secret, icfg->webhook_hdr_name,
+    http_auth_apply(client, icfg->webhook_hdr_name,
                     icfg->webhook_hdr_value);
     esp_http_client_set_post_field(client, payload, strlen(payload));
 

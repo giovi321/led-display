@@ -45,7 +45,7 @@ Everything is configured from one hand-written page served gzipped from flash, i
 
 ### The source supplies a raw number and the device owns the rest
 
-- The device can fetch the value itself from a URL on an interval (a JSON path picks the field, or the whole body is the value), with an optional bearer secret or custom header, for sources that cannot push into the network
+- The device can fetch the value itself from a URL on an interval (a JSON path picks the field, or the whole body is the value), with an optional custom header for authentication, for sources that cannot push into the network
 - `POST /api/value` with `{"value": 4210.5}` pushes one; the device applies the multiplier, scale (k, M, B), decimals, separators, plus sign, prefix and suffix, so every feed stays a one-liner
 - An optional MQTT client takes the same values over a broker, controls brightness, power and content source, publishes a retained state topic, and announces itself to Home Assistant
 - One fallback covers every failure: no value for a set time, consecutive failed polls, or a lost MQTT broker. The panel shows a fallback text, marks a corner pixel or dims, and webhooks and MQTT report it
@@ -65,7 +65,7 @@ Everything is configured from one hand-written page served gzipped from flash, i
 - The whole configuration exports and restores as one JSON file, with WiFi credentials deliberately excluded so it can move between devices and people
 - Two locks, both off by default: an API key for scripts, and a browser login over the whole interface
 - An optional WireGuard client reaches the device from outside the LAN without a port forward
-- Outbound webhooks POST boot, IP change, OTA result, schedule on and off, value stale and value recovered to one URL, with an optional secret and a status heartbeat, fire and forget
+- Outbound webhooks POST boot, IP change, OTA result, schedule on and off, value stale and value recovered to one URL, with an optional custom header and a status heartbeat, fire and forget
 
 ## Hardware
 

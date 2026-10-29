@@ -7,7 +7,7 @@ sidebar:
 
 ## GET /api/integrations
 
-Open. Returns the integration settings. Secrets never appear here: the API key, the web UI password, the webhook secret and the webhook header value are reported only as booleans. The value polling settings have their own endpoint, [`/api/value/poll`](../value-and-colors/#get-apivaluepoll).
+Open. Returns the integration settings. Secrets never appear here: the API key, the web UI password and the webhook header value are reported only as booleans. The value polling settings have their own endpoint, [`/api/value/poll`](../value-and-colors/#get-apivaluepoll).
 
 ```json
 {
@@ -18,7 +18,6 @@ Open. Returns the integration settings. Secrets never appear here: the API key, 
   "ui_auth": false,
   "ui_user": "",
   "ui_pass_set": false,
-  "webhook_secret_set": true,
   "webhook_hdr_name": "X-Token",
   "webhook_hdr_value_set": false,
   "heartbeat_min": 15
@@ -27,7 +26,7 @@ Open. Returns the integration settings. Secrets never appear here: the API key, 
 
 ## POST /api/integrations
 
-Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep their current value, an explicitly empty `api_key` or `webhook_url` clears (disables) that feature. The webhook secret and header value follow the rule of the other secrets: an absent or empty field never clears them, only the explicit `clear_*` flag does, so re-saving a form cannot wipe them. A request that carries a clear flag and a new value clears first and then stores the new value.
+Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep their current value, an explicitly empty `api_key` or `webhook_url` clears (disables) that feature. The webhook header value follows the rule of the other secrets: an absent or empty field never clears it, only the explicit `clear_webhook_hdr` flag does, so re-saving a form cannot wipe them. A request that carries a clear flag and a new value clears first and then stores the new value.
 
 | Field | Type | Limits |
 |-------|------|--------|
@@ -35,10 +34,8 @@ Requires `X-Api-Key` when a key is set. Overlay semantics: absent fields keep th
 | `webhook_url` | string | max 160 chars, empty disables webhooks |
 | `webhook_events` | array of strings | any of `boot`, `ip_change`, `ota_result`, `schedule_on`, `schedule_off`, `value_stale`, `value_recovered`; an unknown name is a 400. `status` is not selectable, the heartbeat sends it |
 | `heartbeat_min` | number | 0..1440; 0 turns the status heartbeat off, 400 outside the range. Saving restarts the interval |
-| `webhook_secret` | string | max 128 chars, sent as `Authorization: Bearer <secret>` with every webhook; absent or empty keeps the stored one |
 | `webhook_hdr_name` | string | max 48 chars, a valid HTTP header name (RFC 7230 token), empty clears the name; otherwise 400 `"webhook_hdr_name must be a header token"` |
 | `webhook_hdr_value` | string | max 128 chars, no line breaks (400 `"webhook_hdr_value must not contain line breaks"`); absent or empty keeps the stored one |
-| `clear_webhook_secret` | bool | `true` removes the webhook secret |
 | `clear_webhook_hdr` | bool | `true` removes the webhook header name and value |
 | `device_name` | string | max 32 chars; kept for older clients, see below |
 | `ui_auth` | bool | turn the browser login on or off |
@@ -69,7 +66,7 @@ curl -X POST http://<device-ip>/api/integrations \
 
 ## Outbound webhook payloads
 
-When an enabled event fires, the device POSTs JSON to `webhook_url` with `Content-Type: application/json`, a 5 second timeout, and one retry after 2 seconds. When a webhook secret or custom header is set, every POST carries them as `Authorization: Bearer <secret>` and `<name>: <value>`. Delivery is fire-and-forget; failures are logged and dropped.
+When an enabled event fires, the device POSTs JSON to `webhook_url` with `Content-Type: application/json`, a 5 second timeout, and one retry after 2 seconds. When a custom header is set, every POST carries it as `<name>: <value>`. This is where authentication goes: for a bearer token use the name `Authorization` and the value `Bearer <token>`. Delivery is fire-and-forget; failures are logged and dropped.
 
 ```json
 {

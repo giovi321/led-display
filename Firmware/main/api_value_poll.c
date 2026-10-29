@@ -1,8 +1,8 @@
 // /api/value/poll and /api/value/poll/now (see api_handlers.h for the
 // ownership table, value_poll.h for the poller).
 //
-// Secrets policy: the GET stays open, so it reports the secret and the
-// custom header value only as *_set booleans. Neither POST blocks on the
+// Secrets policy: the GET stays open, so it reports the custom header
+// value only as a *_set boolean. Neither POST blocks on the
 // network: saving and "poll now" wake the poller task and return at once;
 // the UI re-reads GET /api/value/poll until last_poll changes.
 
@@ -41,7 +41,6 @@ static esp_err_t vpoll_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(r, "enabled", cfg.enabled);
     cJSON_AddStringToObject(r, "url", cfg.url);
     cJSON_AddNumberToObject(r, "interval_s", cfg.interval_s);
-    cJSON_AddBoolToObject(r, "secret_set", cfg.secret[0] != '\0');
     cJSON_AddStringToObject(r, "hdr_name", cfg.hdr_name);
     cJSON_AddBoolToObject(r, "hdr_value_set", cfg.hdr_value[0] != '\0');
     cJSON_AddStringToObject(r, "path", cfg.path);
@@ -95,9 +94,6 @@ static esp_err_t vpoll_post_handler(httpd_req_t *req)
         }
     }
     // Clears first, so one request can clear and set a new name or value.
-    if (cJSON_IsTrue(cJSON_GetObjectItem(body, "clear_secret"))) {
-        cfg.secret[0] = '\0';
-    }
     if (cJSON_IsTrue(cJSON_GetObjectItem(body, "clear_header"))) {
         cfg.hdr_name[0]  = '\0';
         cfg.hdr_value[0] = '\0';
@@ -107,8 +103,7 @@ static esp_err_t vpoll_post_handler(httpd_req_t *req)
                  !take_str(body, "path", cfg.path, sizeof(cfg.path)))) {
         bad = "field too long";
     }
-    if (!bad && (!take_secret(body, "secret", cfg.secret, sizeof(cfg.secret)) ||
-                 !take_secret(body, "hdr_value", cfg.hdr_value, sizeof(cfg.hdr_value)))) {
+    if (!bad && !take_secret(body, "hdr_value", cfg.hdr_value, sizeof(cfg.hdr_value))) {
         bad = "field too long";
     }
     cJSON_Delete(body);

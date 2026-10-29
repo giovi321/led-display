@@ -20,7 +20,7 @@ struct cJSON;
 #define INTEGR_NAME_MAX        32   // plus NUL
 #define INTEGR_UI_USER_MAX     32   // plus NUL
 #define INTEGR_UI_PASS_MAX     64   // plus NUL
-#define INTEGR_SECRET_MAX      128  // plus NUL: webhook secret, header value
+#define INTEGR_SECRET_MAX      128  // plus NUL: webhook header value
 #define INTEGR_HDR_NAME_MAX    48   // plus NUL
 #define INTEGR_HEARTBEAT_MAX   1440 // minutes
 
@@ -52,9 +52,8 @@ typedef struct {
     bool     ui_auth;
     char     ui_user[INTEGR_UI_USER_MAX + 1];
     char     ui_pass[INTEGR_UI_PASS_MAX + 1];
-    // Outbound webhook auth: secret sent as "Authorization: Bearer", plus one
-    // optional custom header. Secrets: never logged, GET reports *_set only.
-    char     webhook_secret[INTEGR_SECRET_MAX + 1];
+    // Outbound webhook auth: one optional custom header. The value is never
+    // logged and the GET reports webhook_hdr_value_set only.
     char     webhook_hdr_name[INTEGR_HDR_NAME_MAX + 1];
     char     webhook_hdr_value[INTEGR_SECRET_MAX + 1];
     uint16_t heartbeat_min;                     // 0 = off, 1..1440

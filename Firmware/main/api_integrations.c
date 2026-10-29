@@ -94,9 +94,8 @@ static esp_err_t integrations_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(r, "ui_auth", cfg.ui_auth);
     cJSON_AddStringToObject(r, "ui_user", cfg.ui_user);
     cJSON_AddBoolToObject(r, "ui_pass_set", cfg.ui_pass[0] != '\0');
-    // Outbound webhook auth: the header name is not a secret, the secret and
-    // the header value only report whether one is set.
-    cJSON_AddBoolToObject(r, "webhook_secret_set", cfg.webhook_secret[0] != '\0');
+    // Outbound webhook auth: the header name is not a secret, the header
+    // value only reports whether one is set.
     cJSON_AddStringToObject(r, "webhook_hdr_name", cfg.webhook_hdr_name);
     cJSON_AddBoolToObject(r, "webhook_hdr_value_set",
                           cfg.webhook_hdr_value[0] != '\0');
@@ -185,25 +184,13 @@ static esp_err_t integrations_post_handler(httpd_req_t *req)
     }
 
     // Outbound webhook auth. Same contract as the other secrets: an absent or
-    // empty secret / header value keeps the stored one; only an explicit
-    // clear_* flag removes it. The header name is plain config and may be
-    // set to "" directly, which also stops the header being sent. Clears run
-    // first, so one request can clear and set a new value.
-    if (cJSON_IsTrue(cJSON_GetObjectItem(body, "clear_webhook_secret"))) {
-        cfg.webhook_secret[0] = '\0';
-    }
+    // empty header value keeps the stored one; only an explicit clear_* flag
+    // removes it. The header name is plain config and may be set to ""
+    // directly, which also stops the header being sent. Clears run first, so
+    // one request can clear and set a new value.
     if (cJSON_IsTrue(cJSON_GetObjectItem(body, "clear_webhook_hdr"))) {
         cfg.webhook_hdr_name[0]  = '\0';
         cfg.webhook_hdr_value[0] = '\0';
-    }
-    if (cJSON_IsString(it = cJSON_GetObjectItem(body, "webhook_secret")) &&
-        it->valuestring[0] != '\0') {
-        if (strlen(it->valuestring) > INTEGR_SECRET_MAX) {
-            cJSON_Delete(body);
-            return web_send_err(req, "webhook_secret too long (max 128)", 400);
-        }
-        snprintf(cfg.webhook_secret, sizeof(cfg.webhook_secret), "%s",
-                 it->valuestring);
     }
     if (cJSON_IsString(it = cJSON_GetObjectItem(body, "webhook_hdr_name"))) {
         if (strlen(it->valuestring) > INTEGR_HDR_NAME_MAX) {

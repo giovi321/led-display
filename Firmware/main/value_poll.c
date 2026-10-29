@@ -26,6 +26,7 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_tls.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -76,7 +77,6 @@ static bool url_scheme_ok(const char *url)
 const char *value_poll_validate(const value_poll_cfg_t *c)
 {
     if (strnlen(c->url, sizeof(c->url)) > VPOLL_URL_MAX ||
-        strnlen(c->secret, sizeof(c->secret)) > VPOLL_SECRET_MAX ||
         strnlen(c->hdr_name, sizeof(c->hdr_name)) > VPOLL_HDR_NAME_MAX ||
         strnlen(c->hdr_value, sizeof(c->hdr_value)) > VPOLL_SECRET_MAX ||
         strnlen(c->path, sizeof(c->path)) > JSONPATH_PATH_MAX) {
@@ -127,7 +127,6 @@ static void load_blob(value_poll_cfg_t *out)
     }
     out->enabled = cJSON_IsTrue(cJSON_GetObjectItem(root, "enabled"));
     json_str(root, "url",       out->url,       sizeof(out->url));
-    json_str(root, "secret",    out->secret,    sizeof(out->secret));
     json_str(root, "hdr_name",  out->hdr_name,  sizeof(out->hdr_name));
     json_str(root, "hdr_value", out->hdr_value, sizeof(out->hdr_value));
     json_str(root, "path",      out->path,      sizeof(out->path));
@@ -154,7 +153,6 @@ static esp_err_t save_blob(const value_poll_cfg_t *in)
     cJSON_AddBoolToObject(root, "enabled", in->enabled);
     cJSON_AddStringToObject(root, "url", in->url);
     cJSON_AddNumberToObject(root, "interval_s", in->interval_s);
-    cJSON_AddStringToObject(root, "secret", in->secret);
     cJSON_AddStringToObject(root, "hdr_name", in->hdr_name);
     cJSON_AddStringToObject(root, "hdr_value", in->hdr_value);
     cJSON_AddStringToObject(root, "path", in->path);
@@ -220,7 +218,7 @@ static void url_origin(const char *url, char *scheme, size_t ssz,
 }
 
 // True when a redirect to the client's current URL may keep the configured
-// Authorization and custom header: same host as the configured URL and no
+// custom header: same host as the configured URL and no
 // downgrade from https to http. An unreadable URL counts as a change.
 static bool redirect_keeps_auth(esp_http_client_handle_t client,
                                 const char *orig_url)
@@ -238,6 +236,50 @@ static bool redirect_keeps_auth(esp_http_client_handle_t client,
 static bool deadline_passed(int64_t start_us)
 {
     return esp_timer_get_time() - start_us > (int64_t)VPOLL_DEADLINE_MS * 1000;
+}
+
+// Describe a failed open in the status line. ESP_ERR_HTTP_CONNECT alone does
+// not say whether DNS, TCP or TLS failed, so take the cause from esp-tls.
+static void connect_error(esp_http_client_handle_t client, esp_err_t e,
+                          char *err, size_t errsz)
+{
+    int tls_code = 0, tls_flags = 0;
+    esp_err_t tls = esp_http_client_get_and_clear_last_tls_error(client, &tls_code,
+                                                                &tls_flags);
+    switch (tls) {
+    case ESP_OK:
+        snprintf(err, errsz, "%s", esp_err_to_name(e));
+        break;
+    case ESP_ERR_ESP_TLS_CANNOT_RESOLVE_HOSTNAME:
+        snprintf(err, errsz, "DNS lookup failed");
+        break;
+    case ESP_ERR_ESP_TLS_FAILED_CONNECT_TO_HOST:
+    case ESP_ERR_ESP_TLS_CANNOT_CREATE_SOCKET:
+        snprintf(err, errsz, "TCP connect failed");
+        break;
+    case ESP_ERR_ESP_TLS_CONNECTION_TIMEOUT:
+        snprintf(err, errsz, "TCP connect timed out");
+        break;
+    case ESP_ERR_ESP_TLS_SERVER_HANDSHAKE_TIMEOUT:
+        snprintf(err, errsz, "TLS handshake timed out");
+        break;
+    case ESP_ERR_MBEDTLS_SSL_HANDSHAKE_FAILED:
+        if (tls_flags) {
+            snprintf(err, errsz, "TLS certificate not trusted (flags 0x%x)",
+                     (unsigned)tls_flags);
+        } else {
+            snprintf(err, errsz, "TLS handshake failed (-0x%04x)",
+                     (unsigned)-tls_code);
+        }
+        break;
+    default:
+        snprintf(err, errsz, "%s (-0x%04x)", esp_err_to_name(tls),
+                 (unsigned)-tls_code);
+        break;
+    }
+    ESP_LOGW(TAG, "connect failed: %s, esp-tls %s, code -0x%04x, flags 0x%x",
+             esp_err_to_name(e), esp_err_to_name(tls), (unsigned)-tls_code,
+             (unsigned)tls_flags);
 }
 
 // Fetch the body into a fresh heap buffer (NUL terminated, *out_body, caller
@@ -264,7 +306,7 @@ static bool fetch(const value_poll_cfg_t *cfg, char **out_body, int *http_status
         snprintf(err, errsz, "invalid URL");
         return false;
     }
-    http_auth_apply(client, cfg->secret, cfg->hdr_name, cfg->hdr_value);
+    http_auth_apply(client, cfg->hdr_name, cfg->hdr_value);
 
     bool ok = false;
     bool auth_tried = false;
@@ -282,7 +324,7 @@ static bool fetch(const value_poll_cfg_t *cfg, char **out_body, int *http_status
         }
         esp_err_t e = esp_http_client_open(client, 0);
         if (e != ESP_OK) {
-            snprintf(err, errsz, "%s", esp_err_to_name(e));
+            connect_error(client, e, err, errsz);
             goto done;
         }
         int64_t clen = esp_http_client_fetch_headers(client);

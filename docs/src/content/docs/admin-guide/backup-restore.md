@@ -15,8 +15,8 @@ One file, `led-display-config.json`, holding:
 - the layout, exactly as the [arrangement editor](../arrangement-editor/) saved it
 - saved colour presets
 - value configuration: prefix, suffix, decimals, multiplier, scale and scale letters, decimal and thousands separators, plus sign, and the [fallback](../../user-guide/value-updates/#fallback) text, mode and triggers
-- the URL poll (`value_poll`): enabled flag, URL, interval, value path, and the secret and custom header value in cleartext
-- integrations: the device name, webhook URL and event mask, the heartbeat interval, and the API key, webhook secret and webhook header value in cleartext
+- the URL poll (`value_poll`): enabled flag, URL, interval, value path, and the custom header name and value in cleartext
+- integrations: the device name, webhook URL and event mask, the heartbeat interval, and the API key and the webhook header name and value in cleartext
 - MQTT: broker URI, credentials in cleartext, base topic and Home Assistant discovery settings
 - WireGuard configuration, including the private key in cleartext
 - the on/off schedule, including the off-window action and its dim level
@@ -45,7 +45,7 @@ A backup from 2.11.0 or earlier restores through the same conversion the device 
 Five things to be aware of when restoring:
 
 - a file whose `integrations` section carries an API key turns key checking on the moment it is applied; clients (including other browsers) must present that key from then on
-- a `value_poll` section with `enabled: true` starts polling its URL with the restored secret straight away, and a section whose URL or header fails validation lands in `skipped`
+- a `value_poll` section with `enabled: true` starts polling its URL with the restored header straight away, and a section whose URL or header fails validation lands in `skipped`
 - restoring a `wireguard` section with `enabled: true` starts the tunnel with the restored keys
 - a `device_name` in the `integrations` section renames the device: hostname, setup network, and the `device` field in webhooks all follow it, so two devices restored from the same file end up with the same name
 - a `light_sensor` section with `enabled: true` hands the brightness to the sensor as soon as it is applied; a section naming an I2C pin the module cannot spare, putting SDA and SCL on the same pin, or whose two calibration readings are equal, lands in `skipped` instead. Pins are validated rather than clamped, so a file from a board wired differently does not silently move the sensor to another pin
